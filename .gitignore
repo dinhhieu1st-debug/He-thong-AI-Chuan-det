@@ -1,0 +1,6 @@
+# Build output
+cmake_gcc/build/
+
+# Simplicity Studio local machine state (not portable between machines)
+.projectlinkstore
+.silabsExtContext
