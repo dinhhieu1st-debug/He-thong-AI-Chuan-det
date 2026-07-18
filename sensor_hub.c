@@ -529,6 +529,55 @@ static bool     hr_valid = false;
  * instead of giving up permanently. */
 #define MAX30102_PROBE_INTERVAL_MS  2000U
 
+/* ---- Sampling cadence: matches the original .ino reference exactly -----
+ * Read the module once every 0.5s; after 4 attempts (2 seconds), publish
+ * the average of whichever reads came back in a plausible range (the value
+ * "closest to the others") instead of overwriting HR/SpO2 on every single
+ * raw read. This filters out the occasional spurious reading without
+ * throwing away a whole window just because one read was noisy. */
+#define MAX30102_SAMPLE_INTERVAL_MS  500U
+#define MAX30102_SAMPLE_COUNT        4U
+
+/* Plausibility range for a raw reading, same bounds as the .ino's
+ * isValidHeartRate()/isValidSpO2() - readings outside this range are
+ * discarded rather than averaged in. */
+#define MAX30102_HR_MIN    30
+#define MAX30102_HR_MAX   240
+#define MAX30102_SPO2_MIN  70
+#define MAX30102_SPO2_MAX 100
+
+static uint32_t max30102_last_sample_attempt_ms = 0;
+static uint8_t  max30102_attempt_count          = 0;
+static int32_t  max30102_hr_samples[MAX30102_SAMPLE_COUNT];
+static int32_t  max30102_spo2_samples[MAX30102_SAMPLE_COUNT];
+static uint8_t  max30102_hr_valid_count   = 0;
+static uint8_t  max30102_spo2_valid_count = 0;
+
+/* Picks the ACTUAL sample (not a synthetic average) that sits closest to
+ * all the others in the set - the one minimizing the total distance to
+ * every other sample. With a single sample it's the obvious choice; with
+ * ties, the first one found wins. This guarantees the value sent to the
+ * server was a real reading the sensor produced, not a rounded blend. */
+static int32_t pick_closest_to_others(const int32_t *values, uint8_t count)
+{
+  int32_t best_value = values[0];
+  int32_t best_score  = -1;
+
+  for (uint8_t i = 0; i < count; i++) {
+    int32_t score = 0;
+    for (uint8_t j = 0; j < count; j++) {
+      int32_t diff = values[i] - values[j];
+      if (diff < 0) diff = -diff;
+      score += diff;
+    }
+    if (best_score < 0 || score < best_score) {
+      best_score = score;
+      best_value = values[i];
+    }
+  }
+  return best_value;
+}
+
 /* begin(): the original DFRobot library pings with a 0-byte WRITE, but here
  * we instead read 1 byte to check for an ACK on the address as an
  * equivalent substitute (simpler, and protocol-equivalent — the slave
@@ -607,26 +656,60 @@ static void max30102_poll(void)
     return;
   }
 
+  /* Sample once every 0.5s, exactly like the .ino reference - reading on
+   * every single main-loop tick (as before) is both unnecessary (the module
+   * itself only refreshes its internal result ~every 4s) and defeats the
+   * point of averaging several reads together. */
+  uint32_t now = now_ms();
+  if (now - max30102_last_sample_attempt_ms < MAX30102_SAMPLE_INTERVAL_MS) {
+    return;
+  }
+  max30102_last_sample_attempt_ms = now;
+
   uint8_t buf[BLOODOX_RESULT_LEN];
-  if (!bloodox_read(BLOODOX_REG_RESULT, buf, BLOODOX_RESULT_LEN)) {
-    return;   /* transient bus error (capped at a few tens of ms, never hangs) - keep the old value, retry next loop */
+  if (bloodox_read(BLOODOX_REG_RESULT, buf, BLOODOX_RESULT_LEN)) {
+    int     spo2_raw      = buf[0];
+    int32_t heartbeat_raw = ((int32_t)buf[2] << 24) | ((int32_t)buf[3] << 16)
+                           | ((int32_t)buf[4] << 8)  | (int32_t)buf[5];
+
+    /* Discard obviously implausible reads (no finger, not enough data yet,
+     * or a corrupted transaction) instead of letting them drag the average
+     * off - same bounds as the .ino's isValidHeartRate()/isValidSpO2(). */
+    if (heartbeat_raw >= MAX30102_HR_MIN && heartbeat_raw <= MAX30102_HR_MAX
+        && max30102_hr_valid_count < MAX30102_SAMPLE_COUNT) {
+      max30102_hr_samples[max30102_hr_valid_count++] = heartbeat_raw;
+    }
+    if (spo2_raw >= MAX30102_SPO2_MIN && spo2_raw <= MAX30102_SPO2_MAX
+        && max30102_spo2_valid_count < MAX30102_SAMPLE_COUNT) {
+      max30102_spo2_samples[max30102_spo2_valid_count++] = spo2_raw;
+    }
   }
+  /* A transient bus error just means this attempt contributes no sample -
+   * it still counts toward the 2-second window, same as the .ino. */
 
-  int spo2 = buf[0];
-  int32_t heartbeat = ((int32_t)buf[2] << 24) | ((int32_t)buf[3] << 16)
-                     | ((int32_t)buf[4] << 8)  | (int32_t)buf[5];
+  max30102_attempt_count++;
+  if (max30102_attempt_count < MAX30102_SAMPLE_COUNT) {
+    return;   /* window not finished yet (4 attempts = ~2s) */
+  }
+  max30102_attempt_count = 0;
 
-  /* The module returns 0/negative when there's no finger yet or not enough
-   * data - keep the old value, do NOT update "last_sample_ms" (so
-   * sh_*_state() can naturally transition to CH_LOST after
-   * VITAL_TIMEOUT_MS if the signal is genuinely lost for a sustained
-   * period). */
-  if (spo2 > 0 && heartbeat > 0) {
-    spo2_pct = (float)spo2;
-    hr_bpm   = (float)heartbeat;
+  /* Publish the single sample from this window that sits closest to the
+   * others (not an average) - and reset the buffers for the next 2-second
+   * window. If NO sample was valid this window, keep the previous published
+   * value and let VITAL_TIMEOUT_MS/sh_*_state() decide when the signal has
+   * truly been lost for good, rather than flickering to "no data" every 2
+   * seconds. */
+  if (max30102_hr_valid_count > 0) {
+    hr_bpm   = (float)pick_closest_to_others(max30102_hr_samples, max30102_hr_valid_count);
     hr_valid = true;
-    max30102_last_sample_ms = now_ms();
+    max30102_last_sample_ms = now;
   }
+  if (max30102_spo2_valid_count > 0) {
+    spo2_pct = (float)pick_closest_to_others(max30102_spo2_samples, max30102_spo2_valid_count);
+    max30102_last_sample_ms = now;
+  }
+  max30102_hr_valid_count   = 0;
+  max30102_spo2_valid_count = 0;
 #endif
 }
 
