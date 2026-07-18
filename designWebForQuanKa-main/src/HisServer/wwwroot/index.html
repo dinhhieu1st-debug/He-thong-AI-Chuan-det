@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HIS Server Console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%232470c8'/%3E%3Crect x='4' y='11' width='16' height='7' rx='1.3' fill='white'/%3E%3Cpath d='M4 11V9a2 2 0 0 1 2-2h4' stroke='white' stroke-width='1.6' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="8" rx="1.5"></rect><path d="M3 11v-2a2 2 0 0 1 2-2h5"></path><circle cx="7.5" cy="8.5" r="1"></circle><path d="M3 19v1.5M21 19v1.5"></path></svg>
+      </div>
+      <div>
+        <div class="brand-title">HIS Server</div>
+        <div class="brand-sub">Console</div>
+      </div>
+    </div>
+
+    <button class="nav-btn active" data-tab="dashboard">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav-btn" data-tab="beds">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v-6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v6"></path><path d="M2 18v2M22 18v2"></path><path d="M2 12V9a2 2 0 0 1 2-2h6v5"></path><circle cx="7" cy="8.5" r="1.2"></circle></svg>
+      <span>Beds &amp; Rooms</span>
+    </button>
+    <button class="nav-btn" data-tab="alerts">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"></path><path d="M12 10v4"></path><path d="M12 17h.01"></path></svg>
+      <span>Alerts</span>
+      <span class="nav-badge" id="alertBadge" style="display:none;">0</span>
+    </button>
+    <button class="nav-btn" data-tab="devices">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect><rect x="10" y="10" width="4" height="4"></rect><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"></path></svg>
+      <span>Devices</span>
+    </button>
+    <button class="nav-btn" data-tab="system-log">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M9 13h6M9 17h6"></path></svg>
+      <span>System Log</span>
+    </button>
+    <button class="nav-btn disabled">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"></path></svg>
+      <span>Patients</span>
+    </button>
+
+    <div class="sidebar-footer">
+      <div class="avatar">SA</div>
+      <div style="line-height:1.25;">
+        <div style="font-size:12px; font-weight:600; color:white;">admin</div>
+        <div style="font-size:10.5px; color:#9fb2cc;">Administrator</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h1 id="pageTitle">Dashboard</h1>
+      <div class="conn-pill">
+        <span class="conn-dot" id="connDot"></span>
+        <span id="connText">No data yet</span>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- DASHBOARD -->
+      <div class="tab-panel active" id="tab-dashboard">
+        <div class="stat-row">
+          <div class="stat-tile"><div class="value" id="statTotal">0</div><div class="label">Total Beds</div></div>
+          <div class="stat-tile critical"><div class="value" id="statCritical">0</div><div class="label">Critical</div></div>
+          <div class="stat-tile warning"><div class="value" id="statWarning">0</div><div class="label">Warning</div></div>
+          <div class="stat-tile stable"><div class="value" id="statStable">0</div><div class="label">Stable</div></div>
+          <div class="stat-tile offline"><div class="value" id="statOffline">0</div><div class="label">Offline</div></div>
+        </div>
+        <div class="section-title">Latest Alerts</div>
+        <div id="dashboardAlerts"></div>
+        <div class="section-title">Beds</div>
+        <div class="bed-grid" id="dashboardGrid"></div>
+      </div>
+
+      <!-- BEDS -->
+      <div class="tab-panel" id="tab-beds">
+        <div class="toolbar">
+          <input class="search-input" id="bedSearch" placeholder="Search bed or room...">
+          <div class="chip-row" id="bedRoomFilters"></div>
+          <div class="chip-row" id="bedStatusFilters"></div>
+          <button class="btn primary" id="addBedBtn">+ Add Bed</button>
+        </div>
+        <div class="split">
+          <div class="main-col">
+            <div class="bed-grid" id="bedsGrid"></div>
+          </div>
+          <div class="detail-panel" id="bedDetailPanel" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- ALERTS -->
+      <div class="tab-panel" id="tab-alerts">
+        <div class="stat-row">
+          <div class="stat-tile"><div class="value" id="alertStatTotal">0</div><div class="label">Total Alerts</div></div>
+          <div class="stat-tile critical"><div class="value" id="alertStatCritical">0</div><div class="label">Critical (unacked)</div></div>
+          <div class="stat-tile warning"><div class="value" id="alertStatWarning">0</div><div class="label">Warning (unacked)</div></div>
+          <div class="stat-tile stable"><div class="value" id="alertStatAcked">0</div><div class="label">Acknowledged</div></div>
+        </div>
+        <div class="toolbar">
+          <input class="search-input" id="alertSearch" placeholder="Search bed or message...">
+          <div class="chip-row" id="alertFilters">
+            <button class="chip active" data-filter="all">All</button>
+            <button class="chip" data-filter="critical">Critical</button>
+            <button class="chip" data-filter="warning">Warning</button>
+            <button class="chip" data-filter="unacked">Unacknowledged</button>
+            <button class="chip" data-filter="acked">Acknowledged</button>
+          </div>
+        </div>
+        <div class="split">
+          <div class="main-col">
+            <div id="alertsList"></div>
+            <div class="pagination" id="alertsPagination"></div>
+          </div>
+          <div class="detail-panel" id="alertDetailPanel" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- DEVICES -->
+      <div class="tab-panel" id="tab-devices">
+        <div class="toolbar">
+          <input class="search-input" id="deviceSearch" placeholder="Search device or bed...">
+          <div class="chip-row" id="deviceTypeFilters">
+            <button class="chip active" data-filter="all">All</button>
+            <button class="chip" data-filter="xg26">XG26</button>
+            <button class="chip" data-filter="gateway">Gateway</button>
+            <button class="chip" data-filter="ble">BLE</button>
+          </div>
+          <button class="btn primary" id="addDeviceBtn">+ Add Device</button>
+        </div>
+        <div class="split">
+          <div class="main-col">
+            <div class="device-grid" id="devicesGrid"></div>
+          </div>
+          <div class="detail-panel" id="deviceDetailPanel" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- SYSTEM LOG -->
+      <div class="tab-panel" id="tab-system-log">
+        <div class="toolbar">
+          <input class="search-input" id="logSearch" placeholder="Search bed or room...">
+          <select class="search-input" id="logTypeFilter" style="flex: 0 0 160px;">
+            <option value="">All types</option>
+            <option value="Alert">Alerts</option>
+            <option value="Vital">Vitals</option>
+          </select>
+          <input type="date" class="search-input" id="logFromDate" style="flex: 0 0 150px;">
+          <input type="date" class="search-input" id="logToDate" style="flex: 0 0 150px;">
+          <button class="btn" id="logRefreshBtn">Refresh</button>
+          <button class="btn primary" id="logExportBtn">↓ Export CSV</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Time</th><th>Category</th><th>Bed</th><th>Room</th><th>Level</th><th>Message</th></tr>
+          </thead>
+          <tbody id="logTableBody"></tbody>
+        </table>
+        <div class="pagination" id="logPagination"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ADD BED MODAL -->
+<div class="modal-backdrop hidden" id="addBedModal">
+  <div class="modal">
+    <h3>Add Bed</h3>
+    <form id="addBedForm">
+      <label>Bed ID</label>
+      <input type="text" id="newBedId" required>
+      <label>Room</label>
+      <input type="text" id="newBedRoom">
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close-modal="addBedModal">Cancel</button>
+        <button type="submit" class="btn primary">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ADD DEVICE MODAL -->
+<div class="modal-backdrop hidden" id="addDeviceModal">
+  <div class="modal">
+    <h3>Add Device</h3>
+    <form id="addDeviceForm">
+      <label>Device ID</label>
+      <input type="text" id="newDeviceId" required>
+      <label>Type</label>
+      <select id="newDeviceType">
+        <option value="Xg26">XG26</option>
+        <option value="Gateway">Gateway</option>
+        <option value="Ble">BLE</option>
+      </select>
+      <label>Assigned Bed</label>
+      <input type="text" id="newDeviceBedId">
+      <label>Room</label>
+      <input type="text" id="newDeviceRoom">
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close-modal="addDeviceModal">Cancel</button>
+        <button type="submit" class="btn primary">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="js/vendor/signalr.min.js"></script>
+<script src="js/ui-utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/state.js"></script>
+<script src="js/signalr-client.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/beds.js"></script>
+<script src="js/alerts.js"></script>
+<script src="js/devices.js"></script>
+<script src="js/system-log.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

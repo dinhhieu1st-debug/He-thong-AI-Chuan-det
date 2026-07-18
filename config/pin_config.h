@@ -130,6 +130,22 @@
 // [USART2]$
 
 // $[I2C1]
+// I2C1 SCL on PC05
+#ifndef I2C1_SCL_PORT                           
+#define I2C1_SCL_PORT                            SL_GPIO_PORT_C
+#endif
+#ifndef I2C1_SCL_PIN                            
+#define I2C1_SCL_PIN                             5
+#endif
+
+// I2C1 SDA on PC07
+#ifndef I2C1_SDA_PORT                           
+#define I2C1_SDA_PORT                            SL_GPIO_PORT_C
+#endif
+#ifndef I2C1_SDA_PIN                            
+#define I2C1_SDA_PIN                             7
+#endif
+
 // [I2C1]$
 
 // $[I2C2]
@@ -201,6 +217,22 @@
 // [EUSART0]$
 
 // $[PTI]
+// PTI DFRAME on PD05
+#ifndef PTI_DFRAME_PORT                         
+#define PTI_DFRAME_PORT                          SL_GPIO_PORT_D
+#endif
+#ifndef PTI_DFRAME_PIN                          
+#define PTI_DFRAME_PIN                           5
+#endif
+
+// PTI DOUT on PD04
+#ifndef PTI_DOUT_PORT                           
+#define PTI_DOUT_PORT                            SL_GPIO_PORT_D
+#endif
+#ifndef PTI_DOUT_PIN                            
+#define PTI_DOUT_PIN                             4
+#endif
+
 // [PTI]$
 
 // $[MODEM]

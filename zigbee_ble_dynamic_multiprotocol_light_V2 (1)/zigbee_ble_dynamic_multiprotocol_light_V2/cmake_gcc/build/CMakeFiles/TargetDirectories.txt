@@ -1,0 +1,4 @@
+C:/Users/Administrator/SimplicityStudio/v6_workspace/zigbee_ble_dynamic_multiprotocol_light_V2/cmake_gcc/build/CMakeFiles/slc.dir
+C:/Users/Administrator/SimplicityStudio/v6_workspace/zigbee_ble_dynamic_multiprotocol_light_V2/cmake_gcc/build/CMakeFiles/zigbee_ble_dynamic_multiprotocol_light_V2.dir
+C:/Users/Administrator/SimplicityStudio/v6_workspace/zigbee_ble_dynamic_multiprotocol_light_V2/cmake_gcc/build/CMakeFiles/edit_cache.dir
+C:/Users/Administrator/SimplicityStudio/v6_workspace/zigbee_ble_dynamic_multiprotocol_light_V2/cmake_gcc/build/CMakeFiles/rebuild_cache.dir

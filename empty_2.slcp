@@ -47,6 +47,11 @@ component:
   vendor: silabs
   id: brd2709a
 - package: simplicity_sdk
+  instance:
+  - inst0
+  vendor: silabs
+  id: cli
+- package: simplicity_sdk
   vendor: silabs
   id: clock_manager
 - package: simplicity_sdk
@@ -70,6 +75,24 @@ component:
 - package: simplicity_sdk
   vendor: silabs
   id: sleeptimer
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_basic
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_core_cli
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_network_steering
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_pro_stack
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_reporting
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_zcl_cli
 autoselected_components:
 - package: aiml
   vendor: silabs
@@ -109,6 +132,12 @@ autoselected_components:
   id: brd2709a_config
 - package: simplicity_sdk
   vendor: silabs
+  id: byte_utilities
+- package: simplicity_sdk
+  vendor: silabs
+  id: cli_core
+- package: simplicity_sdk
+  vendor: silabs
   id: clock_manager_init_hal_s2
 - package: simplicity_sdk
   vendor: silabs
@@ -125,6 +154,18 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: code_classification
+- package: simplicity_sdk
+  vendor: silabs
+  id: common_token_manager
+- package: simplicity_sdk
+  vendor: silabs
+  id: common_token_manager_core
+- package: simplicity_sdk
+  vendor: silabs
+  id: common_token_manager_dynamic
+- package: simplicity_sdk
+  vendor: silabs
+  id: common_token_manager_static
 - package: simplicity_sdk
   vendor: silabs
   id: component_catalog
@@ -163,9 +204,6 @@ autoselected_components:
   id: device_init_dcdc
 - package: simplicity_sdk
   vendor: silabs
-  id: device_init_emu
-- package: simplicity_sdk
-  vendor: silabs
   id: device_manager
 - package: simplicity_sdk
   vendor: silabs
@@ -191,6 +229,9 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: emlib_burtc
+- package: simplicity_sdk
+  vendor: silabs
+  id: emlib_chip
 - package: simplicity_sdk
   vendor: silabs
   id: emlib_cmu
@@ -220,6 +261,9 @@ autoselected_components:
   id: emlib_prs
 - package: simplicity_sdk
   vendor: silabs
+  id: emlib_rmu
+- package: simplicity_sdk
+  vendor: silabs
   id: emlib_syscfg
 - package: simplicity_sdk
   vendor: silabs
@@ -227,6 +271,12 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: emlib_timer
+- package: simplicity_sdk
+  vendor: silabs
+  id: emlib_wdog
+- package: simplicity_sdk
+  vendor: silabs
+  id: endianness
 - package: simplicity_sdk
   vendor: silabs
   id: enum
@@ -265,6 +315,9 @@ autoselected_components:
   id: hal_system
 - package: simplicity_sdk
   vendor: silabs
+  id: hfxo_manager
+- package: simplicity_sdk
+  vendor: silabs
   id: interrupt_manager
 - package: simplicity_sdk
   vendor: silabs
@@ -282,6 +335,15 @@ autoselected_components:
   id: iostream_uart_common
 - package: simplicity_sdk
   vendor: silabs
+  id: legacy_hal
+- package: simplicity_sdk
+  vendor: silabs
+  id: legacy_hal_soc
+- package: simplicity_sdk
+  vendor: silabs
+  id: legacy_hal_wdog
+- package: simplicity_sdk
+  vendor: silabs
   id: math
 - package: simplicity_sdk
   vendor: silabs
@@ -289,6 +351,27 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: math_types
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_config
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_core
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_crypto_platform_api
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_platform_dynamic_memory_allocation_config_default
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_slcrypto
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_slcrypto_driver
+- package: simplicity_sdk
+  vendor: silabs
+  id: mbedtls_source
 - package: simplicity_sdk
   vendor: silabs
   id: memory_manager_cpp
@@ -312,6 +395,117 @@ autoselected_components:
   id: nn_util
 - package: simplicity_sdk
   vendor: silabs
+  id: nvm3_default
+- package: simplicity_sdk
+  vendor: silabs
+  id: nvm3_default_config
+- package: simplicity_sdk
+  vendor: silabs
+  id: nvm3_default_flash_backend
+- package: simplicity_sdk
+  vendor: silabs
+  id: nvm3_optimization_disable
+- package: simplicity_sdk
+  vendor: silabs
+  id: nvm3_source
+- package: simplicity_sdk
+  vendor: silabs
+  id: power_manager
+- package: simplicity_sdk
+  vendor: silabs
+  id: power_manager_core
+- package: simplicity_sdk
+  vendor: silabs
+  id: power_manager_core_impl_sleep_loop
+- package: simplicity_sdk
+  vendor: silabs
+  id: power_manager_deepsleep
+- package: simplicity_sdk
+  vendor: silabs
+  id: power_manager_handler_implementation
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_aes
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_api
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_ccm
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_cipher_ecb
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_common
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_common_source
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_config
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_source
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_crypto_trng
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_driver
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_driver_common
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_its
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_its_source
+- package: simplicity_sdk
+  vendor: silabs
+  id: psa_se_driver
+- package: simplicity_sdk
+  vendor: silabs
+  id: radio_priority_15_4
+- package: simplicity_sdk
+  vendor: silabs
+  id: radio_priority_configurator
+- package: simplicity_sdk
+  vendor: silabs
+  id: rail_lib
+- package: simplicity_sdk
+  vendor: silabs
+  id: rail_lib_singleprotocol
+- package: simplicity_sdk
+  vendor: silabs
+  id: rail_lib_singleprotocol_alpha_chips
+- package: simplicity_sdk
+  vendor: silabs
+  id: rail_lib_singleprotocol_internal_chips_dummy
+- package: simplicity_sdk
+  vendor: silabs
+  id: rail_util_features
+- package: simplicity_sdk
+  vendor: silabs
+  id: se_manager
+- package: simplicity_sdk
+  vendor: silabs
+  id: se_manager_config
+- package: simplicity_sdk
+  vendor: silabs
+  id: se_manager_crypto
+- package: simplicity_sdk
+  vendor: silabs
+  id: se_manager_mailbox
+- package: simplicity_sdk
+  vendor: silabs
+  id: security_manager
+- package: simplicity_sdk
+  vendor: silabs
   id: sl_assert
 - package: simplicity_sdk
   vendor: silabs
@@ -330,10 +524,40 @@ autoselected_components:
   id: sl_main_process_action
 - package: simplicity_sdk
   vendor: silabs
+  id: sl_rail_util_built_in_phys
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_compatible_pa
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_ieee802154_phy_select
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_ieee802154_stack_event
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_pa
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_pa_tables
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_power_manager_init
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_pti
+- package: simplicity_sdk
+  vendor: silabs
+  id: sl_rail_util_sequencer
+- package: simplicity_sdk
+  vendor: silabs
   id: sl_string
 - package: simplicity_sdk
   vendor: silabs
   id: sl_syscalls
+- package: simplicity_sdk
+  vendor: silabs
+  id: sli_psec_osal
 - package: simplicity_sdk
   vendor: silabs
   id: slist
@@ -349,6 +573,69 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: toolchain_variant_arm
+- package: simplicity_sdk
+  vendor: silabs
+  id: trustzone_unaware
+- package: simplicity_sdk
+  vendor: silabs
+  id: udelay
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_cli
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_cluster_service
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_device_config
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_enhanced_routing
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_phy_2_4
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_pro_stack_basic
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_pro_stack_library
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_scan_dispatch
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_secure_key_storage
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_secure_key_storage_upgrade
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_security_manager
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_signature_decode
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_stack_code_classification
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_stack_common
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_strong_random_api_radio
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_system_common
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_system_common_app_framework
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_update_tc_link_key
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_zcl_framework_core
 define:
 - name: DEBUG_EFM
 ui_hints:
