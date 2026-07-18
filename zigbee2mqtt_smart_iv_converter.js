@@ -1,32 +1,37 @@
-// External converter cho zigbee2mqtt — dan cho thiet bi "Smart IV Sensor"
-// (project empty_2, chay tren EFR32xG26, BRD2709A).
+// External converter for zigbee2mqtt — for the "Smart IV Sensor" device
+// (project empty_2, running on EFR32xG26, BRD2709A).
 //
-// Cach dung: copy file nay vao thu muc data cua zigbee2mqtt tren Pi/host
-// (thuong la ~/.zigbee2mqtt/ hoac /opt/zigbee2mqtt/data/), sau do trong
-// configuration.yaml them:
+// Usage: copy this file into zigbee2mqtt's data directory on the Pi/host
+// (usually ~/.zigbee2mqtt/ or /opt/zigbee2mqtt/data/), then add to
+// configuration.yaml:
 //
 //   external_converters:
 //     - zigbee2mqtt_smart_iv_converter.js
 //
-// roi restart zigbee2mqtt. Khi ghep noi (pair) thiet bi se hien ten model
-// "SmartIV-Sensor" / vendor "ICTU" nho attribute manufacturerName/modelId
-// da duoc ghi san trong cluster Basic (endpoint 1) cua firmware.
+// then restart zigbee2mqtt. When pairing the device it will show up as
+// model "SmartIV-Sensor" / vendor "ICTU" thanks to the manufacturerName/
+// modelId attributes already written into the Basic cluster (endpoint 1)
+// on the firmware side.
 //
-// Wire format (endpoint -> cluster muon de cho MeasuredValue):
-//   EP2 Temperature Measurement        -> heart_rate (bpm, so nguyen)
-//   EP3 Relative Humidity Measurement  -> spo2 (%, so nguyen)
-//   EP4 Flow Measurement               -> flow (%, MeasuredValue = %*100)
-//   EP5 Pressure Measurement           -> drop_rate (%, MeasuredValue = %*100)
-//   EP6 Illuminance Measurement        -> bitmap: bit0-4 = alarm reasons,
-//                                         bit5-8 = per-channel signal present
-//                                         (HR/SpO2/Flow(weight)/Drops)
+// Wire format (a REAL custom cluster now, no longer "borrowing" a standard
+// cluster - see config/zcl/smart-iv-vitals.xml and app.c on the firmware side):
+//   EP2 cluster "Smart IV Vitals" (0xFC01, mfgCode 0x1049):
+//     HeartRate   (int16s, bpm)        - 0x8000 = no real data
+//     Spo2        (int16u, %)          - 0xFFFF = no real data
+//     FlowRatio   (int16u, %, x100)
+//     DropRatio   (int16s, %, x100)
+//     AlarmBitmap (bitmap16): bit0-4 = alarm reasons, bit5-8 = per-channel
+//                             signal status (see ALARM_BIT_*/SIGNAL_BIT_* below)
 
-const {deviceEndpoints, quirkCheckinInterval} = require('zigbee-herdsman-converters/lib/modernExtend');
-const fz = require('zigbee-herdsman-converters/converters/fromZigbee').default;
+const {deviceAddCustomCluster} = require('zigbee-herdsman-converters/lib/modernExtend');
 const exposes = require('zigbee-herdsman-converters/lib/exposes');
 const reporting = require('zigbee-herdsman-converters/lib/reporting');
 const e = exposes.presets;
 const ea = exposes.access;
+
+const SMART_IV_CLUSTER_NAME = 'smartIvVitals';
+const SMART_IV_CLUSTER_ID = 0xFC01;
+const SMART_IV_MFG_CODE = 0x1049;
 
 const ALARM_BIT_MISSING = 0x01;
 const ALARM_BIT_SPO2    = 0x02;
@@ -34,131 +39,118 @@ const ALARM_BIT_HR      = 0x04;
 const ALARM_BIT_FLOW    = 0x08;
 const ALARM_BIT_AE      = 0x10;
 
-// bit5-8: trang thai KET NOI tung kenh cam bien (1 = co tin hieu/CH_OK).
-// Doc lap voi cac bit alarm o tren - mot kenh co the "co tin hieu" nhung
-// van dang canh bao (vd nhip tim bat thuong), hoac "chua noi" (luon 0).
+// bit5-8: CONNECTION status of each sensor channel (1 = has signal/CH_OK).
+// Independent of the alarm bits above - a channel can "have signal" while
+// still alarming (e.g. abnormal heart rate), or "not connected" (always 0).
 const SIGNAL_BIT_HR    = 0x20;
 const SIGNAL_BIT_SPO2  = 0x40;
 const SIGNAL_BIT_FLOW  = 0x80;
 const SIGNAL_BIT_DROPS = 0x100;
 
+// ZCL sentinel for "no real data" - matches ZCL_HR_INVALID /
+// ZCL_SPO2_INVALID exactly in app.c (firmware).
+const HR_INVALID = -32768; // 0x8000 read as int16s
+const SPO2_INVALID = 0xFFFF;
+
 const fzSmartIv = {
-    heart_rate: {
-        cluster: 'msTemperatureMeasurement',
+    smart_iv_vitals: {
+        cluster: SMART_IV_CLUSTER_NAME,
         type: ['attributeReport', 'readResponse'],
         convert: (model, msg, publish, options, meta) => {
-            if (msg.endpoint.ID !== 2 || msg.data.measuredValue === undefined) return;
-            return {heart_rate: msg.data.measuredValue};
-        },
-    },
-    spo2: {
-        cluster: 'msRelativeHumidity',
-        type: ['attributeReport', 'readResponse'],
-        convert: (model, msg, publish, options, meta) => {
-            if (msg.endpoint.ID !== 3 || msg.data.measuredValue === undefined) return;
-            return {spo2: msg.data.measuredValue};
-        },
-    },
-    flow: {
-        cluster: 'msFlowMeasurement',
-        type: ['attributeReport', 'readResponse'],
-        convert: (model, msg, publish, options, meta) => {
-            if (msg.endpoint.ID !== 4 || msg.data.measuredValue === undefined) return;
-            return {flow: msg.data.measuredValue / 100};
-        },
-    },
-    drop_rate: {
-        cluster: 'msPressureMeasurement',
-        type: ['attributeReport', 'readResponse'],
-        convert: (model, msg, publish, options, meta) => {
-            if (msg.endpoint.ID !== 5 || msg.data.measuredValue === undefined) return;
-            return {drop_rate: msg.data.measuredValue / 100};
-        },
-    },
-    alarm_bitmap: {
-        cluster: 'msIlluminanceMeasurement',
-        type: ['attributeReport', 'readResponse'],
-        convert: (model, msg, publish, options, meta) => {
-            if (msg.endpoint.ID !== 6 || msg.data.measuredValue === undefined) return;
-            const bitmap = msg.data.measuredValue;
-            return {
-                alarm: (bitmap & 0x1F) !== 0,
-                signal_lost: (bitmap & ALARM_BIT_MISSING) !== 0,
-                spo2_low: (bitmap & ALARM_BIT_SPO2) !== 0,
-                heart_rate_abnormal: (bitmap & ALARM_BIT_HR) !== 0,
-                line_blocked: (bitmap & ALARM_BIT_FLOW) !== 0,
-                ae_alarm: (bitmap & ALARM_BIT_AE) !== 0,
-                hr_signal: (bitmap & SIGNAL_BIT_HR) !== 0,
-                spo2_signal: (bitmap & SIGNAL_BIT_SPO2) !== 0,
-                flow_signal: (bitmap & SIGNAL_BIT_FLOW) !== 0,
-                drops_signal: (bitmap & SIGNAL_BIT_DROPS) !== 0,
-            };
+            const result = {};
+
+            if (msg.data.heartRate !== undefined) {
+                result.heart_rate = msg.data.heartRate === HR_INVALID ? null : msg.data.heartRate;
+            }
+            if (msg.data.spo2 !== undefined) {
+                result.spo2 = msg.data.spo2 === SPO2_INVALID ? null : msg.data.spo2;
+            }
+            if (msg.data.flowRatio !== undefined) {
+                result.flow = msg.data.flowRatio / 100;
+            }
+            if (msg.data.dropRatio !== undefined) {
+                result.drop_rate = msg.data.dropRatio / 100;
+            }
+            if (msg.data.alarmBitmap !== undefined) {
+                const bitmap = msg.data.alarmBitmap;
+                result.alarm = (bitmap & 0x1F) !== 0;
+                result.signal_lost = (bitmap & ALARM_BIT_MISSING) !== 0;
+                result.spo2_low = (bitmap & ALARM_BIT_SPO2) !== 0;
+                result.heart_rate_abnormal = (bitmap & ALARM_BIT_HR) !== 0;
+                result.line_blocked = (bitmap & ALARM_BIT_FLOW) !== 0;
+                result.ae_alarm = (bitmap & ALARM_BIT_AE) !== 0;
+                result.hr_signal = (bitmap & SIGNAL_BIT_HR) !== 0;
+                result.spo2_signal = (bitmap & SIGNAL_BIT_SPO2) !== 0;
+                result.flow_signal = (bitmap & SIGNAL_BIT_FLOW) !== 0;
+                result.drops_signal = (bitmap & SIGNAL_BIT_DROPS) !== 0;
+            }
+
+            return result;
         },
     },
 };
 
 const definition = {
-    // ModelID/manufacturerName qua cluster Basic khong doc duoc on tin cay khi
-    // interview (device.modelID = undefined), nen nhan dien theo dung "van tay"
-    // endpoint/cluster cua 6 endpoint firmware empty_2 khai bao trong zap thay
-    // vi dua vao zigbeeModel string.
+    // modelID/manufacturerName over the Basic cluster aren't reliably
+    // readable during interview (device.modelID = undefined), so we
+    // fingerprint on the exact endpoint/cluster "signature" declared in the
+    // empty_2 firmware's ZAP config instead of relying on the zigbeeModel string.
     fingerprint: [{
         endpoints: [
             {ID: 1, inputClusters: [0]},
-            {ID: 2, inputClusters: [1026]},
-            {ID: 3, inputClusters: [1029]},
-            {ID: 4, inputClusters: [1028]},
-            {ID: 5, inputClusters: [1027]},
-            {ID: 6, inputClusters: [1024]},
+            {ID: 2, inputClusters: [SMART_IV_CLUSTER_ID]},
         ],
     }],
     model: 'SmartIV-Sensor',
     vendor: 'ICTU',
     description: 'Smart IV drip monitor (AI Smart IV, EFR32xG26)',
+    extend: [
+        deviceAddCustomCluster(SMART_IV_CLUSTER_NAME, {
+            name: SMART_IV_CLUSTER_NAME,
+            ID: SMART_IV_CLUSTER_ID,
+            manufacturerCode: SMART_IV_MFG_CODE,
+            attributes: {
+                heartRate:   {name: 'heartRate',   ID: 0x0000, type: 0x29}, // int16s
+                spo2:        {name: 'spo2',        ID: 0x0001, type: 0x21}, // int16u
+                flowRatio:   {name: 'flowRatio',   ID: 0x0002, type: 0x21}, // int16u
+                dropRatio:   {name: 'dropRatio',   ID: 0x0003, type: 0x29}, // int16s
+                alarmBitmap: {name: 'alarmBitmap', ID: 0x0004, type: 0x19}, // bitmap16
+            },
+            commands: {},
+            commandsResponse: {},
+        }),
+    ],
     fromZigbee: [
-        fzSmartIv.heart_rate,
-        fzSmartIv.spo2,
-        fzSmartIv.flow,
-        fzSmartIv.drop_rate,
-        fzSmartIv.alarm_bitmap,
+        fzSmartIv.smart_iv_vitals,
     ],
     toZigbee: [],
     exposes: [
-        e.numeric('heart_rate', ea.STATE).withUnit('bpm').withDescription('Nhip tim'),
-        e.numeric('spo2', ea.STATE).withUnit('%').withDescription('Do bao hoa oxy'),
-        e.numeric('flow', ea.STATE).withUnit('%').withDescription('Luu luong / muc dat'),
-        e.numeric('drop_rate', ea.STATE).withUnit('%').withDescription('Giot/phut / muc dat'),
-        e.binary('alarm', ea.STATE, true, false).withDescription('Co bao dong tong hop'),
-        e.binary('signal_lost', ea.STATE, true, false).withDescription('Mat tin hieu'),
-        e.binary('spo2_low', ea.STATE, true, false).withDescription('SpO2 thap'),
-        e.binary('heart_rate_abnormal', ea.STATE, true, false).withDescription('Nhip tim bat thuong'),
-        e.binary('line_blocked', ea.STATE, true, false).withDescription('Duong truyen tac/free-flow'),
-        e.binary('ae_alarm', ea.STATE, true, false).withDescription('Autoencoder vuot nguong'),
-        e.binary('hr_signal', ea.STATE, true, false).withDescription('Kenh nhip tim co tin hieu'),
-        e.binary('spo2_signal', ea.STATE, true, false).withDescription('Kenh SpO2 co tin hieu'),
-        e.binary('flow_signal', ea.STATE, true, false).withDescription('Kenh can/luu luong co tin hieu'),
-        e.binary('drops_signal', ea.STATE, true, false).withDescription('Kenh giot co tin hieu'),
+        e.numeric('heart_rate', ea.STATE).withUnit('bpm').withDescription('Heart rate'),
+        e.numeric('spo2', ea.STATE).withUnit('%').withDescription('Blood oxygen saturation'),
+        e.numeric('flow', ea.STATE).withUnit('%').withDescription('Flow rate / target ratio'),
+        e.numeric('drop_rate', ea.STATE).withUnit('%').withDescription('Drops per minute / target ratio'),
+        e.binary('alarm', ea.STATE, true, false).withDescription('Combined alarm flag'),
+        e.binary('signal_lost', ea.STATE, true, false).withDescription('Signal lost'),
+        e.binary('spo2_low', ea.STATE, true, false).withDescription('Low SpO2'),
+        e.binary('heart_rate_abnormal', ea.STATE, true, false).withDescription('Abnormal heart rate'),
+        e.binary('line_blocked', ea.STATE, true, false).withDescription('Infusion line blocked/free-flow'),
+        e.binary('ae_alarm', ea.STATE, true, false).withDescription('Autoencoder threshold exceeded'),
+        e.binary('hr_signal', ea.STATE, true, false).withDescription('Heart rate channel has signal'),
+        e.binary('spo2_signal', ea.STATE, true, false).withDescription('SpO2 channel has signal'),
+        e.binary('flow_signal', ea.STATE, true, false).withDescription('Scale/flow channel has signal'),
+        e.binary('drops_signal', ea.STATE, true, false).withDescription('Drop channel has signal'),
     ],
     configure: async (device, coordinatorEndpoint, logger) => {
-        // Firmware da tu cau hinh reporting (interval/threshold) cuc bo ngay
-        // luc vao mang (xem zb_configure_reporting() trong app.c) - o day chi
-        // can tao BINDING de firmware biet gui report di dau. Khong goi
-        // configureReporting() qua ZCL vi command nay hay bi timeout va lam
-        // dut ca vong lap, khien cac endpoint sau khong duoc bind.
-        const bindings = [
-            {epId: 2, cluster: 'msTemperatureMeasurement'},
-            {epId: 3, cluster: 'msRelativeHumidity'},
-            {epId: 4, cluster: 'msFlowMeasurement'},
-            {epId: 5, cluster: 'msPressureMeasurement'},
-            {epId: 6, cluster: 'msIlluminanceMeasurement'},
-        ];
-        for (const b of bindings) {
-            try {
-                const ep = device.getEndpoint(b.epId);
-                await reporting.bind(ep, coordinatorEndpoint, [b.cluster]);
-            } catch (error) {
-                logger.warning(`SmartIV-Sensor: bind endpoint ${b.epId} (${b.cluster}) failed: ${error.message}`);
-            }
+        // The firmware already configures its own reporting (interval/threshold)
+        // locally as soon as it joins the network (see zb_configure_reporting()
+        // in app.c) - here we only need to create the BINDING so the firmware
+        // knows where to send its reports. Not calling ZCL configureReporting()
+        // since that command tends to time out.
+        try {
+            const ep = device.getEndpoint(2);
+            await reporting.bind(ep, coordinatorEndpoint, [SMART_IV_CLUSTER_NAME]);
+        } catch (error) {
+            logger.warning(`SmartIV-Sensor: bind endpoint 2 (${SMART_IV_CLUSTER_NAME}) failed: ${error.message}`);
         }
     },
     meta: {},

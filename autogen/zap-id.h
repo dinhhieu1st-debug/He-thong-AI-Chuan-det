@@ -5742,4 +5742,24 @@
 
 // End of cluster: SL Works With All Hubs
 
+// Definitions for cluster: Smart IV Vitals
+#define ZCL_SMART_IV_VITALS_CLUSTER_ID (0xFC01u)
+
+// Client attributes for cluster: Smart IV Vitals
+#define ZCL_SMART_IV_VITALS_CLUSTER_CLUSTER_REVISION_CLIENT_ATTRIBUTE_ID (0xFFFDu)
+#define ZCL_SMART_IV_VITALS_CLUSTER_REPORTING_STATUS_CLIENT_ATTRIBUTE_ID (0xFFFEu)
+
+// Server attributes for cluster: Smart IV Vitals
+#define ZCL_HEART_RATE_ATTRIBUTE_ID (0x0u)
+#define ZCL_SPO2_ATTRIBUTE_ID (0x1u)
+#define ZCL_FLOW_RATIO_ATTRIBUTE_ID (0x2u)
+#define ZCL_DROP_RATIO_ATTRIBUTE_ID (0x3u)
+#define ZCL_ALARM_BITMAP_ATTRIBUTE_ID (0x4u)
+#define ZCL_SMART_IV_VITALS_CLUSTER_CLUSTER_REVISION_SERVER_ATTRIBUTE_ID (0xFFFDu)
+#define ZCL_SMART_IV_VITALS_CLUSTER_REPORTING_STATUS_SERVER_ATTRIBUTE_ID (0xFFFEu)
+
+// Commands for cluster: Smart IV Vitals
+
+// End of cluster: Smart IV Vitals
+
 #endif // __ZAP_GEN_ID__

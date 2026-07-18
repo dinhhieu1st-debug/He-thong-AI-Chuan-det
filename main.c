@@ -1,35 +1,35 @@
 /*
- * main.c CHUAN cho project "empty" (bare-metal) - Simplicity SDK / xG26.
- * CHEP DE toan bo noi dung nay vao main.c cua project.
- * Diem mau chot: vong while(1) phai goi app_process_action().
+ * STANDARD main.c for the "empty" (bare-metal) project - Simplicity SDK / xG26.
+ * PASTE this entire content into the project's main.c.
+ * Key point: the while(1) loop must call app_process_action().
  */
 
 #include "sl_component_catalog.h"
-#include "sl_main_init.h"            // SDK 2025.12: thay cho sl_system_init.h (doi cu)
+#include "sl_main_init.h"            // SDK 2025.12: replaces sl_system_init.h (old name)
 #include "app.h"
 #if defined(SL_CATALOG_KERNEL_PRESENT)
 #include "sl_main_kernel.h"
 #else
-#include "sl_main_process_action.h"  // SDK 2025.12: thay cho sl_system_process_action.h
+#include "sl_main_process_action.h"  // SDK 2025.12: replaces sl_system_process_action.h
 #endif
 
 int main(void)
 {
-  // Khoi tao device, system, services, protocol stacks (ten moi: sl_main_init)
+  // Initialize the device, system, services, protocol stacks (new name: sl_main_init)
   sl_main_init();
 
-  // Khoi tao ung dung (chay 1 lan) -> 2 dong printf khoi dong o day
+  // Initialize the application (runs once) -> the 2 startup printf lines happen here
   app_init();
 
 #if defined(SL_CATALOG_KERNEL_PRESENT)
-  // Neu project co RTOS (kernel): tac vu tao trong app_init() se chay.
+  // If the project has an RTOS (kernel): tasks created in app_init() will run.
   sl_main_kernel_start();
 #else
   while (1) {
-    // BAT BUOC giu lai: cho cac component cua Silicon Labs chay (ten moi)
+    // MUST keep this: lets Silicon Labs' components run (new name)
     sl_main_process_action();
 
-    // >>> VONG LAP UNG DUNG: goi ham xu ly lap lai (giong loop() Arduino) <<<
+    // >>> APPLICATION LOOP: calls the repeating handler (like Arduino's loop()) <<<
     app_process_action();
   }
 #endif

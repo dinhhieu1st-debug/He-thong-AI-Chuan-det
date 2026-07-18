@@ -1,20 +1,20 @@
 /* ============================================================================
- *  app.c — Project AI Smart IV (BRD2709A / EFR32xG26). CHEP DE vao app.c.
+ *  app.c — AI Smart IV project (BRD2709A / EFR32xG26). PASTE this into app.c.
  *
- *  Kien truc theo yeu cau:
- *    - Kenh nao DA noi cam bien (xem #define trong sensor_hub.h) -> doc that.
- *    - Kenh CHUA noi -> bao "khong co" (DISABLED), KHONG bao dong nham.
- *    - Sau nay noi them cam bien -> chi can bat #define -> tu dong doc + giam sat.
+ *  Architecture as required:
+ *    - Channels that ARE connected (see #define in sensor_hub.h) -> read real data.
+ *    - Channels NOT yet connected -> reported as "not present" (DISABLED), NO false alarms.
+ *    - Adding a sensor later -> just flip its #define -> automatically read + monitored.
  *
- *  Vong lap:
- *    - sensor_hub_poll(): goi MOI vong (doc giot lien tuc, khong bo lo xung).
- *    - Moi 1 giay: ai_monitor_step() -> chay autoencoder + luat -> in trang thai.
+ *  Main loop:
+ *    - sensor_hub_poll(): called EVERY iteration (reads drops continuously, never misses a pulse).
+ *    - Every 1 second: ai_monitor_step() -> runs the autoencoder + rules -> prints status.
  *
- *  COMPONENT can Install (.slcp -> SOFTWARE COMPONENTS):
- *    - IO Stream: EUSART (instance "vcom")  + IO Stream: STDIO   -> printf ra VCOM
- *    - Sleep Timer                                               -> thay millis()
- *    - Tensorflow Lite Micro                                     -> chay model AI
- *  (Khi bat them kenh: I2CSPM cho MAX30102, GPIO/uDelay cho HX711... bo sung sau)
+ *  COMPONENTS to install (.slcp -> SOFTWARE COMPONENTS):
+ *    - IO Stream: EUSART (instance "vcom")  + IO Stream: STDIO   -> printf over VCOM
+ *    - Sleep Timer                                               -> replaces millis()
+ *    - Tensorflow Lite Micro                                     -> runs the AI model
+ *  (When enabling more channels: I2CSPM for MAX30102, GPIO/uDelay for HX711... add later)
  * ========================================================================== */
 
 #include <stdio.h>
@@ -26,25 +26,27 @@
 #include "network-steering.h"
 #include "app/framework/plugin/reporting/reporting.h"
 
-#define AI_PERIOD_MS    1000U   // chu ky chay AI (1 giay)
-#define HR_CALIB_MS    60000U   // 60s dau: hieu chuan baseline HR ca nhan
+#define AI_PERIOD_MS    1000U   // AI run period (1 second)
+#define HR_CALIB_MS    60000U   // first 60s: calibrate the per-patient HR baseline
 
-/* Endpoint gui du lieu qua Zigbee (dinh nghia trong config/zcl/zcl_config.zap):
- * moi kenh "muon" 1 cluster do luong chuan de cho MeasuredValue, gateway
- * (zigbee2mqtt) doc lai bang external converter rieng, khong theo dung
- * y nghia goc cua cluster. */
-#define ZB_EP_HR     2   // Temperature Measurement -> HR (bpm)
-#define ZB_EP_SPO2   3   // Relative Humidity Measurement -> SpO2 (%)
-#define ZB_EP_FLOW   4   // Flow Measurement -> Flow% x100
-#define ZB_EP_DROP   5   // Pressure Measurement -> Drop% x100
-#define ZB_EP_ALARM  6   // Illuminance Measurement -> bitmap canh bao
+/* Endpoint sending data over Zigbee (defined in config/zcl/zcl_config.zap):
+ * a single custom "Smart IV Vitals" cluster (ZCL_SMART_IV_VITALS_CLUSTER_ID,
+ * 0xFC01, mfgCode 0x1049) on a single endpoint, with 5 properly-named
+ * attributes (HeartRate/Spo2/FlowRatio/DropRatio/AlarmBitmap) - replacing the
+ * old approach of "borrowing" 5 standard measurement clusters
+ * (Temperature/Humidity/Flow/Pressure/Illuminance Measurement) across 5
+ * separate endpoints and repurposing their MeasuredValue. See
+ * config/zcl/smart-iv-vitals.xml for the cluster definition. */
+#define ZB_EP_VITALS       2
+#define SMART_IV_MFG_CODE  0x1049
 
-/* Gia tri "khong co du lieu that" khi gui qua Zigbee - theo dung quy uoc ZCL
- * cho tung kieu attribute (KHONG dung so bpm/% hop ly nhu HR_BASE_FILL nua,
- * tranh gateway/nguoi doc log tuong nham day la so do that):
+/* "No real data" sentinel values when sending over Zigbee - following the
+ * standard ZCL convention per attribute type (NOT using a plausible bpm/%
+ * number like HR_BASE_FILL anymore, to avoid a gateway/log reader mistaking
+ * it for a real reading):
  *   - Temperature Measurement (int16s)      : 0x8000 = invalid value
  *   - Relative Humidity Measurement (uint16): 0xFFFF = invalid value
- * Ca hai deu la gia tri dac biet chuan ZCL, khong trung voi bpm/% that nao. */
+ * Both are standard ZCL special values that never collide with any real bpm/%. */
 #define ZCL_HR_INVALID     ((int16_t)0x8000)
 #define ZCL_SPO2_INVALID   ((uint16_t)0xFFFF)
 
@@ -55,31 +57,30 @@ static uint32_t now_ms(void)
   return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
 }
 
-/* Cau hinh bao cao (reporting) mac dinh cho 5 attribute mang du lieu AI,
- * de thiet bi tu dong gui report len coordinator (zigbee2mqtt) ngay ca khi
- * external converter ben Pi chua kip configure reporting rieng. */
+/* Default reporting configuration for the 5 attributes carrying AI data, so
+ * the device automatically sends reports to the coordinator (zigbee2mqtt)
+ * even before the Pi-side external converter gets a chance to configure its
+ * own reporting. All 5 share the same endpoint + cluster (only the
+ * attributeId differs), and must declare the correct manufacturerCode since
+ * this is a manufacturer-specific cluster. */
 static void zb_configure_reporting(void)
 {
-  struct {
-    uint8_t  endpoint;
-    uint16_t clusterId;
-    uint16_t attributeId;
-  } entries[] = {
-    { ZB_EP_HR,    ZCL_TEMP_MEASUREMENT_CLUSTER_ID,              ZCL_TEMP_MEASURED_VALUE_ATTRIBUTE_ID },
-    { ZB_EP_SPO2,  ZCL_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_ID, ZCL_RELATIVE_HUMIDITY_MEASURED_VALUE_ATTRIBUTE_ID },
-    { ZB_EP_FLOW,  ZCL_FLOW_MEASUREMENT_CLUSTER_ID,              ZCL_FLOW_MEASURED_VALUE_ATTRIBUTE_ID },
-    { ZB_EP_DROP,  ZCL_PRESSURE_MEASUREMENT_CLUSTER_ID,          ZCL_PRESSURE_MEASURED_VALUE_ATTRIBUTE_ID },
-    { ZB_EP_ALARM, ZCL_ILLUM_MEASUREMENT_CLUSTER_ID,             ZCL_ILLUM_MEASURED_VALUE_ATTRIBUTE_ID },
+  uint16_t attributeIds[] = {
+    ZCL_HEART_RATE_ATTRIBUTE_ID,
+    ZCL_SPO2_ATTRIBUTE_ID,
+    ZCL_FLOW_RATIO_ATTRIBUTE_ID,
+    ZCL_DROP_RATIO_ATTRIBUTE_ID,
+    ZCL_ALARM_BITMAP_ATTRIBUTE_ID,
   };
 
-  for (uint8_t i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) {
+  for (uint8_t i = 0; i < sizeof(attributeIds) / sizeof(attributeIds[0]); i++) {
     sl_zigbee_af_plugin_reporting_entry_t reportingEntry;
     reportingEntry.direction = SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED;
-    reportingEntry.endpoint = entries[i].endpoint;
-    reportingEntry.clusterId = entries[i].clusterId;
-    reportingEntry.attributeId = entries[i].attributeId;
+    reportingEntry.endpoint = ZB_EP_VITALS;
+    reportingEntry.clusterId = ZCL_SMART_IV_VITALS_CLUSTER_ID;
+    reportingEntry.attributeId = attributeIds[i];
     reportingEntry.mask = CLUSTER_MASK_SERVER;
-    reportingEntry.manufacturerCode = SL_ZIGBEE_AF_NULL_MANUFACTURER_CODE;
+    reportingEntry.manufacturerCode = SMART_IV_MFG_CODE;
     reportingEntry.data.reported.minInterval = 1;
     reportingEntry.data.reported.maxInterval = 60;
     reportingEntry.data.reported.reportableChange = 1;
@@ -87,32 +88,34 @@ static void zb_configure_reporting(void)
   }
 }
 
-/* Ghi 5 gia tri AI vao cac attribute Zigbee tuong ung -> Reporting plugin
- * se tu gui report khi gia tri thay doi (theo cau hinh o tren). */
+/* Writes the 5 AI values into the custom Smart IV Vitals cluster -> the
+ * Reporting plugin will automatically send a report when a value changes
+ * (per the configuration above). Uses the "manufacturer specific" write
+ * function (as opposed to the regular one) since the cluster has an mfgCode. */
 static void zb_report_ai_result(int16_t hr, uint16_t spo2, uint16_t flow_x100,
                                  int16_t drop_x100, uint16_t alarm_bitmap)
 {
-  sl_zigbee_af_write_attribute(ZB_EP_HR, ZCL_TEMP_MEASUREMENT_CLUSTER_ID,
-                               ZCL_TEMP_MEASURED_VALUE_ATTRIBUTE_ID, CLUSTER_MASK_SERVER,
-                               (uint8_t *)&hr, ZCL_INT16S_ATTRIBUTE_TYPE);
-  sl_zigbee_af_write_attribute(ZB_EP_SPO2, ZCL_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_ID,
-                               ZCL_RELATIVE_HUMIDITY_MEASURED_VALUE_ATTRIBUTE_ID, CLUSTER_MASK_SERVER,
-                               (uint8_t *)&spo2, ZCL_INT16U_ATTRIBUTE_TYPE);
-  sl_zigbee_af_write_attribute(ZB_EP_FLOW, ZCL_FLOW_MEASUREMENT_CLUSTER_ID,
-                               ZCL_FLOW_MEASURED_VALUE_ATTRIBUTE_ID, CLUSTER_MASK_SERVER,
-                               (uint8_t *)&flow_x100, ZCL_INT16U_ATTRIBUTE_TYPE);
-  sl_zigbee_af_write_attribute(ZB_EP_DROP, ZCL_PRESSURE_MEASUREMENT_CLUSTER_ID,
-                               ZCL_PRESSURE_MEASURED_VALUE_ATTRIBUTE_ID, CLUSTER_MASK_SERVER,
-                               (uint8_t *)&drop_x100, ZCL_INT16S_ATTRIBUTE_TYPE);
-  sl_zigbee_af_write_attribute(ZB_EP_ALARM, ZCL_ILLUM_MEASUREMENT_CLUSTER_ID,
-                               ZCL_ILLUM_MEASURED_VALUE_ATTRIBUTE_ID, CLUSTER_MASK_SERVER,
-                               (uint8_t *)&alarm_bitmap, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_HEART_RATE_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&hr, ZCL_INT16S_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_SPO2_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&spo2, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_FLOW_RATIO_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&flow_x100, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_DROP_RATIO_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&drop_x100, ZCL_INT16S_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_ALARM_BITMAP_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&alarm_bitmap, ZCL_BITMAP16_ATTRIBUTE_TYPE);
 }
 
 /** @brief Stack Status
  *
- * Bat dau join mang (Network Steering) khi chua co mang; khi mang len thi
- * cau hinh reporting cho 5 attribute AI.
+ * Starts joining the network (Network Steering) when there is no network
+ * yet; once the network is up, configures reporting for the 5 AI attributes.
  */
 void sl_zigbee_af_stack_status_cb(sl_status_t status)
 {
@@ -120,18 +123,18 @@ void sl_zigbee_af_stack_status_cb(sl_status_t status)
     if (!zb_join_started) {
       zb_join_started = true;
       sl_status_t joinStatus = sl_zigbee_af_network_steering_start();
-      printf("[ZB] Bat dau join mang: 0x%02X\r\n", (unsigned)joinStatus);
+      printf("[ZB] Starting network join: 0x%02X\r\n", (unsigned)joinStatus);
     }
   } else if (status == SL_STATUS_NETWORK_UP) {
     zb_configure_reporting();
-    printf("[ZB] Da vao mang Zigbee, da cau hinh reporting.\r\n");
+    printf("[ZB] Joined the Zigbee network, reporting configured.\r\n");
   }
 }
 
 /** @brief Network Steering Complete
  *
- * Cho phep thu join lai neu lan nay khong thanh cong (vi du chua bat
- * permit-join tren coordinator).
+ * Allows retrying the join if this attempt failed (e.g. permit-join was not
+ * enabled on the coordinator).
  */
 void sl_zigbee_af_network_steering_complete_cb(sl_status_t status,
                                                uint8_t totalBeacons,
@@ -142,48 +145,49 @@ void sl_zigbee_af_network_steering_complete_cb(sl_status_t status,
   (void)joinAttempts;
   (void)finalState;
 
-  printf("[ZB] Join mang ket qua: 0x%02X\r\n", (unsigned)status);
+  printf("[ZB] Network join result: 0x%02X\r\n", (unsigned)status);
   if (status != SL_STATUS_OK) {
-    zb_join_started = false;   // cho phep sl_zigbee_af_stack_status_cb thu lai
+    zb_join_started = false;   // allow sl_zigbee_af_stack_status_cb to retry
   }
 }
 
-/* ================= GOI 1 LAN LUC KHOI DONG ================= */
+/* ================= CALLED ONCE AT STARTUP ================= */
 void app_init(void)
 {
-  setvbuf(stdout, NULL, _IONBF, 0);   // tat dem -> printf hien ngay
+  setvbuf(stdout, NULL, _IONBF, 0);   // disable buffering -> printf shows up immediately
 
   sensor_hub_init();
   ai_monitor_init();
 
-  printf("\r\n=== Smart IV - Phan AI san sang ===\r\n");
-  printf("Kenh: DROPS=%s HR=%s SpO2=%s FLOW=%s\r\n",
-         DROPS_ENABLED ? "BAT" : "TAT",
-         HR_ENABLED    ? "BAT" : "TAT",
-         SPO2_ENABLED  ? "BAT" : "TAT",
-         FLOW_ENABLED  ? "BAT" : "TAT");
-  printf("Model: autoencoder int8 6-feat + luat lam sang.\r\n\r\n");
+  printf("\r\n=== Smart IV - AI module ready ===\r\n");
+  printf("Channels: DROPS=%s HR=%s SpO2=%s FLOW=%s\r\n",
+         DROPS_ENABLED ? "ON" : "OFF",
+         HR_ENABLED    ? "ON" : "OFF",
+         SPO2_ENABLED  ? "ON" : "OFF",
+         FLOW_ENABLED  ? "ON" : "OFF");
+  printf("Model: int8 6-feature autoencoder + clinical rules.\r\n\r\n");
 }
 
-/* ====== GOI LAP LAI LIEN TUC (giong loop() Arduino) ====== */
+/* ====== CALLED REPEATEDLY (like Arduino's loop()) ====== */
 void app_process_action(void)
 {
-  /* 1) Doc cam bien giot lien tuc — KHONG delay o day (xung giot rat ngan). */
+  /* 1) Continuously read the drop sensor — NO delay here (drop pulses are very short). */
   sensor_hub_poll();
 
   uint32_t now = now_ms();
 
-  /* 2) Hieu chuan baseline HR trong 60s dau (chi co nghia khi HR_ENABLED=1).
-   *    Khi kenh HR chua noi, sh_hr() tra gia tri nen nen baseline ~ mac dinh. */
+  /* 2) Calibrate the HR baseline during the first 60s (only meaningful when
+   *    HR_ENABLED=1). While the HR channel isn't connected, sh_hr() returns
+   *    the baseline value so the baseline stays at the default. */
   static int   calib_done = 0;
   if (!calib_done && now < HR_CALIB_MS) {
-    /* Cho cua so on dinh; o ban hien tai HR DISABLED nen bo qua an toan. */
+    /* Waiting for the settling window; currently HR is DISABLED so this is safely skipped. */
   } else if (!calib_done) {
-    ai_monitor_set_hr_baseline(sh_hr());  // chot baseline sau 60s
+    ai_monitor_set_hr_baseline(sh_hr());  // lock in the baseline after 60s
     calib_done = 1;
   }
 
-  /* 3) Moi AI_PERIOD_MS: chay AI + in trang thai. */
+  /* 3) Every AI_PERIOD_MS: run the AI + print status. */
   static uint32_t last_ai = 0;
   if (now - last_ai >= AI_PERIOD_MS) {
     last_ai = now;
@@ -191,14 +195,15 @@ void app_process_action(void)
     ai_result_t r;
     ai_monitor_step(&r);
 
-    /* Chi coi HR/SpO2 la so THAT khi kenh dang CH_OK (co mau tuoi tu chip
-     * that). CH_LOST/CH_DISABLED -> KHONG in/gui so nen gia (81/97) nua, vi
-     * de nhin giong so do that trong khi chua doc duoc gi - in "--" va gui
-     * gia tri "invalid" chuan ZCL thay vao. */
+    /* Only treat HR/SpO2 as REAL numbers when the channel is CH_OK (fresh
+     * sample from a real chip). CH_LOST/CH_DISABLED -> do NOT print/send the
+     * fake baseline numbers (81/97) anymore, since that would look like a
+     * real reading while nothing has actually been read yet - print "--"
+     * and send the standard ZCL "invalid" value instead. */
     bool hr_ok   = (sh_hr_state()   == CH_OK);
     bool spo2_ok = (sh_spo2_state() == CH_OK);
 
-    /* In gon: gia tri + ket qua. Nhan *1000 / lam tron de tranh printf %f. */
+    /* Compact print: values + result. Scaled by *1000 / rounded to avoid printf %f. */
     int hr   = (int)(r.feat[0] + 0.5f);
     int spo2 = (int)(r.feat[1] + 0.5f);
     int flow = (int)(r.feat[2] * 100.0f + 0.5f);   // %
@@ -213,22 +218,22 @@ void app_process_action(void)
            hr_str, spo2_str, flow, drop, (int)(sh_drops_per_min() + 0.5f), err);
 
     if (r.alarm) {
-      printf("*** BAO DONG ***");
-      if (r.reason_missing) printf(" [MAT_TIN_HIEU]");
-      if (r.reason_spo2)    printf(" [SpO2_THAP]");
-      if (r.reason_hr)      printf(" [NHIP_TIM]");
-      if (r.reason_flow)    printf(" [DUONG_TRUYEN]");
+      printf("*** ALARM ***");
+      if (r.reason_missing) printf(" [SIGNAL_LOST]");
+      if (r.reason_spo2)    printf(" [LOW_SpO2]");
+      if (r.reason_hr)      printf(" [HEART_RATE]");
+      if (r.reason_flow)    printf(" [INFUSION_LINE]");
       if (r.reason_ae)      printf(" [AE]");
       printf("\r\n");
     } else {
-      printf("Binh thuong\r\n");
+      printf("Normal\r\n");
     }
 
-    /* Bitmap canh bao: bit0=mat tin hieu, bit1=SpO2 thap, bit2=nhip tim,
-     * bit3=duong truyen, bit4=autoencoder.
-     * bit5-8: trang thai KET NOI tung kenh (1 = co tin hieu/CH_OK, 0 = chua
-     * noi hoac mat tin hieu) - de gateway/app phan biet duoc "chua lap cam
-     * bien" voi "da lap nhung dang bao dong". */
+    /* Alarm bitmap: bit0=signal lost, bit1=low SpO2, bit2=heart rate,
+     * bit3=infusion line, bit4=autoencoder.
+     * bit5-8: per-channel CONNECTION status (1 = has signal/CH_OK, 0 = not
+     * yet connected or signal lost) - so the gateway/app can tell "sensor
+     * not installed yet" apart from "installed but currently alarming". */
     uint16_t alarm_bitmap = (uint16_t)((r.reason_missing ? 0x01 : 0)
                                         | (r.reason_spo2    ? 0x02 : 0)
                                         | (r.reason_hr      ? 0x04 : 0)

@@ -33,7 +33,7 @@
 	#define ZCL_GENERATED_MIN_MAX_DEFAULTS { { { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 } } }
 
 
-#define ZCL_GENERATED_ATTRIBUTE_COUNT (20)
+#define ZCL_GENERATED_ATTRIBUTE_COUNT (10)
 
 // This is an array of sl_zigbee_af_attribute_metadata_t structures.
 #define ZCL_GENERATED_ATTRIBUTES { \
@@ -42,48 +42,30 @@
 	  { 0x0005, ZCL_CHAR_STRING_ATTRIBUTE_TYPE, 33, (ATTRIBUTE_MASK_SINGLETON), { (uint8_t*)&(generatedDefaults[33]) } }, /* 2 Cluster: Basic, Attribute: model identifier, Side: server*/ \
 	  { 0x0007, ZCL_ENUM8_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_SINGLETON), { (uint8_t*)0x00  } }, /* 3 Cluster: Basic, Attribute: power source, Side: server*/ \
 		  { 0xFFFD, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_SINGLETON), { (uint8_t*)3  } }, /* 4 Cluster: Basic, Attribute: cluster revision, Side: server*/ \
-		  { 0x0000, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 5 Cluster: Illuminance Measurement, Attribute: measured value, Side: server*/ \
-		  { 0x0001, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 6 Cluster: Illuminance Measurement, Attribute: min measured value, Side: server*/ \
-		  { 0x0002, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0xFFFE  } }, /* 7 Cluster: Illuminance Measurement, Attribute: max measured value, Side: server*/ \
-		  { 0x0000, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 8 Cluster: Temperature Measurement, Attribute: measured value, Side: server*/ \
-		  { 0x0001, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 9 Cluster: Temperature Measurement, Attribute: min measured value, Side: server*/ \
-		  { 0x0002, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x7FFF  } }, /* 10 Cluster: Temperature Measurement, Attribute: max measured value, Side: server*/ \
-		  { 0x0000, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 11 Cluster: Pressure Measurement, Attribute: measured value, Side: server*/ \
-		  { 0x0001, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x8001  } }, /* 12 Cluster: Pressure Measurement, Attribute: min measured value, Side: server*/ \
-		  { 0x0002, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x7FFF  } }, /* 13 Cluster: Pressure Measurement, Attribute: max measured value, Side: server*/ \
-		  { 0x0000, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 14 Cluster: Flow Measurement, Attribute: measured value, Side: server*/ \
-		  { 0x0001, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 15 Cluster: Flow Measurement, Attribute: min measured value, Side: server*/ \
-		  { 0x0002, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0xFFFE  } }, /* 16 Cluster: Flow Measurement, Attribute: max measured value, Side: server*/ \
-		  { 0x0000, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 17 Cluster: Relative Humidity Measurement, Attribute: measured value, Side: server*/ \
-		  { 0x0001, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x0000  } }, /* 18 Cluster: Relative Humidity Measurement, Attribute: min measured value, Side: server*/ \
-		  { 0x0002, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (0x00), { (uint8_t*)0x2710  } } /* 19 Cluster: Relative Humidity Measurement, Attribute: max measured value, Side: server*/ \
+		  { 0x0000, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 5 Cluster: Smart IV Vitals, Attribute: HeartRate, Side: server*/ \
+		  { 0x0001, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 6 Cluster: Smart IV Vitals, Attribute: Spo2, Side: server*/ \
+		  { 0x0002, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 7 Cluster: Smart IV Vitals, Attribute: FlowRatio, Side: server*/ \
+		  { 0x0003, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 8 Cluster: Smart IV Vitals, Attribute: DropRatio, Side: server*/ \
+		  { 0x0004, ZCL_BITMAP16_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } } /* 9 Cluster: Smart IV Vitals, Attribute: AlarmBitmap, Side: server*/ \
 		 }
 
  
 
-#define ZCL_GENERATED_CLUSTER_COUNT (6)
+#define ZCL_GENERATED_CLUSTER_COUNT (2)
 	
 // This is an array of sl_zigbee_af_cluster_t structures.
 #define ZCL_GENERATED_CLUSTERS { \
   { 0x0000, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[0]), 5, 0, CLUSTER_MASK_SERVER, NULL }, /* 0, Endpoint Id: 1, Cluster: Basic, Side: server*/ \
-	  { 0x0402, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[8]), 3, 6, CLUSTER_MASK_SERVER, NULL }, /* 1, Endpoint Id: 2, Cluster: Temperature Measurement, Side: server*/ \
-	  { 0x0405, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[17]), 3, 6, CLUSTER_MASK_SERVER, NULL }, /* 2, Endpoint Id: 3, Cluster: Relative Humidity Measurement, Side: server*/ \
-	  { 0x0404, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[14]), 3, 6, CLUSTER_MASK_SERVER, NULL }, /* 3, Endpoint Id: 4, Cluster: Flow Measurement, Side: server*/ \
-	  { 0x0403, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[11]), 3, 6, CLUSTER_MASK_SERVER, NULL }, /* 4, Endpoint Id: 5, Cluster: Pressure Measurement, Side: server*/ \
-	  { 0x0400, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 3, 6, CLUSTER_MASK_SERVER, NULL } /* 5, Endpoint Id: 6, Cluster: Illuminance Measurement, Side: server*/ \
+	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 5, 10, CLUSTER_MASK_SERVER, NULL } /* 1, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
 	 }
 
  
-#define ZCL_GENERATED_ENDPOINT_TYPE_COUNT (6)
+#define ZCL_GENERATED_ENDPOINT_TYPE_COUNT (2)
 
 // This is an array of sl_zigbee_af_endpoint_type_t structures.
 #define ZCL_GENERATED_ENDPOINT_TYPES { \
   { ((sl_zigbee_af_cluster_t*)&(generatedClusters[0])), 1, 0 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[1])), 1, 6 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[2])), 1, 6 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[3])), 1, 6 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[4])), 1, 6 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[5])), 1, 6 }, \
+	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[1])), 1, 10 }, \
 	 } 
 // Largest attribute size is needed for various buffers
 #define ZCL_ATTRIBUTE_LARGEST (33)
@@ -92,28 +74,20 @@
 #define ZCL_ATTRIBUTE_SINGLETONS_SIZE (70)
 
 // Total size of attribute storage
-#define ZCL_ATTRIBUTE_MAX_SIZE (30)
+#define ZCL_ATTRIBUTE_MAX_SIZE (10)
 
 // Number of fixed endpoints	
-#define ZCL_FIXED_ENDPOINT_COUNT (6)
+#define ZCL_FIXED_ENDPOINT_COUNT (2)
 
 // Array of endpoints that are supported, the data inside the array is the
 // endpoint number.
 #define ZCL_FIXED_ENDPOINT_ARRAY { \
   1, \
-  2, \
-  3, \
-  4, \
-  5, \
-  6 \
+  2 \
 }
 
 // Array of profile ids
 #define ZCL_FIXED_PROFILE_IDS { \
-  65535, \
-  65535, \
-  65535, \
-  65535, \
   65535, \
   65535 \
 }
@@ -121,19 +95,11 @@
 // Array of device ids
 #define ZCL_FIXED_DEVICE_IDS { \
   65535, \
-  65535, \
-  65535, \
-  65535, \
-  65535, \
   65535 \
 }
 
 // Array of device versions
 #define ZCL_FIXED_DEVICE_VERSIONS { \
-  1, \
-  1, \
-  1, \
-  1, \
   1, \
   1 \
 }
@@ -141,19 +107,11 @@
 // Array of endpoint types supported on each endpoint
 #define ZCL_FIXED_ENDPOINT_TYPES { \
   0, \
-  1, \
-  2, \
-  3, \
-  4, \
-  5 \
+  1 \
 }
 
 // Array of networks supported on each endpoint
 #define ZCL_FIXED_NETWORKS { \
-  0, \
-  0, \
-  0, \
-  0, \
   0, \
   0 \
 }
@@ -168,23 +126,27 @@
 #define ZCL_GENERATED_COMMAND_MANUFACTURER_CODES { }
 
 // This is an array of sl_zigbee_af_manufacturer_code_entry_t structures for clusters.
-#define ZCL_GENERATED_CLUSTER_MANUFACTURER_CODE_COUNT (0)
+#define ZCL_GENERATED_CLUSTER_MANUFACTURER_CODE_COUNT (1)
 #define ZCL_GENERATED_CLUSTER_MANUFACTURER_CODES { \
-  { 0x00, 0x00 }  \
-						 } 
+	  { 1, 0x1049 },  \
+	 } 
 // This is an array of sl_zigbee_af_manufacturer_code_entry_t structures for attributes.
-#define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (0)
+#define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (5)
 #define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODES { \
-  { 0x00, 0x00 } \
-																				 } 
+					  { 5, 0x1049 },  \
+	  { 6, 0x1049 },  \
+	  { 7, 0x1049 },  \
+	  { 8, 0x1049 },  \
+	  { 9, 0x1049 },  \
+	 } 
 // Array of sl_zigbee_af_plugin_reporting_entry_t structures.
 #define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS_TABLE_SIZE (5)
 #define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS { \
-  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0x0402, 0x0000, CLUSTER_MASK_SERVER, 0x0000, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Temperature Measurement, Attribute: measured value */ \
-	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0003, 0x0405, 0x0000, CLUSTER_MASK_SERVER, 0x0000, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 3, Cluster: Relative Humidity Measurement, Attribute: measured value */ \
-	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0004, 0x0404, 0x0000, CLUSTER_MASK_SERVER, 0x0000, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 4, Cluster: Flow Measurement, Attribute: measured value */ \
-	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0005, 0x0403, 0x0000, CLUSTER_MASK_SERVER, 0x0000, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 5, Cluster: Pressure Measurement, Attribute: measured value */ \
-	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0006, 0x0400, 0x0000, CLUSTER_MASK_SERVER, 0x0000, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 6, Cluster: Illuminance Measurement, Attribute: measured value */ \
+  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0000, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HeartRate */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0001, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: Spo2 */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0002, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: FlowRatio */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0003, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: DropRatio */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0004, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: AlarmBitmap */ \
 	 } 
 
 #define SL_ZIGBEE_ZCL_MANUFACTURER_CODE 0x1049
@@ -192,19 +154,11 @@
 
 // All Enabled Clusters
 #define ZCL_USING_BASIC_CLUSTER_SERVER
-#define ZCL_USING_ILLUM_MEASUREMENT_CLUSTER_SERVER
-#define ZCL_USING_TEMP_MEASUREMENT_CLUSTER_SERVER
-#define ZCL_USING_PRESSURE_MEASUREMENT_CLUSTER_SERVER
-#define ZCL_USING_FLOW_MEASUREMENT_CLUSTER_SERVER
-#define ZCL_USING_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_SERVER
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_SERVER
 
 // Cluster Counts
 #define SL_ZIGBEE_ZCL_BASIC_CLUSTER_SERVER_ENDPOINT_COUNT (1)
-#define SL_ZIGBEE_ZCL_ILLUM_MEASUREMENT_CLUSTER_SERVER_ENDPOINT_COUNT (1)
-#define SL_ZIGBEE_ZCL_TEMP_MEASUREMENT_CLUSTER_SERVER_ENDPOINT_COUNT (1)
-#define SL_ZIGBEE_ZCL_PRESSURE_MEASUREMENT_CLUSTER_SERVER_ENDPOINT_COUNT (1)
-#define SL_ZIGBEE_ZCL_FLOW_MEASUREMENT_CLUSTER_SERVER_ENDPOINT_COUNT (1)
-#define SL_ZIGBEE_ZCL_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_SERVER_ENDPOINT_COUNT (1)
+#define SL_ZIGBEE_ZCL_SMART_IV_VITALS_CLUSTER_SERVER_ENDPOINT_COUNT (1)
 
 // All Enabled Cluster Attributes
 #define ZCL_USING_BASIC_CLUSTER_VERSION_ATTRIBUTE
@@ -212,21 +166,11 @@
 #define ZCL_USING_BASIC_CLUSTER_MODEL_IDENTIFIER_ATTRIBUTE
 #define ZCL_USING_BASIC_CLUSTER_POWER_SOURCE_ATTRIBUTE
 #define ZCL_USING_BASIC_CLUSTER_CLUSTER_REVISION_SERVER_ATTRIBUTE
-#define ZCL_USING_ILLUM_MEASUREMENT_CLUSTER_ILLUM_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_ILLUM_MEASUREMENT_CLUSTER_ILLUM_MIN_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_ILLUM_MEASUREMENT_CLUSTER_ILLUM_MAX_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_TEMP_MEASUREMENT_CLUSTER_TEMP_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_TEMP_MEASUREMENT_CLUSTER_TEMP_MIN_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_TEMP_MEASUREMENT_CLUSTER_TEMP_MAX_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_PRESSURE_MEASUREMENT_CLUSTER_PRESSURE_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_PRESSURE_MEASUREMENT_CLUSTER_PRESSURE_MIN_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_PRESSURE_MEASUREMENT_CLUSTER_PRESSURE_MAX_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_FLOW_MEASUREMENT_CLUSTER_FLOW_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_FLOW_MEASUREMENT_CLUSTER_FLOW_MIN_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_FLOW_MEASUREMENT_CLUSTER_FLOW_MAX_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_RELATIVE_HUMIDITY_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_RELATIVE_HUMIDITY_MIN_MEASURED_VALUE_ATTRIBUTE
-#define ZCL_USING_RELATIVE_HUMIDITY_MEASUREMENT_CLUSTER_RELATIVE_HUMIDITY_MAX_MEASURED_VALUE_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_HEART_RATE_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_SPO2_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_FLOW_RATIO_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_DROP_RATIO_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_ALARM_BITMAP_ATTRIBUTE
 
 #define SL_ZIGBEE_AF_SUPPORT_COMMAND_DISCOVERY
 

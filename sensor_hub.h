@@ -1,59 +1,58 @@
 /* ============================================================================
- *  sensor_hub.h — Quan ly cac kenh cam bien cho phan AI (Smart IV, Doi ICTU)
- *  Y tuong: moi kenh co 3 TRANG THAI
- *    CH_DISABLED : chua noi cam bien  -> bo qua, KHONG bao nham
- *    CH_OK       : co du lieu tuoi    -> doc that
- *    CH_LOST     : da noi nhung mat tin hieu -> set co missing -> BAO
- *  Bat/tat tung kenh bang #define ben duoi. Hien chi bat DROPS (cam bien giot).
+ *  sensor_hub.h — Manages sensor channels for the AI module (Smart IV, ICTU team)
+ *  Idea: each channel has 3 STATES
+ *    CH_DISABLED : sensor not connected -> skip, do NOT raise false alarms
+ *    CH_OK       : fresh data available -> read real values
+ *    CH_LOST     : connected but signal lost -> set missing flag -> ALARM
+ *  Enable/disable each channel with the #define below.
  * ========================================================================== */
 #ifndef SENSOR_HUB_H
 #define SENSOR_HUB_H
 
 #include <stdint.h>
 
-/* ===== CONG TAC: 0 = chua noi (bo qua) | 1 = da noi (doc that) =====
- * Chi bat dung kenh THAT SU dang cam vao board luc nay. Hien tai (theo
- * xac nhan cua nguoi dung) chi co MAX30102 (HR+SpO2) da noi; loadcell
- * (HX711) va cam bien giot CHUA cam lai - de DISABLED, tranh doc nhieu
- * tren chan floating. Khi cam lai tung cam bien, bat #define tuong ung
- * len 1. */
-#define HR_ENABLED     1   // MAX30102 - nhip tim (I2C, chung bus voi SPO2) - DA CAM
-#define SPO2_ENABLED   1   // MAX30102 - SpO2 (cung 1 chip voi HR) - DA CAM
-#define FLOW_ENABLED   1   // HX711 + loadcell - toc do truyen dich - DA CAM, dang test
-#define DROPS_ENABLED  0   // cam bien giot - CHUA CAM (rut ra de test HR/SpO2 rieng)
+/* ===== SWITCHES: 0 = not connected (skip) | 1 = connected (read real data) =====
+ * All 4 channels are physically connected (confirmed by the user on
+ * 2026-07-18). To disconnect a channel, set its #define back to 0 to avoid
+ * reading noise on a floating pin. */
+#define HR_ENABLED     1   // MAX30102 - heart rate (I2C, shares bus with SpO2) - CONNECTED
+#define SPO2_ENABLED   1   // MAX30102 - SpO2 (same chip as HR) - CONNECTED
+#define FLOW_ENABLED   1   // HX711 + load cell - infusion flow rate - CONNECTED
+#define DROPS_ENABLED  1   // drop sensor - CONNECTED
 
-/* ===== MUC BAC SI DAT (doctor-set) — chinh theo don ke ===== */
-#define SET_FLOW_ML_H   100.0f   // toc do truyen dat (ml/gio)
-#define SET_DROPS_DPM   20.0f    // so giot/phut dat
+/* ===== Doctor-set targets — adjust per prescription ===== */
+#define SET_FLOW_ML_H   100.0f   // target flow rate (ml/hour)
+#define SET_DROPS_DPM   20.0f    // target drops per minute
 
-/* ===== Hieu chuan loadcell (HX711) — CHINH LAI cho dung can that =====
- * Cach hieu chuan: treo 1 vat nang biet truoc, so sanh gia tri tho doc duoc
- * voi luc chua treo gi, roi tinh factor = delta_raw / khoi_luong_KG (khop
- * cong thuc weight_g = delta_raw / FACTOR * 1000 dang dung o sensor_hub.c).
- * Da hieu chuan thuc te ngay 2026-07-17 (lan 2, do CHINH XAC trong CUNG 1
- * phien tare+treo, tranh sai so troi giua cac lan nap lai): treo bich dich
- * ~500ml (~500g nuoc) dung dung vach do tren bich, tare_offset=-39289,
- * delta_raw sau khi on dinh (EMA settle) ~101267 -> factor = 101267/0.5kg
- * = 202534. Cac gia tri cu (14000 tu hx711_test.ino, 269334 tu lan do dau
- * bi sai vi lay tare/tai o 2 phien nap khac nhau) deu KHONG dung nua. */
+/* ===== Load cell (HX711) calibration — ADJUST for the actual scale in use =====
+ * Calibration method: hang a weight of known mass, compare the raw reading
+ * against the no-load reading, then compute factor = delta_raw / mass_KG
+ * (matches the weight_g = delta_raw / FACTOR * 1000 formula used in
+ * sensor_hub.c). Calibrated for real hardware on 2026-07-17 (2nd attempt,
+ * measured ACCURATELY within a SINGLE tare+load session to avoid drift
+ * between reflashes): hung a ~500ml (~500g water) IV bag right at its
+ * printed graduation mark, tare_offset=-39289, delta_raw after settling
+ * (EMA) ~101267 -> factor = 101267/0.5kg = 202534. Older values (14000 from
+ * hx711_test.ino, 269334 from an earlier measurement that mixed tare/load
+ * from two different flash sessions) are both WRONG and no longer used. */
 #define HX711_CALIBRATION_FACTOR   202534.0f
 
-/* ===== Thoi gian coi la "mat tin hieu" neu kenh da bat ma khong co mau (ms) ===== */
+/* ===== Time before a channel is considered "signal lost" if enabled but no sample arrives (ms) ===== */
 #define VITAL_TIMEOUT_MS  3000U
 
 typedef enum { CH_DISABLED = 0, CH_OK = 1, CH_LOST = 2 } ch_state_t;
 
 void sensor_hub_init(void);
-void sensor_hub_poll(void);   // goi MOI VONG loop (doc giot lien tuc)
+void sensor_hub_poll(void);   // call EVERY loop iteration (reads drops continuously)
 
-/* Gia tri tho hien tai cua tung kenh (chi co nghia khi trang thai = CH_OK) */
+/* Current raw value of each channel (only meaningful when state = CH_OK) */
 float      sh_hr(void);
 float      sh_spo2(void);
 float      sh_flow_ratio(void);    // flow / SET_FLOW
 float      sh_drops_ratio(void);   // drops_per_min / SET_DROPS
 float      sh_drops_per_min(void);
 
-/* Trang thai tung kenh */
+/* Per-channel state */
 ch_state_t sh_hr_state(void);
 ch_state_t sh_spo2_state(void);
 ch_state_t sh_flow_state(void);

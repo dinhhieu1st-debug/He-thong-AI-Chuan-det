@@ -1,17 +1,21 @@
 /* ============================================================================
- *  sensor_hub.c — Doc cam bien + quan ly trang thai tung kenh
- *  Board: BRD2709A (EFR32xG26 Explorer Kit). Cam bien giot D0 -> PD02.
+ *  sensor_hub.c — Reads sensors + manages per-channel state
+ *  Board: BRD2709A (EFR32xG26 Explorer Kit). Drop sensor D0 -> PD02.
  *
- *  Phan cung day du (theo so do day nguoi dung cung cap):
- *    - HX711 (loadcell, kenh FLOW): DT -> mikroBUS MISO (PC02),
- *      SCK -> mikroBUS SCK/CLK (PC03). Bit-bang GPIO thuan.
- *    - MAX30102 (kenh HR + SpO2, chung 1 chip, module DFRobot Gravity
- *      SEN0344): SDA/SCL -> bus I2C mikroBUS/Qwiic chung (PC07=SDA,
- *      PC05=SCL). CUNG bit-bang GPIO thuan, KHONG dung driver I2CSPM co
- *      san cua SDK — driver do co timeout CUNG 300 GIAY moi giao dich,
- *      qua nguy hiem cho thiet bi giam sat y te (1 lan bus bi ket la ca
- *      he thong dung hinh 5 phut). Chi tiet xem comment o dau khoi
- *      MAX30102 ben duoi.
+ *  Full hardware wiring (per the wiring diagram provided by the user):
+ *    - HX711 (load cell, FLOW channel): DT -> PC01, SCK -> PC03 (dedicated
+ *      wires, NOT routed through the standard mikroBUS SPI header, so the
+ *      MOSI/MISO names in the SDK's SPI docs do not apply here). Pure
+ *      GPIO bit-banging. FINALIZED — matches the user's actual physical
+ *      wiring, do not change again.
+ *    - MAX30102 (HR + SpO2 channels, single chip, DFRobot Gravity SEN0344
+ *      module): SDA/SCL -> shared mikroBUS/Qwiic I2C bus (PC07=SDA,
+ *      PC05=SCL). ALSO pure GPIO bit-banging, NOT using the SDK's built-in
+ *      I2CSPM driver — that driver has a FIXED 300-SECOND timeout per
+ *      transaction, far too dangerous for a medical monitoring device
+ *      (one stuck bus transaction would freeze the whole system for 5
+ *      minutes). See the comment at the top of the MAX30102 block below
+ *      for details.
  * ========================================================================== */
 #include "sensor_hub.h"
 #include "em_cmu.h"
@@ -21,14 +25,15 @@
 #include "sl_udelay.h"
 #include <stdio.h>
 
-/* ---- Chan cam bien giot (BRD2709A, mikroBUS "AN" = PD02) ---- */
+/* ---- Drop sensor pin (BRD2709A, mikroBUS "AN" = PD02) ---- */
 #define SENSOR_PORT   gpioPortD
 #define SENSOR_PIN    2
 #define DEBOUNCE_MS   200U
 
-/* Gia tri NEN (= scaler.mean) cho kenh CHUA NOI -> chuan hoa ~0 -> AE de tai tao.
- * Khi kenh da bat (ENABLED=1) nhung mat tin hieu tam thoi, cung dung gia tri
- * nay lam gia tri "giu cho" trong luc cho co mau moi. */
+/* Baseline value (= scaler.mean) for a channel that is NOT CONNECTED -> normalizes
+ * to ~0 -> lets the autoencoder reconstruct it cleanly. When a channel is
+ * enabled (ENABLED=1) but temporarily loses signal, this same value is used
+ * as a "placeholder" while waiting for a fresh sample. */
 #define HR_BASE_FILL    81.68f
 #define SPO2_BASE_FILL  97.80f
 
@@ -43,57 +48,65 @@ static uint32_t now_ms(void)
 }
 
 /* ============================================================================
- *  HX711 (loadcell) — kenh FLOW
- *  Giao thuc 2 day rieng cua HX711 (khong phai SPI chuan): DOUT bao "co du
- *  lieu" bang cach tu keo xuong muc thap; doc 24 bit (MSB truoc) bang cach
- *  tao 24 xung SCK, moi xung doc 1 bit tren canh len; xung thu 25 chon lai
- *  kenh A / gain 128 cho lan doc tiep theo (mac dinh cua thu vien Arduino
- *  HX711 pho bien, khop voi hx711_test.ino nguoi dung da test).
+ *  HX711 (load cell) — FLOW channel
+ *  The HX711's dedicated 2-wire protocol (not standard SPI): DOUT signals
+ *  "data ready" by pulling itself low; read 24 bits (MSB first) by
+ *  generating 24 SCK pulses, sampling one bit per rising edge; the 25th
+ *  pulse re-selects channel A / gain 128 for the next reading (the default
+ *  behavior of the common Arduino HX711 library, matching the
+ *  hx711_test.ino the user already tested against).
  * ========================================================================== */
 #define HX711_DOUT_PORT   gpioPortC
-#define HX711_DOUT_PIN    1   /* THU theo yeu cau: DOUT=PC01 */
+#define HX711_DOUT_PIN    1   /* PC01 - FINALIZED to match the user's actual
+                                * wiring (differs from the default MOSI/TX
+                                * name in the SDK's SPI mikroe config file -
+                                * this signal does not go through the SPI
+                                * driver, it's a dedicated point-to-point
+                                * wire from the module straight to this pin,
+                                * so the "MOSI" name in the SPI docs does not
+                                * apply). DO NOT change back to PC02. */
 #define HX711_SCK_PORT    gpioPortC
-#define HX711_SCK_PIN     3   /* mikroBUS SCK/CLK - xac nhan dung qua source BRD2709A */
+#define HX711_SCK_PIN     3   /* mikroBUS SCK/CLK - confirmed correct via the BRD2709A source */
 
-#define HX711_TARE_SAMPLES      30U     /* so mau lay trung binh luc tru bi - khop hx711_test.ino (scale.tare(30)) */
-#define FLOW_CALC_INTERVAL_MS   10000U  /* tinh lai flow rate moi 10s, tranh nhieu do vi phan tren tin hieu can rung */
-#define HX711_PRINT_INTERVAL_MS 500U    /* in khoi luong ra serial moi 500ms - khop nhip in cua hx711_test.ino */
-#define HX711_ZERO_FILTER_G     15.0f   /* +-15g quanh 0 -> hien thi 0 (khop nguong +-0.015kg cua ban .ino goc) */
-#define HX711_CONFIRM_TOLERANCE_COUNTS  3000L  /* ~214g (14 count/g) - nguong xac nhan 2 mau lien tiep khop nhau */
+#define HX711_TARE_SAMPLES      30U     /* number of samples averaged during taring - matches hx711_test.ino (scale.tare(30)) */
+#define FLOW_CALC_INTERVAL_MS   10000U  /* recompute flow rate every 10s to avoid noise from differentiating a jittery weight signal */
+#define HX711_PRINT_INTERVAL_MS 500U    /* print weight to serial every 500ms - matches hx711_test.ino's print cadence */
+#define HX711_ZERO_FILTER_G     15.0f   /* +-15g around 0 -> displayed as 0 (matches the +-0.015kg threshold in the original .ino) */
+#define HX711_CONFIRM_TOLERANCE_COUNTS  3000L  /* ~214g (14 counts/g) - threshold for confirming 2 consecutive samples agree */
 
-static int32_t  hx711_pending_raw   = 0;       /* mau "ung vien" cho xac nhan o lan doc tiep theo */
+static int32_t  hx711_pending_raw   = 0;       /* "candidate" sample awaiting confirmation on the next read */
 static bool     hx711_have_pending  = false;
 
-static bool     hx711_tare_started  = false;   /* da bat dau tru bi (in thong bao 1 lan) */
-static bool     hx711_inited        = false;   /* da tru bi xong, san sang doc that */
+static bool     hx711_tare_started  = false;   /* taring has started (prints the message once) */
+static bool     hx711_inited        = false;   /* taring is done, ready for real readings */
 static int32_t  hx711_tare_offset   = 0;
-static int64_t  hx711_tare_accum    = 0;       /* CO DAU - raw co the am, cong don kieu unsigned se tran so */
+static int64_t  hx711_tare_accum    = 0;       /* SIGNED - raw can be negative; an unsigned accumulator would overflow */
 static uint32_t hx711_tare_count    = 0;
-static float    hx711_weight_g      = 0.0f;    /* khoi luong da loc EMA, gram */
+static float    hx711_weight_g      = 0.0f;    /* EMA-filtered weight, grams */
 static bool     hx711_have_sample   = false;
 static uint32_t hx711_last_valid_ms = 0;
 static uint32_t hx711_last_print_ms = 0;
 
-/* ---- Phat hien module HX711 THAT truoc khi tin bat ky gia tri nao -----
- * HX711 that keo DOUT xuong LOW theo CHU KY DEU DAN (~100ms voi rate 10SPS,
- * ~12.5ms voi 80SPS) de bao "co mau moi". Chan floating (khong noi module
- * that, hoac module chua chay) thi muc DOUT nhay lung tung KHONG theo chu
- * ky nao - phai doi vai lan "san sang" lien tiep co khoang cach hop ly moi
- * dam ket luan la co chip that, tranh nham nhieu thanh du lieu that. */
+/* ---- Detect a REAL HX711 module before trusting any value -----
+ * A real HX711 pulls DOUT LOW on a REGULAR CYCLE (~100ms at 10SPS, ~12.5ms
+ * at 80SPS) to signal "new sample ready". A floating pin (no real module
+ * connected, or the module hasn't started yet) makes the DOUT level jump
+ * around with NO regular cycle - we need several consecutive "ready" events
+ * with a plausible spacing before concluding a real chip is present, to
+ * avoid mistaking noise for real data. */
 #define HX711_DETECT_INTERVAL_MIN_MS   8U
 #define HX711_DETECT_INTERVAL_MAX_MS   500U
 #define HX711_DETECT_STREAK_NEEDED     4U
-#define HX711_DETECT_REPORT_MS         2000U   /* bao "chua thay" moi 2s neu van chua xac nhan duoc */
+#define HX711_DETECT_REPORT_MS         2000U   /* report "not found yet" every 2s while still unconfirmed */
 
 static bool     hx711_found            = false;
-static bool     hx711_prev_ready       = false;
 static uint32_t hx711_last_ready_ms    = 0;
 static uint32_t hx711_good_streak      = 0;
 static uint32_t hx711_last_report_ms   = 0;
 
 static float    flow_anchor_weight_g = 0.0f;
 static uint32_t flow_anchor_ms       = 0;
-static float    flow_ml_per_h        = 0.0f;   /* ket qua flow tinh duoc gan nhat, ml/gio */
+static float    flow_ml_per_h        = 0.0f;   /* most recently computed flow rate, ml/hour */
 
 static void hx711_gpio_init(void)
 {
@@ -103,21 +116,25 @@ static void hx711_gpio_init(void)
 
 static bool hx711_is_ready(void)
 {
-  /* HX711 keo DOUT xuong LOW khi co mau moi san sang de doc. */
+  /* The HX711 pulls DOUT LOW once a new sample is ready to be read. */
   return GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN) == 0;
 }
 
-/* Doc 1 mau tho 24-bit (co dau) roi gui them 1 xung de chon lai kenh A/gain128.
- * QUAN TRONG: toan bo qua trinh nay PHAI tat ngat (atomic section) - dung y
- * het thu vien Arduino HX711 goc (bogde/HX711) boc noInterrupts()/interrupts()
- * quanh shiftIn(). Ly do: neu SCK bi giu o 1 trong 2 muc qua ~60us (vi du do
- * mot ngat khac - Zigbee radio stack - chen ngang giua chung 24 bit), HX711
- * tu dong vao che do power-down NGAY GIUA LAN DOC, lam mau bi "gay" (mot
- * phan bit cua lan doc cu, phan con lai la rac) - KHONG phai loi 24-bit sach
- * se, ma la gia tri sai lech nho, giai thich dung hien tuong da thay: khoi
- * luong nhay lung tung vai chuc gram dai khi cân dang trong (khong phai loi
- * doc "that bai ro rang" se de phat hien, ma la loi "doc gan dung nhung sai
- * lech" rat kho phat hien neu khong biet truoc). Truoc day thieu buoc nay. */
+/* Reads one raw 24-bit (signed) sample, then sends 1 extra pulse to
+ * re-select channel A/gain 128. IMPORTANT: this whole sequence MUST run
+ * with interrupts disabled (atomic section) - mirroring exactly what the
+ * original Arduino HX711 library (bogde/HX711) does by wrapping
+ * shiftIn() in noInterrupts()/interrupts(). Reason: if SCK is held at
+ * either level for more than ~60us (e.g. because another interrupt - the
+ * Zigbee radio stack - preempts partway through the 24 bits), the HX711
+ * automatically enters power-down mode MID-READ, corrupting the sample
+ * (part of it is bits from the old reading, the rest is garbage) - NOT a
+ * clean 24-bit read failure, but a subtly-wrong value, which is exactly
+ * what explains the previously observed symptom: the weight jittering by
+ * tens of grams even while the load was stable (not an obvious "read
+ * failure" that would be easy to spot, but a "close-but-wrong read" that's
+ * very hard to detect without knowing to look for it in advance). This
+ * step was previously missing. */
 static int32_t hx711_read_raw(void)
 {
   int32_t value = 0;
@@ -125,14 +142,16 @@ static int32_t hx711_read_raw(void)
 
   CORE_ENTER_ATOMIC();
 
-  /* QUAN TRONG: truoc day dung vong lap rong dem so lan (khong canh theo
-   * thoi gian thuc) de giu xung SCK - giong bug da gap voi I2C MAX30102:
-   * duoi build toi uu -Os, vong lap ~4 lan chi mat vai chuc NANO giay,
-   * nhanh hon nhieu so voi kha nang HX711 dich bit kip, khien DOUT bi
-   * "dung hinh" doc mai 1 gia tri co dinh (khoi luong luon = 0 du co treo
-   * vat). Dung sl_udelay_wait() (calibrate that theo dong ho CPU) de co
-   * dung ~1us moi nua chu ky - du lon hon toi thieu ~0.2us HX711 yeu cau,
-   * van nam rat xa nguong ~50-60us khien chip tu vao che do power-down. */
+  /* IMPORTANT: this used to be an empty loop counting iterations (not timed
+   * against a real clock) to hold each SCK pulse - the same class of bug
+   * hit with the MAX30102 I2C code: under -Os optimization, a loop of ~4
+   * iterations takes only a few tens of NANOseconds, far faster than the
+   * HX711 can shift a bit out, leaving DOUT "frozen" reading the same fixed
+   * value forever (weight always = 0 no matter what's on the scale). Using
+   * sl_udelay_wait() (calibrated against the real CPU clock) gives a true
+   * ~1us per half-cycle - comfortably above the ~0.2us minimum the HX711
+   * requires, while staying far below the ~50-60us threshold that would
+   * make the chip enter power-down on its own. */
   for (int i = 0; i < 24; i++) {
     GPIO_PinOutSet(HX711_SCK_PORT, HX711_SCK_PIN);
     sl_udelay_wait(1);
@@ -141,7 +160,7 @@ static int32_t hx711_read_raw(void)
     sl_udelay_wait(1);
   }
 
-  /* Xung thu 25: chon kenh A, gain 128 cho lan doc sau (khop hx711_test.ino) */
+  /* 25th pulse: selects channel A, gain 128 for the next reading (matches hx711_test.ino) */
   GPIO_PinOutSet(HX711_SCK_PORT, HX711_SCK_PIN);
   sl_udelay_wait(1);
   GPIO_PinOutClear(HX711_SCK_PORT, HX711_SCK_PIN);
@@ -149,7 +168,7 @@ static int32_t hx711_read_raw(void)
   CORE_EXIT_ATOMIC();
 
   if (value & 0x00800000) {
-    value = (int32_t)((uint32_t)value | 0xFF000000U);   /* mo rong dau 24-bit -> 32-bit */
+    value = (int32_t)((uint32_t)value | 0xFF000000U);   /* sign-extend 24-bit -> 32-bit */
   }
   return value;
 }
@@ -161,80 +180,108 @@ static void hx711_poll(void)
   bool ready_now = hx711_is_ready();
 
   if (!hx711_found) {
-    /* Buoc 1: xac nhan co chip HX711 THAT truoc, chua doc/tare gi ca -
-     * theo dung yeu cau "kiem tra phat hien duoc chua, xong moi tinh den
-     * doc can". Chi dem la "canh len that" khi tu KHONG san sang chuyen
-     * sang san sang (rising edge), roi xem khoang cach giua cac lan do
-     * co deu dan (dung chu ky HX711 that) khong. */
-    if (ready_now && !hx711_prev_ready) {
-      if (hx711_last_ready_ms != 0) {
-        uint32_t interval = now0 - hx711_last_ready_ms;
-        if (interval >= HX711_DETECT_INTERVAL_MIN_MS && interval <= HX711_DETECT_INTERVAL_MAX_MS) {
-          hx711_good_streak++;
-        } else {
-          hx711_good_streak = 0;   /* khoang cach la - giong nhieu, dem lai tu dau */
-        }
-        if (hx711_good_streak >= HX711_DETECT_STREAK_NEEDED) {
-          hx711_found = true;
-          printf("[HX711] DA PHAT HIEN module HX711 that (DOUT bao san sang deu dan ~%lums/lan)\r\n",
-                 (unsigned long)interval);
-        }
+    /* Step 1: confirm a REAL HX711 chip is present before trusting any
+     * value at all.
+     *
+     * BUG FIXED (the real reason HX711 was never detected, EVEN WITH
+     * WIRING 100% CORRECT): the previous version only READ the DOUT level
+     * (GPIO_PinInGet) but NEVER pulsed SCK while not yet "found". Per the
+     * HX711 protocol: once a sample finishes converting, DOUT pulls LOW
+     * and STAYS there FOREVER until the host sends >=25 SCK pulses to both
+     * read the sample AND "unlock" the next conversion. If SCK is never
+     * pulsed (as the old "detect" phase did), even a real chip will only
+     * pull DOUT low ONCE (~100ms after power-up) and then latch there
+     * permanently - which exactly explains the symptom observed: the log
+     * always printed "DOUT reading level 0" on every report, never once
+     * showing a new edge, regardless of whether the GND was reconnected or
+     * the pin was swapped between PC01<->PC02 (because this was never a
+     * wiring problem - it was an algorithm that could never "unlock" the
+     * chip so it would convert a second sample).
+     *
+     * Fix: EVERY time DOUT is observed ready (ready_now), ACTIVELY pulse
+     * SCK right away (call hx711_read_raw() - this both reads the data and
+     * "unlocks" the chip to run its next conversion), then use the
+     * interval BETWEEN CONSECUTIVE REAL READS to confirm a regular cycle,
+     * exactly how a real Arduino HX711 library operates (is_ready() and
+     * read() always go together). */
+    if (!ready_now) {
+      if (now0 - hx711_last_report_ms >= HX711_DETECT_REPORT_MS) {
+        hx711_last_report_ms = now0;
+        printf("[HX711] Real HX711 module not yet confirmed - DOUT reading level %d "
+               "but with no stable cycle (possibly a floating pin). "
+               "Check the DT/SCK wiring and the module's VCC/GND supply.\r\n",
+               GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN));
       }
-      hx711_last_ready_ms = now0;
+      return;   /* NOT ready yet -> nothing to clock out, wait for the next poll */
     }
-    hx711_prev_ready = ready_now;
 
-    if (!hx711_found && now0 - hx711_last_report_ms >= HX711_DETECT_REPORT_MS) {
-      hx711_last_report_ms = now0;
-      printf("[HX711] Chua xac nhan duoc module HX711 that - DOUT dang doc muc %d "
-             "nhung khong theo chu ky on dinh (co the la nhieu chan floating). "
-             "Kiem tra lai day DT/SCK, nguon VCC/GND cua module.\r\n",
-             GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN));
+    /* ready_now == true: pulse SCK RIGHT NOW (both samples the data and
+     * "unlocks" the chip to run its next conversion) - this is the step
+     * that was missing before. */
+    (void)hx711_read_raw();
+
+    if (hx711_last_ready_ms != 0) {
+      uint32_t interval = now0 - hx711_last_ready_ms;
+      if (interval >= HX711_DETECT_INTERVAL_MIN_MS && interval <= HX711_DETECT_INTERVAL_MAX_MS) {
+        hx711_good_streak++;
+      } else {
+        hx711_good_streak = 0;   /* interval out of range - looks like noise, restart the streak */
+      }
+      if (hx711_good_streak >= HX711_DETECT_STREAK_NEEDED) {
+        hx711_found = true;
+        printf("[HX711] REAL HX711 module DETECTED (DOUT signals ready on a regular ~%lums cycle)\r\n",
+               (unsigned long)interval);
+      }
     }
-    return;   /* CHUA xac nhan co chip that -> khong doc/tare gi ca */
+    hx711_last_ready_ms = now0;
+    return;   /* the sample used just to "unlock" the chip was discarded during
+               * the detect phase - real reads start fresh once found */
   }
 
   if (!ready_now) {
-    return;   /* chua co mau moi -> khong doc, khong block vong lap chinh */
+    return;   /* no new sample yet -> don't read, don't block the main loop */
   }
 
   int32_t raw_candidate = hx711_read_raw();
   uint32_t now = now0;
 
-  /* Bo loc "xac nhan 2 lan khop nhau": vai lan doc bi LECH VI TRI BIT khi
-   * dich 24-bit (do dong bo thoi diem bat dau doc voi HX711 chua du chac
-   * chan), cho ra gia tri gap ~2^n lan gia tri that (vd 379g bi doc thanh
-   * 758g, 1517g, 47935g...) - qua de nhan biet vi day la LOI RIENG LE,
-   * KHONG lap lai giong het o lan doc ke tiep. Chi chap nhan 1 mau khi no
-   * gan giong mau ngay truoc (trong khoang dung sai), tuc da duoc "xac
-   * nhan" - loai duoc gan het cac lan doc lech bit ma khong can biet
-   * truoc nguyen nhan dien/co khi that su la gi. */
+  /* "Two-reads-must-agree" filter: some reads get BIT-SHIFTED during the
+   * 24-bit shift (because the read start time isn't perfectly synced with
+   * the HX711 yet), producing a value roughly ~2^n times the real value
+   * (e.g. a real 379g read as 758g, 1517g, 47935g...) - easy to spot
+   * because this is a ONE-OFF error that does NOT repeat identically on
+   * the very next read. Only accept a sample once it closely matches the
+   * immediately preceding one (within tolerance), i.e. it has been
+   * "confirmed" - this filters out virtually all bit-shifted reads without
+   * needing to know the exact electrical/mechanical root cause in advance. */
   if (!hx711_have_pending) {
     hx711_pending_raw   = raw_candidate;
     hx711_have_pending   = true;
-    return;   /* cho lan doc tiep theo de xac nhan */
+    return;   /* wait for the next read to confirm */
   }
 
   int32_t diff = raw_candidate - hx711_pending_raw;
   if (diff < 0) diff = -diff;
   if (diff > HX711_CONFIRM_TOLERANCE_COUNTS) {
-    /* Khong khop voi mau truoc -> nghi la mau truoc HOAC mau nay bi loi.
-     * Luu mau moi lam "ung vien" tiep theo, doi xac nhan o lan sau. */
+    /* Doesn't match the previous sample -> suspect the previous sample OR
+     * this one is bad. Store the new sample as the next "candidate" and
+     * wait for confirmation on the following read. */
     hx711_pending_raw = raw_candidate;
     return;
   }
 
-  /* Khop nhau -> chap nhan, lay trung binh 2 mau cho on dinh hon. */
+  /* Match -> accept, average the 2 samples for extra stability. */
   int32_t raw = (raw_candidate + hx711_pending_raw) / 2;
   hx711_have_pending = false;
 
   if (!hx711_inited) {
-    /* Giong can dien tu that: PHAI de trong can luc bat may, doi tru bi
-     * xong (lay trung binh 30 mau, khop scale.tare(30) trong hx711_test.ino)
-     * roi moi bao "tru bi xong" - sau do nguoi dung treo tui dich len can. */
+    /* Just like a real electronic scale: the scale MUST be empty at
+     * power-on; wait for taring to finish (averaging 30 samples, matching
+     * scale.tare(30) in hx711_test.ino) before announcing "taring done" -
+     * only then does the user hang the IV bag on the scale. */
     if (!hx711_tare_started) {
       hx711_tare_started = true;
-      printf("[HX711] Hay de TRONG can, dang tru bi...\r\n");
+      printf("[HX711] Please keep the scale EMPTY, taring now...\r\n");
     }
 
     hx711_tare_accum += raw;
@@ -243,14 +290,14 @@ static void hx711_poll(void)
       hx711_tare_offset = (int32_t)(hx711_tare_accum / (int64_t)hx711_tare_count);
       hx711_inited = true;
       flow_anchor_ms = now;
-      printf("[HX711] Tru bi xong! Can da ve 0g. Hay treo tui dich len can.\r\n");
+      printf("[HX711] Taring done! Scale is now at 0g. You may hang the IV bag on the scale.\r\n");
     }
     return;
   }
 
   float weight_g = (float)(raw - hx711_tare_offset) / HX711_CALIBRATION_FACTOR * 1000.0f;
 
-  /* Loc EMA de giam nhieu rung co huu cua loadcell */
+  /* EMA filter to reduce the load cell's inherent mechanical jitter */
   const float alpha = 0.2f;
   hx711_weight_g = hx711_have_sample
       ? (hx711_weight_g * (1.0f - alpha) + weight_g * alpha)
@@ -258,8 +305,9 @@ static void hx711_poll(void)
   hx711_have_sample   = true;
   hx711_last_valid_ms = now;
 
-  /* In khoi luong ra serial dinh ky (khop nhip + bo loc +-15g quanh 0 cua
-   * hx711_test.ino) de kiem tra bang mat, khong lien quan toi tinh flow. */
+  /* Periodically print the weight to serial (matching the cadence + the
+   * +-15g zero-band filter of hx711_test.ino) for visual sanity checking -
+   * unrelated to the flow-rate computation. */
   if (now - hx711_last_print_ms >= HX711_PRINT_INTERVAL_MS) {
     hx711_last_print_ms = now;
     float disp_g = hx711_weight_g;
@@ -270,7 +318,7 @@ static void hx711_poll(void)
     int kg_whole = wg / 1000;
     int kg_frac  = wg % 1000;
     if (kg_frac < 0) kg_frac = -kg_frac;
-    printf("[HX711] Khoi luong tui dich: %d.%03d kg (%d g)\r\n", kg_whole, kg_frac, wg);
+    printf("[HX711] IV bag weight: %d.%03d kg (%d g)\r\n", kg_whole, kg_frac, wg);
   }
 
   if (flow_anchor_ms == 0) {
@@ -280,10 +328,10 @@ static void hx711_poll(void)
   }
 
   if (now - flow_anchor_ms >= FLOW_CALC_INTERVAL_MS) {
-    float delta_g = flow_anchor_weight_g - hx711_weight_g;   /* giam = dich da chay ra */
+    float delta_g = flow_anchor_weight_g - hx711_weight_g;   /* decrease = fluid that has flowed out */
     float delta_h = (float)(now - flow_anchor_ms) / 3600000.0f;
     if (delta_h > 0.0f) {
-      /* Gia dinh ty trong dich truyen ~1 g/ml (dung dich muoi/glucose loang) */
+      /* Assume infusion fluid density ~1 g/ml (dilute saline/glucose solution) */
       float computed = delta_g / delta_h;
       flow_ml_per_h = (computed < 0.0f) ? 0.0f : computed;
     }
@@ -294,53 +342,55 @@ static void hx711_poll(void)
 }
 
 /* ============================================================================
- *  Module DFRobot Gravity MAX30102 (SEN0344) — I2C tu bit-bang GPIO thuan,
- *  KHONG dung driver I2CSPM cua SDK. Ly do: driver do (sl_i2cspm.c) co
- *  timeout CUNG 300 GIAY cho moi giao dich — neu bus bi "ket" (vi du module
- *  dang "clock-stretch" qua lau vi ban ron xu ly), CA HE THONG (ke ca kenh
- *  giot dang chay tot, ke ca Zigbee) se bi treo toi 5 phut MOI LAN doc —
- *  khong chap nhan duoc cho thiet bi giam sat y te. Tu viet lop I2C rieng
- *  o day de kiem soat duoc timeout that ngan (vai chuc ms toi da), giong
- *  cach da lam voi HX711 (kenh FLOW) o tren.
+ *  DFRobot Gravity MAX30102 module (SEN0344) — I2C via pure GPIO bit-banging,
+ *  NOT using the SDK's I2CSPM driver. Reason: that driver (sl_i2cspm.c) has
+ *  a FIXED 300-SECOND timeout per transaction — if the bus ever gets "stuck"
+ *  (e.g. the module clock-stretches too long while busy), the ENTIRE SYSTEM
+ *  (including the drop channel, which is otherwise running fine, and even
+ *  Zigbee) would freeze for up to 5 minutes PER OCCURRENCE — unacceptable
+ *  for a medical monitoring device. A dedicated, minimal I2C layer is
+ *  written here instead to keep the timeout genuinely short (tens of ms at
+ *  most), the same approach already used above for the HX711 (FLOW channel).
  *
- *  Giao thuc lenh (dia chi thanh ghi) lay tu source that cua thu vien
- *  DFRobot_BloodOxygen_S (repo DFRobot/DFRobot_BloodOxygen_S):
- *    - Dia chi I2C: 0x57
- *    - Bat dau do: ghi 2 byte {0x00, 0x01} vao "thanh ghi" 0x20
- *    - Doc ket qua: doc 8 byte tu "thanh ghi" 0x0C ->
+ *  Command protocol (register addresses) taken from the actual source of
+ *  the DFRobot_BloodOxygen_S library (repo DFRobot/DFRobot_BloodOxygen_S):
+ *    - I2C address: 0x57
+ *    - Start measuring: write 2 bytes {0x00, 0x01} to "register" 0x20
+ *    - Read result: read 8 bytes from "register" 0x0C ->
  *        byte[0]      = SpO2 (%)
- *        byte[2..5]   = Heartbeat (bpm), ghep 32-bit big-endian
- *      Module tu cap nhat ket qua nay khoang moi 4 giay.
+ *        byte[2..5]   = Heartbeat (bpm), packed as big-endian 32-bit
+ *      The module refreshes this result roughly every 4 seconds on its own.
  * ========================================================================== */
 #define BLOODOX_I2C_ADDR      0x57
 #define BLOODOX_REG_START     0x20
 #define BLOODOX_REG_RESULT    0x0C
 #define BLOODOX_RESULT_LEN    8
 
-/* Chan I2C (mikroBUS/Qwiic chung tren BRD2709A): SCL=PC05, SDA=PC07 */
+/* I2C pins (shared mikroBUS/Qwiic bus on BRD2709A): SCL=PC05, SDA=PC07 */
 #define I2CBB_SCL_PORT  gpioPortC
 #define I2CBB_SCL_PIN   5
 #define I2CBB_SDA_PORT  gpioPortC
 #define I2CBB_SDA_PIN   7
 
-/* Gioi han vong lap cho MOI buoc cho tin hieu len muc cao (clock-stretch
- * hoac SDA bi giu thap) — KHONG dung sl_sleeptimer (do phai la vong lap
- * busy-wait de thoat duoc ngay khi bus phuc hoi, khong ngu qua lau). Con
- * so nay la "so lan kiem tra", khong phai don vi thoi gian truc tiep, nhung
- * duoc chon du lon de cho toi ~20-30ms truoc khi bo cuoc — an toan hon
- * RAT NHIEU so voi 300 giay cua driver SDK. */
+/* Loop-iteration cap for EACH step waiting on the line to go high
+ * (clock-stretching, or SDA held low) — NOT using sl_sleeptimer (this has
+ * to be a busy-wait loop so it can exit the instant the bus recovers,
+ * without oversleeping). This number is an "iteration count", not a direct
+ * unit of time, but it's chosen generously enough to allow ~20-30ms before
+ * giving up — VASTLY safer than the SDK driver's 300 seconds. */
 #define I2CBB_STRETCH_LOOP_MAX  20000
 
-/* QUAN TRONG: truoc day ham nay la 1 vong lap rong dem so lan (khong canh
- * theo thoi gian thuc), nen voi build toi uu -Os thuc te chi mat ~vai chuc
- * NANO giay - nhanh hon hang tram lan so du dinh. Xung I2C bi day qua
- * nhanh khien buoc doc bit ACK kiem tra SDA ngay sau khi tha SCL len cao,
- * SOM HON ca luc vi xu ly rieng ben trong module DFRobot kip keo SDA
- * xuong bao ACK -> lien tuc doc nham thanh "khong ACK" du module van o do
- * va hoat dong binh thuong (driver I2CSPM phan cung chay dung chuan
- * 100kHz thi van bat duoc). Dung sl_udelay_wait() (calibrate that theo
- * dong ho CPU, component "udelay" da co san trong project) de co dung
- * ~5us moi buoc, tuong duong toc do chuan I2C 100kHz. */
+/* IMPORTANT: this function used to be an empty loop counting iterations
+ * (not timed against a real clock), so under -Os optimization it actually
+ * took only ~a few tens of NANOseconds - hundreds of times faster than
+ * intended. The I2C pulses were driven far too fast, causing the ACK-bit
+ * read right after releasing SCL high to happen EARLIER than the DFRobot
+ * module's own internal MCU could pull SDA low to signal ACK -> repeatedly
+ * misread as "no ACK" even though the module was present and functioning
+ * normally (a real I2CSPM hardware driver running at the correct 100kHz
+ * would have caught it fine). Using sl_udelay_wait() (calibrated against
+ * the real CPU clock, via the "udelay" component already included in the
+ * project) gives a true ~5us per step, matching standard 100kHz I2C speed. */
 static void i2cbb_delay(void)
 {
   sl_udelay_wait(5);
@@ -353,10 +403,10 @@ static void i2cbb_sda_low(void)      { GPIO_PinModeSet(I2CBB_SDA_PORT, I2CBB_SDA
 static int  i2cbb_sda_read(void)     { return GPIO_PinInGet(I2CBB_SDA_PORT, I2CBB_SDA_PIN); }
 static int  i2cbb_scl_read(void)     { return GPIO_PinInGet(I2CBB_SCL_PORT, I2CBB_SCL_PIN); }
 
-/* Nha SCL len muc cao va CHO (co gioi han vong lap) trong truong hop slave
- * dang "clock-stretch" (giu SCL thap de xin them thoi gian xu ly). Tra ve
- * false neu vuot qua gioi han — goi bao "bus loi", KHONG bao gio ngu vinh
- * vien nhu driver goc. */
+/* Release SCL to high and WAIT (with a loop cap) in case the slave is
+ * "clock-stretching" (holding SCL low to ask for more processing time).
+ * Returns false if the cap is exceeded — the caller reports a "bus error",
+ * NEVER sleeping forever like the original driver does. */
 static bool i2cbb_scl_release_wait(void)
 {
   i2cbb_scl_release();
@@ -392,18 +442,18 @@ static void i2cbb_stop(void)
   i2cbb_delay();
 }
 
-/* Ghi 1 byte, tra ve true neu slave ACK (keo SDA thap o xung thu 9) */
+/* Writes 1 byte, returns true if the slave ACKs (pulls SDA low on the 9th pulse) */
 static bool i2cbb_write_byte(uint8_t b)
 {
   for (int i = 0; i < 8; i++) {
     if (b & 0x80) { i2cbb_sda_release(); } else { i2cbb_sda_low(); }
     b = (uint8_t)(b << 1);
     i2cbb_delay();
-    if (!i2cbb_scl_release_wait()) { return false; }   /* bus loi/ket - bo cuoc ngay, KHONG cho 300s */
+    if (!i2cbb_scl_release_wait()) { return false; }   /* bus error/stuck - give up immediately, do NOT wait 300s */
     i2cbb_delay();
     i2cbb_scl_low();
   }
-  /* Xung thu 9: tha SDA de doc ACK tu slave */
+  /* 9th pulse: release SDA to read the ACK from the slave */
   i2cbb_sda_release();
   i2cbb_delay();
   if (!i2cbb_scl_release_wait()) { return false; }
@@ -433,7 +483,7 @@ static bool i2cbb_read_byte(uint8_t *out, bool send_ack)
   return true;
 }
 
-/* Ghi: START, ADDR+W, reg, data..., STOP (khop writeReg() cua DFRobot) */
+/* Write: START, ADDR+W, reg, data..., STOP (matches DFRobot's writeReg()) */
 static bool bloodox_write(uint8_t reg, const uint8_t *data, uint8_t len)
 {
   i2cbb_start();
@@ -446,9 +496,9 @@ static bool bloodox_write(uint8_t reg, const uint8_t *data, uint8_t len)
   return ok;
 }
 
-/* Doc: 2 giao dich rieng (STOP giua 2 buoc) — khop dung readReg() cua
- * DFRobot (Wire.endTransmission() + Wire.requestFrom() rieng le, khong
- * phai repeated-start gop). */
+/* Read: 2 separate transactions (STOP in between) — matches how DFRobot's
+ * readReg() works (separate Wire.endTransmission() + Wire.requestFrom(),
+ * not a combined repeated-start). */
 static bool bloodox_read(uint8_t reg, uint8_t *data, uint8_t len)
 {
   i2cbb_start();
@@ -473,23 +523,26 @@ static float    hr_bpm   = 0.0f;
 static float    spo2_pct = 0.0f;
 static bool     hr_valid = false;
 
-/* Khoang cach giua 2 lan thu dong lai module neu lan truoc chua thay -
- * module co the boot cham hon du kien luc cap nguon, hoac bus vua bi
- * nhieu tam thoi; retry dinh ky (khong block) thay vi bo cuoc vinh vien. */
+/* Interval between retries to re-probe the module if it wasn't found last
+ * time - the module might boot slower than expected after power-up, or the
+ * bus may have had a momentary glitch; retry periodically (non-blocking)
+ * instead of giving up permanently. */
 #define MAX30102_PROBE_INTERVAL_MS  2000U
 
-/* begin(): thu vien goc DFRobot ping bang WRITE 0-byte, nhung o day dung
- * doc thu 1 byte de kiem tra ACK dia chi thay the (don gian, tuong duong
- * ve mat giao thuc — chi can slave ACK dia chi la biet co mat). */
+/* begin(): the original DFRobot library pings with a 0-byte WRITE, but here
+ * we instead read 1 byte to check for an ACK on the address as an
+ * equivalent substitute (simpler, and protocol-equivalent — the slave
+ * ACKing its address is all that's needed to know it's present). */
 static bool bloodox_ping(void)
 {
   uint8_t dummy = 0;
   return bloodox_read(BLOODOX_REG_RESULT, &dummy, 1);
 }
 
-/* Thu 1 lan (khong block lau): neu ACK duoc, gui lenh bat dau do va danh
- * dau da khoi tao. Goi lai duoc bao nhieu lan cung an toan - dung de ca
- * lan dau luc boot lan retry dinh ky trong luc poll() deu dung chung. */
+/* Try once (won't block for long): if it ACKs, send the start-measuring
+ * command and mark it initialized. Safe to call any number of times - used
+ * for both the initial boot-time attempt and the periodic retries inside
+ * poll(). */
 static bool max30102_try_find(void)
 {
   if (!bloodox_ping()) {
@@ -498,13 +551,14 @@ static bool max30102_try_find(void)
 
   uint8_t start_cmd[2] = { 0x00, 0x01 };
   bloodox_write(BLOODOX_REG_START, start_cmd, 2);
-  /* Khong block o day cho ~4s nhu ban .ino goc (se lam tre lan join Zigbee
-   * dau tien) — max30102_poll() se tu nhan gia tri hop le khi module san
-   * sang (tra spo2/heartbeat > 0), truoc do sh_hr_state()/sh_spo2_state()
-   * cu bao CH_LOST binh thuong, khong sao ca. */
+  /* Do not block here for ~4s like the original .ino did (that would delay
+   * the first Zigbee join) — max30102_poll() will naturally pick up a
+   * valid value once the module is ready (returns spo2/heartbeat > 0);
+   * until then sh_hr_state()/sh_spo2_state() simply report CH_LOST as
+   * usual, which is fine. */
 
   max30102_inited = true;
-  printf("[BloodOx] Da khoi tao module DFRobot MAX30102 thanh cong (I2C bit-bang)\r\n");
+  printf("[BloodOx] DFRobot MAX30102 module initialized successfully (I2C bit-bang)\r\n");
   return true;
 }
 
@@ -513,11 +567,12 @@ static void max30102_init(void)
 #if HR_ENABLED || SPO2_ENABLED
   i2cbb_init_pins();
 
-  /* Module co MCU rieng ben trong, co the can vai tram ms de tu boot sau khi
-   * cap nguon (giong module cam bien nao co vi xu ly). Thu lai vai lan ngay
-   * luc boot thay vi bo cuoc o lan ping dau tien. Moi lan thu bi chan toi da
-   * vai chuc ms (I2CBB_STRETCH_LOOP_MAX), KHONG phai 300 giay nhu driver SDK
-   * cu — nen ca vong lap 6 lan nay van rat nhanh du bus loi. */
+  /* The module has its own onboard MCU and may need a few hundred ms to
+   * boot after power-up (like any sensor module with its own processor).
+   * Retry a few times right at boot instead of giving up on the first
+   * ping. Each attempt is capped at a few tens of ms at most
+   * (I2CBB_STRETCH_LOOP_MAX), NOT 300 seconds like the old SDK driver — so
+   * even this whole 6-attempt loop stays fast even if the bus is faulty. */
   bool found = false;
   for (int attempt = 0; attempt < 6 && !found; attempt++) {
     found = max30102_try_find();
@@ -527,11 +582,12 @@ static void max30102_init(void)
   }
 
   if (!found) {
-    printf("[BloodOx] Chua thay module tren I2C (dia chi 0x57 khong ACK sau 6 lan thu luc "
-           "boot) - se TU DONG THU LAI dinh ky moi %us, kiem tra nguon 3V3/GND va day SDA/SCL "
-           "neu van khong thay sau vai lan\r\n", MAX30102_PROBE_INTERVAL_MS / 1000U);
-    /* KHONG return som: max30102_inited van false, sh_hr_state()/sh_spo2_state()
-     * bao CH_LOST cho toi khi max30102_poll() tu tim thay va bat len. */
+    printf("[BloodOx] Module not found on I2C (address 0x57 did not ACK after 6 attempts at "
+           "boot) - will AUTOMATICALLY RETRY periodically every %us; check the 3V3/GND supply "
+           "and the SDA/SCL wiring if it's still not found after a few attempts\r\n", MAX30102_PROBE_INTERVAL_MS / 1000U);
+    /* Do NOT return early: max30102_inited stays false, and
+     * sh_hr_state()/sh_spo2_state() will report CH_LOST until
+     * max30102_poll() finds it and turns it on by itself. */
   }
 #endif
 }
@@ -540,8 +596,9 @@ static void max30102_poll(void)
 {
 #if HR_ENABLED || SPO2_ENABLED
   if (!max30102_inited) {
-    /* Module chua tung ACK - tu dong thu dong lai dinh ky (khong block vong
-     * lap chinh), thay vi bo cuoc vinh vien sau 6 lan thu luc boot. */
+    /* Module has never ACKed - automatically retry periodically (without
+     * blocking the main loop), instead of giving up forever after the 6
+     * boot-time attempts. */
     uint32_t now = now_ms();
     if (now - max30102_last_probe_ms >= MAX30102_PROBE_INTERVAL_MS) {
       max30102_last_probe_ms = now;
@@ -552,16 +609,18 @@ static void max30102_poll(void)
 
   uint8_t buf[BLOODOX_RESULT_LEN];
   if (!bloodox_read(BLOODOX_REG_RESULT, buf, BLOODOX_RESULT_LEN)) {
-    return;   /* loi bus tam thoi (bi chan toi da vai chuc ms, khong treo) - giu gia tri cu, thu lai vong sau */
+    return;   /* transient bus error (capped at a few tens of ms, never hangs) - keep the old value, retry next loop */
   }
 
   int spo2 = buf[0];
   int32_t heartbeat = ((int32_t)buf[2] << 24) | ((int32_t)buf[3] << 16)
                      | ((int32_t)buf[4] << 8)  | (int32_t)buf[5];
 
-  /* Module tra 0/am khi chua co ngon tay hoac chua du du lieu - giu nguyen
-   * gia tri cu, KHONG cap nhat "last_sample_ms" (de sh_*_state() tu chuyen
-   * CH_LOST sau VITAL_TIMEOUT_MS neu that su mat tin hieu lien tuc). */
+  /* The module returns 0/negative when there's no finger yet or not enough
+   * data - keep the old value, do NOT update "last_sample_ms" (so
+   * sh_*_state() can naturally transition to CH_LOST after
+   * VITAL_TIMEOUT_MS if the signal is genuinely lost for a sustained
+   * period). */
   if (spo2 > 0 && heartbeat > 0) {
     spo2_pct = (float)spo2;
     hr_bpm   = (float)heartbeat;
@@ -572,7 +631,7 @@ static void max30102_poll(void)
 }
 
 /* ============================================================================
- *  API chung
+ *  Public API
  * ========================================================================== */
 void sensor_hub_init(void)
 {
@@ -617,7 +676,7 @@ float sh_hr(void)
 #if HR_ENABLED
   return hr_valid ? hr_bpm : HR_BASE_FILL;
 #else
-  return HR_BASE_FILL;        /* chua noi -> gia tri nen (chuan hoa ~0) */
+  return HR_BASE_FILL;        /* not connected -> baseline value (normalizes to ~0) */
 #endif
 }
 ch_state_t sh_hr_state(void)
@@ -649,13 +708,13 @@ ch_state_t sh_spo2_state(void)
 #endif
 }
 
-/* ---------------- FLOW (loadcell) ---------------- */
+/* ---------------- FLOW (load cell) ---------------- */
 float sh_flow_ratio(void)
 {
 #if FLOW_ENABLED
   return flow_ml_per_h / SET_FLOW_ML_H;
 #else
-  return 1.0f;               /* chua noi -> coi nhu dung muc dat (ratio 1.0) */
+  return 1.0f;               /* not connected -> treat as exactly on target (ratio 1.0) */
 #endif
 }
 ch_state_t sh_flow_state(void)
@@ -668,13 +727,13 @@ ch_state_t sh_flow_state(void)
 #endif
 }
 
-/* ---------------- DROPS (cam bien giot) ---------------- */
+/* ---------------- DROPS (drop sensor) ---------------- */
 float sh_drops_per_min(void)
 {
 #if DROPS_ENABLED
   uint32_t now = now_ms();
   uint32_t gap = now - last_drop_ms;
-  uint32_t eff = (last_interval > gap) ? last_interval : gap;  /* lau chua co giot -> rate giam */
+  uint32_t eff = (last_interval > gap) ? last_interval : gap;  /* no drop for a while -> rate drops */
   if (eff == 0) return 0.0f;
   return 60000.0f / (float)eff;
 #else
@@ -688,7 +747,7 @@ float sh_drops_ratio(void)
 ch_state_t sh_drops_state(void)
 {
 #if DROPS_ENABLED
-  return CH_OK;   /* cam bien dang chay; "khong co giot" se thanh occlusion qua luat ratio */
+  return CH_OK;   /* sensor is running; "no drops" becomes an occlusion via the ratio rule */
 #else
   return CH_DISABLED;
 #endif

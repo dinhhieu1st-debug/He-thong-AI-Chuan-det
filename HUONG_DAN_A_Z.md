@@ -84,10 +84,10 @@ nhớ, xếp từ to đến nhỏ:
 
 - **Endpoint**: một thiết bị Zigbee có thể đóng nhiều "vai" cùng lúc — ví dụ 1
   ổ cắm thông minh 4 lỗ có thể có 4 endpoint, mỗi endpoint điều khiển 1 lỗ độc
-  lập. Đánh số 1-255. Trong project này, board cảm biến có 6 endpoint, **mỗi
-  endpoint không phải "4 lỗ cắm" mà là "1 kênh dữ liệu"** (HR/SpO2/Flow/
-  Drop/Alarm/Basic) — dùng endpoint như một cách chia dữ liệu ra nhiều luồng
-  độc lập trên cùng 1 thiết bị vật lý.
+  lập. Đánh số 1-255. Trong project này, board cảm biến có **2 endpoint**:
+  endpoint 1 (Basic, định danh thiết bị) và endpoint 2 (cluster tuỳ chỉnh
+  "Smart IV Vitals", mang cả 5 giá trị AI — HR/SpO2/Flow/Drop/Alarm — dưới
+  dạng 5 attribute riêng biệt trong CÙNG 1 cluster, xem mục 1.3).
 - **Cluster**: trong 1 endpoint, dữ liệu được nhóm theo **cluster** — 1 cluster
   là 1 "bộ chức năng chuẩn hoá" được đặt tên và đánh mã số sẵn trong chuẩn ZCL,
   ví dụ cluster "Temperature Measurement" (mã `0x0402`) định nghĩa sẵn: có 1
@@ -98,7 +98,11 @@ nhớ, xếp từ to đến nhỏ:
   `MeasuredValue`. Đọc/ghi attribute là đơn vị thao tác nhỏ nhất khi giao tiếp
   Zigbee (đọc 1 attribute, ghi 1 attribute, hoặc "report" khi nó đổi giá trị).
 
-### 0.5.3 Vì sao không viết "custom cluster" mà lại đi "mượn" cluster có sẵn?
+### 0.5.3 Custom cluster — vì sao dự án từng "mượn" cluster có sẵn, và vì sao giờ đã bỏ
+
+> **Cập nhật:** dự án **ĐÃ chuyển sang dùng custom cluster thật** (ngày
+> 2026-07-18). Phần dưới đây giữ lại để giải thích LỊCH SỬ quyết định ban đầu
+> — thiết kế hiện tại đã khác, xem mục 1.3 và 3.2 cho kiến trúc THẬT đang chạy.
 
 Về lý thuyết, cách làm đúng chuẩn nhất là định nghĩa **cluster tuỳ chỉnh**
 (custom cluster) — tự đặt mã cluster riêng (dải mã `0xFC00-0xFFFF` dành cho
@@ -106,30 +110,55 @@ mục đích này), tự định nghĩa attribute tên `HeartRate`, `Spo2`... v�
 nghĩa ngữ nghĩa. Đây là cách "sạch" về mặt thiết kế: bên đọc dữ liệu (z2m)
 không cần biết quy ước ngầm gì cả, cứ đọc đúng tên attribute là ra đúng nghĩa.
 
-Nhưng làm custom cluster đòi hỏi sửa sâu vào file cấu hình ZAP (công cụ định
-nghĩa cluster của Silicon Labs) — phải tự khai attribute mới, tự sinh lại mã
-nguồn tương ứng, và phải sửa **cả 2 phía** (firmware VÀ converter zigbee2mqtt
-đều phải biết cluster mới này, converter phải tự khai báo cluster đó vì
-zigbee-herdsman — thư viện lõi mà z2m dùng — không có sẵn cluster này trong
-danh sách chuẩn). Việc này cần thời gian tìm hiểu ZAP khá kỹ và dễ làm hỏng
-cấu hình hiện có nếu chưa quen (rủi ro cao trong thời gian ngắn của dự án).
+Ban đầu, làm custom cluster bị coi là rủi ro cao trong thời gian ngắn của dự
+án (đòi hỏi sửa sâu file ZAP, sửa cả 2 phía firmware + converter), nên giải
+pháp thực dụng lúc đó là **"mượn"** 5 cluster đo lường có sẵn trong SDK
+(Temperature/Humidity/Flow/Pressure/Illuminance Measurement), gán ý nghĩa
+khác cho `MeasuredValue` của chúng. Đánh đổi: mất tính "tự giải thích" của dữ
+liệu, bù lại giảm rủi ro kỹ thuật.
 
-Giải pháp thực dụng đã chọn: dùng lại 5 cluster đo lường **có sẵn, đã được
-test kỹ trong SDK** (Temperature/Humidity/Flow/Pressure/Illuminance
-Measurement), chỉ khác là **gán ý nghĩa khác** cho con số nằm trong
-`MeasuredValue` của chúng (ví dụ cluster "Temperature Measurement" đáng lẽ
-chứa nhiệt độ, ở đây lại chứa nhịp tim). Đánh đổi: mất đi tính "tự giải
-thích" của dữ liệu (ai đọc thẳng gói Zigbee bằng công cụ chuẩn sẽ tưởng đó là
-nhiệt độ), bù lại: không phải sửa ZAP, không phải tự viết code đọc cluster lạ
-ở phía z2m (zigbee-herdsman đã biết sẵn 5 cluster chuẩn này), giảm rủi ro kỹ
-thuật đáng kể. Miễn là **converter (`zigbee2mqtt_smart_iv_converter.js`)** ghi
-rõ quy ước "endpoint nào = ý nghĩa gì" thì hệ thống vẫn hoạt động đúng — đây
-chính là lý do file converter có comment giải thích rất kỹ ở đầu file.
+Sau khi hệ thống đã chạy ổn định (HR/SpO2/Flow đọc được dữ liệu thật, pipeline
+đầu-cuối đã kiểm chứng), dự án đã nâng cấp lên **custom cluster thật**: 1
+cluster `Smart IV Vitals` (mã `0xFC01`, dải mfg-specific `0xFC00-0xFFFF`,
+manufacturer code `0x1049`) với 5 attribute đặt tên đúng nghĩa (`HeartRate`,
+`Spo2`, `FlowRatio`, `DropRatio`, `AlarmBitmap`). Cách làm cụ thể (xác nhận đã
+chạy được, không phải lý thuyết):
 
-Nếu sau này có thời gian làm chuẩn hơn, hướng nâng cấp là viết custom cluster
-thật (ví dụ cluster `0xFC01` "Smart IV Vitals" với attribute tên đúng nghĩa)
-— khi đó bỏ được toàn bộ quy ước "mượn" này, nhưng không bắt buộc vì hệ thống
-hiện tại hoạt động đúng và ổn định.
+1. Viết 1 file XML riêng định nghĩa cluster mới
+   (`config/zcl/smart-iv-vitals.xml`), theo đúng khuôn mẫu Silicon Labs cung
+   cấp sẵn trong SDK (`zigbee/app/zcl/sample-extensions.xml`,
+   `zigbee/app/zcl/silabs.xml` — 2 file này CHÍNH LÀ tài liệu/ví dụ chính thức
+   cho việc này, không cần đoán mò cấu trúc).
+2. Khai báo file XML đó như 1 package kiểu `"zcl-xml-standalone"` trong
+   `config/zcl/zcl_config.zap` (mảng `"package"`) — ZAP sẽ tự đọc và hiểu
+   cluster mới mà KHÔNG cần sửa file `zcl-zap.json` gốc của SDK (dùng chung,
+   không nên đụng vào).
+3. Chạy lại `slc generate` (mục 1.6) — sinh ra đúng
+   `ZCL_SMART_IV_VITALS_CLUSTER_ID`, `ZCL_HEART_RATE_ATTRIBUTE_ID`, v.v. trong
+   `autogen/zap-id.h`.
+4. Bên firmware (`app.c`), vì cluster có `mfgCode` nên phải dùng hàm ghi
+   attribute riêng cho mfg-specific:
+   `sl_zigbee_af_write_manufacturer_specific_server_attribute(...)` (KHÔNG
+   dùng `sl_zigbee_af_write_attribute()` thường như với cluster chuẩn) —
+   tương tự, `zb_configure_reporting()` phải set
+   `reportingEntry.manufacturerCode` đúng mã `0x1049`.
+5. Bên zigbee2mqtt (`zigbee2mqtt_smart_iv_converter.js`), dùng helper
+   `deviceAddCustomCluster(name, clusterDefinition)` từ
+   `zigbee-herdsman-converters/lib/modernExtend` — đây chính là cơ chế "tự
+   khai báo cluster lạ" mà đoạn văn cũ (bản trước) coi là rủi ro; thực tế đã
+   có sẵn helper chính thức, không cần tự viết code parse ZCL thô. **Lưu ý
+   struct bắt buộc** (xác nhận qua các converter thật đã có sẵn trong
+   `zigbee-herdsman-converters/dist/devices/*.js`, ví dụ `sber.js`,
+   `lytko.js`): mỗi attribute cần đủ `{name, ID, type}` (thiếu `name` sẽ lỗi
+   dù có `ID`/`type` đúng), và cluster-level `manufacturerCode` là field hợp
+   lệ theo type `Cluster` của `zigbee-herdsman`
+   (`zspec/zcl/definition/tstype.d.ts`).
+
+Kết quả: bên nhận (z2m, hoặc bất kỳ công cụ Zigbee chuẩn nào đọc gói tin) giờ
+thấy đúng tên attribute `HeartRate`/`Spo2`/... — không còn hiểu nhầm thành
+nhiệt độ/độ ẩm như trước. Toàn bộ field JSON expose ra ngoài
+(`heart_rate`, `spo2`, `flow`, ...) **giữ nguyên tên** như bản cũ, nên
+`gateway/main.c` và HIS Server không cần sửa gì.
 
 ### 0.5.4 MQTT là gì?
 
@@ -228,17 +257,43 @@ typedef enum { CH_DISABLED = 0, CH_OK = 1, CH_LOST = 2 } ch_state_t;
 Bật/tắt từng kênh bằng macro ở đầu file:
 
 ```c
-#define HR_ENABLED     0   // MAX30102 - nhịp tim        → CHƯA LẮP trên board demo hiện tại
-#define SPO2_ENABLED   0   // MAX30102 - SpO2             → CHƯA LẮP
-#define FLOW_ENABLED   0   // loadcell / lưu lượng dịch   → CHƯA LẮP
-#define DROPS_ENABLED  1   // cảm biến giọt               → ĐÃ LẮP, đã test
+#define HR_ENABLED     1   // MAX30102 - nhịp tim        → ĐÃ LẮP, đã test đọc được số thật
+#define SPO2_ENABLED   1   // MAX30102 - SpO2             → ĐÃ LẮP (chung chip với HR)
+#define FLOW_ENABLED   1   // HX711 + loadcell            → ĐÃ LẮP, đã hiệu chuẩn (mục 1.3.1)
+#define DROPS_ENABLED  0   // cảm biến giọt               → RÚT RA tạm thời để test HR/SpO2/Flow riêng
 ```
 
-Đây chính là lý do vì sao ở app hiện tại, giường demo `BED-101` luôn hiện "mất
-tín hiệu" cho HR/SpO2/Flow — không phải lỗi phần mềm, mà là phần cứng demo chỉ
-lắp đúng 1 cảm biến giọt. Khi lắp thêm MAX30102/loadcell thật, chỉ cần bật các
-macro này lên `1`, không cần sửa gì khác — kiến trúc đã tính sẵn cho việc mở
-rộng dần.
+Trạng thái hiện tại (2026-07-18): HR/SpO2 (module DFRobot MAX30102, bit-bang
+I2C) và Flow (loadcell + HX711, bit-bang GPIO) đều đã lắp và đọc được dữ liệu
+thật ổn định. `DROPS_ENABLED` đang tắt tạm (rút cảm biến giọt ra để test 2 kênh
+kia riêng, xem `sensor_hub.h` dòng comment) — bật lại `1` khi cắm lại cảm biến
+giọt, không cần sửa gì khác trong code, kiến trúc đã tính sẵn cho việc bật/tắt
+từng kênh độc lập.
+
+**Bài học từ quá trình debug 2 kênh HR và Flow** (rất đáng đọc nếu định thêm
+cảm biến mới bit-bang GPIO tương tự — xem mục 9 để biết chi tiết từng lỗi):
+timing của vòng lặp bit-bang (I2C cho MAX30102, giao thức 2 dây cho HX711)
+**PHẢI dùng `sl_udelay_wait()`** (delay canh theo đồng hồ CPU thật) thay vì
+vòng lặp rỗng đếm số lần lặp — dưới build tối ưu `-Os`, vòng lặp rỗng chạy
+nhanh hơn dự định hàng chục đến hàng trăm lần, khiến giao thức bit-bang đọc
+sai hoặc đọc "đứng hình" 1 giá trị cố định. Ngoài ra, đọc HX711 phải bọc trong
+`CORE_ENTER_ATOMIC()`/`CORE_EXIT_ATOMIC()` (tắt ngắt tạm thời) để tránh
+Zigbee radio stack chen ngang giữa chừng làm hỏng dữ liệu.
+
+**Chân HX711 thực tế trên board này** (`sensor_hub.c`): `DOUT` nối **PC01**,
+`SCK` nối **PC03**. Lưu ý: tài liệu tham khảo chính thức của SDK cho mikroBUS
+SPI trên BRD2709A (`sl_spidrv_usart_mikroe_config.h`) ghi MISO=PC02 — nhưng
+qua debug thực tế (đọc trực tiếp giá trị GPIO khi có/không tải), **PC01 mới
+là chân cho dữ liệu ổn định thật**, không phải PC02. Nếu đổi board/module
+khác, đừng tin ngay tài liệu SDK, hãy in giá trị đọc thô (raw) ra serial và
+so với việc treo/gỡ vật nặng thật để xác nhận trước.
+
+**Hiệu chuẩn** (`HX711_CALIBRATION_FACTOR` trong `sensor_hub.h`): giá trị hiện
+tại `202534.0f`, đo thực tế bằng cách treo túi ~500ml nước (~500g) và so raw
+lúc cân trống với lúc có tải, TRONG CÙNG 1 PHIÊN chạy (đo tare và tải ở 2 lần
+nạp firmware khác nhau sẽ bị lệch baseline do trôi nhiễu, gây hệ số sai — đã
+gặp thực tế). Giá trị `14000` cũ chỉ là số mượn tạm từ `hx711_test.ino`
+(loadcell/hiệu chuẩn khác), không đúng cho loadcell hiện tại.
 
 ### 1.2 `ai_monitor` — 6 đặc trưng + AI + luật lâm sàng
 
@@ -278,44 +333,35 @@ Baseline nhịp tim cá nhân hoá: 60 giây đầu sau khi gắn máy, hệ th�
 tim làm "mức nền" của riêng bệnh nhân đó (`ai_monitor_set_hr_baseline`), rồi
 so lệch % với mức nền này thay vì một ngưỡng chung cho mọi người.
 
-### 1.3 Đưa kết quả lên Zigbee — cluster & endpoint (phần "khó" nhất)
+### 1.3 Đưa kết quả lên Zigbee — cluster tuỳ chỉnh "Smart IV Vitals"
 
 Đây là phần hay bị hỏi nhất nên giải thích kỹ. Zigbee không có sẵn khái niệm
 "gửi 1 cục JSON tuỳ ý" như MQTT/HTTP — nó bắt buộc dữ liệu phải thuộc về một
 **cluster** (nhóm chức năng chuẩn hoá, ví dụ "đo nhiệt độ", "đo độ ẩm"...),
 và mỗi cluster có các **attribute** (thuộc tính) với kiểu dữ liệu cố định.
 
-Cách chuẩn để làm đúng là định nghĩa **cluster tuỳ chỉnh** (custom cluster) —
-nhưng việc đó đòi hỏi sửa file ZAP (ZCL Advanced Platform, công cụ cấu hình
-Zigbee của Silicon Labs) ở mức khá sâu và dễ vỡ nếu chưa quen. Vì thời gian có
-hạn, project này chọn giải pháp thực dụng: **"mượn"** 5 cluster đo lường có
-sẵn trong SDK (được test kỹ, ổn định), rồi gán ý nghĩa khác cho attribute
-`MeasuredValue` của chúng. Đây là điểm quan trọng nhất cần nhớ: **con số nằm
-trong attribute không mang đúng ý nghĩa gốc của cluster** — bên nhận
-(zigbee2mqtt) phải biết trước quy ước này để đọc lại đúng.
+Dự án dùng **1 cluster tuỳ chỉnh thật** (custom cluster, xem lịch sử quyết
+định + cách làm cụ thể ở mục 0.5.3) tên `Smart IV Vitals`, mã `0xFC01` (nằm
+trong dải mfg-specific `0xFC00-0xFFFF`), `manufacturerCode` = `0x1049`, định
+nghĩa tại `config/zcl/smart-iv-vitals.xml` — KHÔNG còn "mượn" ý nghĩa cluster
+chuẩn nào nữa. Chỉ có **2 endpoint**:
 
-Có 6 endpoint (một board Zigbee có thể có nhiều "cổng" logic, mỗi cổng là 1
-endpoint, đánh số 1-255):
-
-| Endpoint | Cluster mượn (mã số) | Attribute | Kiểu | Ý nghĩa THẬT trong hệ thống này |
+| Endpoint | Cluster | Attribute | Kiểu ZCL | Ý nghĩa |
 |---|---|---|---|---|
 | 1 | Basic (`0x0000`) | `manufacturerName`="ICTU", `modelIdentifier`="SmartIV-Sensor" | string | Định danh thiết bị, để zigbee2mqtt nhận diện |
-| 2 | Temperature Measurement (`0x0402`) | `MeasuredValue` | int16s | **HR** — nhịp tim (bpm), KHÔNG phải nhiệt độ |
-| 3 | Relative Humidity Measurement (`0x0405`) | `MeasuredValue` | uint16 | **SpO2** — % bão hoà oxy, KHÔNG phải độ ẩm |
-| 4 | Flow Measurement (`0x0404`) | `MeasuredValue` | uint16 | **Flow ratio** — × 100 để giữ số nguyên (100 = đúng 1.00×) |
-| 5 | Pressure Measurement (`0x0403`) | `MeasuredValue` | int16s | **Drop ratio** — × 100, ý nghĩa gốc là "áp suất" nhưng dùng cho tốc độ giọt |
-| 6 | Illuminance Measurement (`0x0400`) | `MeasuredValue` | uint16 | **Bitmap cảnh báo + trạng thái tín hiệu** (chi tiết bên dưới) |
+| 2 | Smart IV Vitals (`0xFC01`, mfg `0x1049`) | `HeartRate` | int16s | Nhịp tim (bpm). `0x8000` = chưa có dữ liệu thật (xem `ZCL_HR_INVALID` trong `app.c`) |
+| 2 | (cùng cluster) | `Spo2` | int16u | % bão hoà oxy. `0xFFFF` = chưa có dữ liệu thật |
+| 2 | (cùng cluster) | `FlowRatio` | int16u | Flow ratio × 100 (100 = đúng 1.00× mức đặt) |
+| 2 | (cùng cluster) | `DropRatio` | int16s | Drop ratio × 100 |
+| 2 | (cùng cluster) | `AlarmBitmap` | bitmap16 | Bitmap cảnh báo + trạng thái tín hiệu (chi tiết bên dưới) |
 
-Vì sao chọn đúng 5 cluster đo lường này (Temperature/Humidity/Flow/Pressure/
-Illuminance)? Vì chúng đều dùng chung 1 kiểu attribute đơn giản
-(`MeasuredValue`, số nguyên 16-bit) — không cluster nào đòi hỏi cấu trúc phức
-tạp (mảng, struct) — nên code ghi/đọc giống hệt nhau cho cả 5, chỉ khác
-clusterId/endpoint. Chọn 5 cluster **khác nhau** (không dùng lại 1 cluster ở
-nhiều endpoint) để zigbee2mqtt phân biệt được "đây là gói HR" hay "đây là gói
-SpO2" chỉ bằng cặp (endpoint, clusterId) — không cần đọc thêm dữ liệu gì khác.
+Vì cluster có `mfgCode`, ghi attribute phải dùng hàm riêng
+`sl_zigbee_af_write_manufacturer_specific_server_attribute()` (không phải
+`sl_zigbee_af_write_attribute()` thường) — xem `zb_report_ai_result()` trong
+`app.c`.
 
-**Endpoint 6 — bitmap cảnh báo (uint16, 9 bit dùng, đọc kỹ phần này để hiểu
-toàn bộ hệ thống cảnh báo)**:
+**Attribute `AlarmBitmap` — bitmap cảnh báo (uint16, 9 bit dùng, đọc kỹ phần
+này để hiểu toàn bộ hệ thống cảnh báo)**:
 
 ```
 bit 0 (0x001) = 1  →  reason_missing  : mất tín hiệu (vital hoặc line)
@@ -357,14 +403,18 @@ uint16_t alarm_bitmap = (uint16_t)((r.reason_missing ? 0x01 : 0)
 Zigbee có cơ chế "reporting": thiết bị tự gửi giá trị mới khi thay đổi, không
 cần bên coordinator liên tục hỏi (poll). `zb_configure_reporting()` (gọi 1 lần
 khi vào mạng, `sl_zigbee_af_stack_status_cb` nhận `SL_STATUS_NETWORK_UP`) đăng
-ký cho cả 5 attribute mang dữ liệu: gửi report tối thiểu mỗi 1 giây, tối đa
-mỗi 60 giây (nếu 60s không đổi vẫn phải gửi 1 lần để bên nhận biết thiết bị
-còn sống). Vì cấu hình này nằm **trong chính firmware**, hệ thống không phụ
-thuộc việc zigbee2mqtt phải gọi đúng lệnh ZCL `ConfigureReporting` (lệnh này
-hay bị timeout — xem mục 4.2).
+ký cho cả 5 attribute của cluster `Smart IV Vitals` (cùng 1 endpoint + cluster,
+khác attributeId): gửi report tối thiểu mỗi 1 giây, tối đa mỗi 60 giây (nếu
+60s không đổi vẫn phải gửi 1 lần để bên nhận biết thiết bị còn sống). Vì
+cluster có `mfgCode`, mỗi entry reporting phải set đúng
+`reportingEntry.manufacturerCode = 0x1049` (khác `SL_ZIGBEE_AF_NULL_MANUFACTURER_CODE`
+dùng cho cluster chuẩn). Vì cấu hình này nằm **trong chính firmware**, hệ
+thống không phụ thuộc việc zigbee2mqtt phải gọi đúng lệnh ZCL
+`ConfigureReporting` (lệnh này hay bị timeout — xem mục 4.2).
 
 Mỗi giây, `app_process_action()` gọi `zb_report_ai_result()` ghi cả 5 giá trị
-vào 5 attribute — reporting plugin tự phát hiện thay đổi và gửi gói Zigbee đi.
+vào 5 attribute (cùng 1 cluster/endpoint) — reporting plugin tự phát hiện thay
+đổi và gửi gói Zigbee đi.
 
 ### 1.5 Yêu cầu cấu hình quan trọng
 
@@ -372,9 +422,10 @@ vào 5 attribute — reporting plugin tự phát hiện thay đổi và gửi g�
   `.slcp`): `zigbee_basic`, `zigbee_core_cli`, `zigbee_network_steering`,
   `zigbee_pro_stack`, `zigbee_reporting`, `zigbee_zcl_cli`.
 - **`SL_ZIGBEE_BINDING_TABLE_SIZE`** trong
-  `config/sl_zigbee_pro_stack_config.h` phải **≥ 5** (mặc định chỉ 3 → không
-  đủ chỗ cho 5 binding cần thiết, gateway sẽ báo lỗi `TABLE_FULL` khi bind).
-  Đã tăng lên 10.
+  `config/sl_zigbee_pro_stack_config.h`: đã tăng lên 10 từ thời còn 5 endpoint
+  cluster mượn (mỗi endpoint 1 binding). Từ khi gộp về 1 cluster tuỳ chỉnh
+  (mục 1.3), chỉ cần **1 binding** cho cluster `Smart IV Vitals` — giá trị 10
+  vẫn giữ nguyên vì không hại gì (dư chỗ), không bắt buộc phải giảm lại.
 - Khi mất mạng (`NETWORK_DOWN`), firmware tự gọi
   `sl_zigbee_af_network_steering_start()` để tự tìm và join lại mạng — không
   cần can thiệp thủ công mỗi lần mất điện/reset, miễn là coordinator (NCP) vẫn
@@ -484,7 +535,7 @@ bật qua MQTT lúc cần pair thiết bị mới (xem mục 3.4). External conv
 đặt trong `data/external_converters/`, không khai trong `configuration.yaml`
 như bản cũ.
 
-### 3.2 External converter — "từ điển" giải mã 5 cluster mượn
+### 3.2 External converter — "từ điển" giải mã cluster tuỳ chỉnh Smart IV Vitals
 
 File: `zigbee2mqtt_smart_iv_converter.js` (repo `empty_2`), copy vào
 `~/zigbee2mqtt/data/external_converters/` trên Pi.
@@ -492,33 +543,67 @@ File: `zigbee2mqtt_smart_iv_converter.js` (repo `empty_2`), copy vào
 **Nhận diện thiết bị bằng fingerprint (không dùng chuỗi `zigbeeModel`)**:
 đọc `modelID` qua cluster Basic lúc "interview" (bước đầu khi thiết bị mới
 join, z2m hỏi thăm dò thông tin) không ổn định — đôi khi trả về `undefined`.
-Giải pháp: nhận diện bằng đúng "vân tay" cấu trúc endpoint/cluster mà 6
-endpoint của firmware khai báo:
+Giải pháp: nhận diện bằng đúng "vân tay" cấu trúc endpoint/cluster mà 2
+endpoint của firmware khai báo (`0xFC01` = `64513` decimal):
 
 ```js
 fingerprint: [{
     endpoints: [
-        {ID: 1, inputClusters: [0]},      // Basic
-        {ID: 2, inputClusters: [1026]},   // Temperature Measurement
-        {ID: 3, inputClusters: [1029]},   // Relative Humidity
-        {ID: 4, inputClusters: [1028]},   // Flow Measurement
-        {ID: 5, inputClusters: [1027]},   // Pressure Measurement
-        {ID: 6, inputClusters: [1024]},   // Illuminance Measurement
+        {ID: 1, inputClusters: [0]},        // Basic
+        {ID: 2, inputClusters: [0xFC01]},   // Smart IV Vitals (custom cluster)
     ],
 }],
 ```
 
-**Giải mã (`fromZigbee`)** — mỗi cluster có 1 hàm convert riêng, đọc đúng
-`msg.endpoint.ID` để tránh nhầm lẫn (vì nhiều cluster khác nhau vẫn có thể
-trùng tên attribute `measuredValue`):
+**Đăng ký cluster tuỳ chỉnh** — vì `0xFC01` không có trong danh sách cluster
+chuẩn của `zigbee-herdsman`, phải tự khai báo bằng helper
+`deviceAddCustomCluster` (từ `zigbee-herdsman-converters/lib/modernExtend`):
 
 ```js
-flow:      msg.data.measuredValue / 100,   // đảo ngược phép ×100 bên firmware
-drop_rate: msg.data.measuredValue / 100,
+extend: [
+    deviceAddCustomCluster('smartIvVitals', {
+        name: 'smartIvVitals',
+        ID: 0xFC01,
+        manufacturerCode: 0x1049,
+        attributes: {
+            heartRate:   {name: 'heartRate',   ID: 0x0000, type: 0x29}, // int16s
+            spo2:        {name: 'spo2',        ID: 0x0001, type: 0x21}, // int16u
+            flowRatio:   {name: 'flowRatio',   ID: 0x0002, type: 0x21}, // int16u
+            dropRatio:   {name: 'dropRatio',   ID: 0x0003, type: 0x29}, // int16s
+            alarmBitmap: {name: 'alarmBitmap', ID: 0x0004, type: 0x19}, // bitmap16
+        },
+        commands: {}, commandsResponse: {},
+    }),
+],
 ```
 
-Bitmap ở endpoint 6 được tách thành **10 field JSON** riêng biệt (dễ đọc hơn
-nhiều so với gửi 1 số nguyên thô), dùng đúng các hằng số bit đã định nghĩa ở
+> Mỗi attribute **bắt buộc phải có đủ `{name, ID, type}`** — chỉ có `ID`/`type`
+> mà thiếu `name` sẽ không hoạt động đúng (xác nhận qua các converter thật có
+> sẵn trong `zigbee-herdsman-converters/dist/devices/*.js`, ví dụ `sber.js`).
+> `type` là số ZCL DataType thô (`Zcl.DataType.INT16S` = `0x29`,
+> `UINT16` = `0x21`, `BITMAP16` = `0x19`).
+
+**Giải mã (`fromZigbee`)** — 1 hàm convert duy nhất cho cả cluster (khác bản
+cũ cần 5 hàm riêng vì trước đó mỗi giá trị nằm ở 1 cluster/endpoint khác
+nhau), đọc thẳng theo tên attribute (không cần phân biệt `msg.endpoint.ID` vì
+giờ chỉ còn 1 endpoint mang dữ liệu):
+
+```js
+if (msg.data.heartRate !== undefined) {
+    result.heart_rate = msg.data.heartRate === HR_INVALID ? null : msg.data.heartRate;
+}
+if (msg.data.flowRatio !== undefined) {
+    result.flow = msg.data.flowRatio / 100;   // đảo ngược phép ×100 bên firmware
+}
+```
+
+`HeartRate`/`Spo2` có sentinel "chưa có dữ liệu thật" (khớp `ZCL_HR_INVALID`/
+`ZCL_SPO2_INVALID` trong `app.c`): `HR_INVALID = -32768` (0x8000 đọc theo
+int16s), `SPO2_INVALID = 0xFFFF` — converter đổi 2 giá trị này thành `null`
+trong JSON thay vì hiện số giả.
+
+`AlarmBitmap` được tách thành **10 field JSON** riêng biệt (dễ đọc hơn nhiều
+so với gửi 1 số nguyên thô), dùng đúng các hằng số bit đã định nghĩa ở
 mục 1.3:
 
 ```js
@@ -542,31 +627,22 @@ drops_signal:        (bitmap & 0x100) !== 0,
 
 ```js
 configure: async (device, coordinatorEndpoint, logger) => {
-    const bindings = [
-        {epId: 2, cluster: 'msTemperatureMeasurement'},
-        {epId: 3, cluster: 'msRelativeHumidity'},
-        {epId: 4, cluster: 'msFlowMeasurement'},
-        {epId: 5, cluster: 'msPressureMeasurement'},
-        {epId: 6, cluster: 'msIlluminanceMeasurement'},
-    ];
-    for (const b of bindings) {
-        try {
-            const ep = device.getEndpoint(b.epId);
-            await reporting.bind(ep, coordinatorEndpoint, [b.cluster]);
-        } catch (error) {
-            logger.warning(`bind endpoint ${b.epId} failed: ${error.message}`);
-        }
+    try {
+        const ep = device.getEndpoint(2);
+        await reporting.bind(ep, coordinatorEndpoint, ['smartIvVitals']);
+    } catch (error) {
+        logger.warning(`bind endpoint 2 failed: ${error.message}`);
     }
 },
 ```
 
 "Bind" nghĩa là báo cho thiết bị biết "gửi report của cluster này tới địa chỉ
 coordinator" — cần thiết để report thật sự đến được z2m (không có bind thì
-thiết bị vẫn tự tính, nhưng report "gửi đi đâu" không xác định). **Không** gọi
-lệnh ZCL `configureReporting()` ở đây (đã bị bỏ có chủ đích): lệnh này hay bị
-timeout trên thực tế, và nếu 1 endpoint bị lỗi giữa chừng, vòng lặp `for` sẽ
-văng exception và các endpoint sau nó **không được bind luôn** — vì firmware
-đã tự cấu hình reporting cục bộ rồi (mục 1.4), z2m chỉ cần bind là đủ.
+thiết bị vẫn tự tính, nhưng report "gửi đi đâu" không xác định). Giờ chỉ còn
+**1 bind duy nhất** (trước đây 5 bind cho 5 endpoint). **Không** gọi lệnh ZCL
+`configureReporting()` ở đây (đã bị bỏ có chủ đích): lệnh này hay bị timeout
+trên thực tế — vì firmware đã tự cấu hình reporting cục bộ rồi (mục 1.4), z2m
+chỉ cần bind là đủ.
 
 ### 3.4 Chạy & ghép nối (pairing) thiết bị mới
 
@@ -893,16 +969,19 @@ thiết bị **ngay trên lưới giường**, không cần mở tab Alerts.
 
 ## 7. Đường đi 1 gói dữ liệu — ví dụ cụ thể từ đầu tới cuối
 
-1. Board cảm biến đo được: HR chưa lắp, SpO2 chưa lắp, Flow chưa lắp, Drops
-   đang chảy đúng mức nhưng dây bị tắc (drop_ratio < 0.3× mức đặt).
-2. `ai_monitor_step()` → `reason_flow = 1` (flow_ratio ngoài khoảng), các
-   kênh chưa lắp → trạng thái `CH_DISABLED`, không set `reason_missing`.
-3. `app.c` ghi `alarm_bitmap = 0x08` (bit3, line_blocked) vào endpoint 6, ghi
-   3 giá trị còn lại vào endpoint 2/3/4/5, reporting tự gửi Zigbee.
+1. Board cảm biến đo được: HR/SpO2 bình thường, Drops chưa lắp (`CH_DISABLED`),
+   Flow (loadcell) đang chảy nhưng dây bị tắc (drop_ratio ngoài khoảng đặt).
+2. `ai_monitor_step()` → `reason_flow = 1` (flow_ratio ngoài khoảng), kênh
+   Drops chưa lắp → trạng thái `CH_DISABLED`, không set `reason_missing`.
+3. `app.c` ghi cả 5 giá trị (bao gồm `alarm_bitmap` có bit3 `line_blocked`)
+   vào 5 attribute của **cùng 1 cluster `Smart IV Vitals`, endpoint 2**
+   (dùng `sl_zigbee_af_write_manufacturer_specific_server_attribute()`),
+   reporting tự gửi Zigbee.
 4. NCP nhận khung Zigbee, chuyển qua USB dạng EZSP.
-5. zigbee2mqtt (`fromZigbee`) đọc `msg.endpoint.ID === 6`, tách bitmap thành
-   `line_blocked: true`, publish MQTT topic `zigbee2mqtt/SmartIV-Sensor` với
-   toàn bộ state hiện tại (mọi field expose gộp lại).
+5. zigbee2mqtt (`fromZigbee`) đọc `msg.data.alarmBitmap` từ cluster
+   `smartIvVitals`, tách bitmap thành `line_blocked: true`, publish MQTT
+   topic `zigbee2mqtt/SmartIV-Sensor` với toàn bộ state hiện tại (mọi field
+   expose gộp lại).
 6. `gateway_test` (`on_message`) parse `line_blocked` = 1, gọi
    `his_send_bed_data(..., line_blocked=1, ...)`.
 7. Gói TCP gửi tới HIS Server:
@@ -952,6 +1031,13 @@ dữ liệu thật từ board cảm biến vật lý duy nhất hiện có.
 | MySQL `ADD COLUMN IF NOT EXISTS` báo lỗi cú pháp | MySQL 8.0 không hỗ trợ cú pháp này (chỉ MariaDB) | Dùng `ALTER TABLE ... ADD COLUMN` trần, tự kiểm tra cột đã tồn tại chưa trước khi chạy |
 | zigbee2mqtt: "permit_join setting removed" khi migrate config | Từ bản 2.x, permit_join chỉ điều khiển qua MQTT/frontend, không còn là key YAML | Dùng lệnh `mosquitto_pub` ở mục 3.4 |
 | Converter không load ("Loaded external converter" không xuất hiện trong log) | Để file converter sai chỗ (`data/` thay vì `data/external_converters/`) | Di chuyển đúng thư mục |
+| HR/SpO2/loadcell đọc ra số cố định (đứng hình) hoặc nhảy loạn xạ theo lũy thừa 2 (vd 379g → 758g → 47935g) | Bit-bang I2C/HX711 dùng vòng lặp rỗng đếm số lần làm delay (không canh theo thời gian thực) — build `-Os` chạy nhanh hơn dự định hàng chục-hàng trăm lần, xung SCK/clock quá nhanh so với chip đọc kịp | Dùng `sl_udelay_wait(us)` (component `udelay`, calibrate theo đồng hồ CPU thật) thay cho `for (volatile int i=0;...)` |
+| HX711 đọc ra giá trị nhảy vọt không đều dù cân không đổi tải | Zigbee radio stack (interrupt) chen ngang giữa lúc đang dịch 24-bit, làm mẫu bị "gãy" (trộn lẫn 2 lần đọc) | Bọc toàn bộ vòng lặp đọc 24-bit trong `CORE_ENTER_ATOMIC()`/`CORE_EXIT_ATOMIC()` (`em_core.h`), giống `noInterrupts()`/`interrupts()` của thư viện Arduino HX711 gốc |
+| `gateway.service` hiện `active (running)` nhưng không log gì mới dù z2m đang publish dữ liệu | Kết nối MQTT bên trong `gateway_test` bị "chết" ngầm (mất kết nối) mà tiến trình vẫn sống, không tự nhận ra | `sudo systemctl restart gateway` |
+| z2m interview treo mãi không xong (không thấy "Successfully interviewed" dù đợi vài phút) | Trạng thái nội bộ zigbee2mqtt bị kẹt (nguyên nhân chưa rõ hẳn, có thể do nhiều lần join/leave liên tục trong thời gian ngắn lúc test) | `sudo systemctl restart zigbee2mqtt`, mở lại permit-join, gửi lại `network leave` + `plugin network-steering start 0` |
+| Đăng ký `deviceAddCustomCluster` xong nhưng z2m báo device "Not supported" dù `inputClusters` khớp fingerprint | Thiếu field `name` trong định nghĩa attribute (chỉ có `ID`/`type` không đủ) — xác nhận qua struct `Attribute` thật của `zigbee-herdsman` (`zspec/zcl/definition/tstype.d.ts`) | Mỗi attribute phải có đủ `{name, ID, type}`, đặt tên trùng với key trong object `attributes` |
+| Cluster tuỳ chỉnh (mfg-specific) ghi attribute bằng `sl_zigbee_af_write_attribute()` không có tác dụng | Cluster có `mfgCode` (manufacturer-specific) cần hàm ghi riêng | Dùng `sl_zigbee_af_write_manufacturer_specific_server_attribute(endpoint, cluster, attrId, mfgCode, dataPtr, type)` |
+| Board "mất tích" hoàn toàn: không log serial, không join Zigbee, mọi lệnh debug/reset đều như không có tác dụng | Tiến trình `silink` (J-Link) cũ bị treo từ phiên debug trước, giữ session hỏng khiến CPU ở trạng thái debug-halt | `ps aux \| grep silink`, `kill -9 <pid>` tiến trình cũ, rồi mass-erase + flash lại để chắc chắn resume chạy |
 
 ---
 
@@ -962,7 +1048,8 @@ empty_2/
 ├── sensor_hub.{c,h}          firmware: đọc cảm biến, trạng thái từng kênh
 ├── ai_monitor.{c,h}          firmware: AI + luật lâm sàng
 ├── app.c                     firmware: vòng lặp chính, ghi Zigbee
-├── config/zcl/zcl_config.zap cấu hình ZAP: 6 endpoint, cluster mượn
+├── config/zcl/zcl_config.zap cấu hình ZAP: 2 endpoint, cluster tuỳ chỉnh
+├── config/zcl/smart-iv-vitals.xml     dinh nghia cluster "Smart IV Vitals" (0xFC01)
 ├── zigbee2mqtt_smart_iv_converter.js   converter giải mã cho zigbee2mqtt
 ├── gateway/main.c            chương trình C: MQTT → TCP JSON
 └── designWebForQuanKa-main/
