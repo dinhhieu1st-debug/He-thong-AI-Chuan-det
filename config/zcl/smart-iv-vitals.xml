@@ -14,5 +14,15 @@
     <attribute side="server" code="0x0002" define="FLOW_RATIO"    type="int16u"    writable="true" default="0x0000" optional="false">FlowRatio</attribute>
     <attribute side="server" code="0x0003" define="DROP_RATIO"    type="int16s"    writable="true" default="0x0000" optional="false">DropRatio</attribute>
     <attribute side="server" code="0x0004" define="ALARM_BITMAP"  type="bitmap16"  writable="true" default="0x0000" optional="false">AlarmBitmap</attribute>
+    <attribute side="server" code="0x0005" define="WEIGHT_G"        type="int16u" writable="true" default="0x0000" optional="false">WeightG</attribute>
+    <attribute side="server" code="0x0006" define="DROPS_PER_MIN"   type="int16u" writable="true" default="0x0000" optional="false">DropsPerMin</attribute>
+    <attribute side="server" code="0x0007" define="TARGET_FLOW_ML_H" type="int16u" writable="true" default="0x0064" optional="false">TargetFlowMlH</attribute>
+    <attribute side="server" code="0x0008" define="TARGET_DROPS_PER_MIN" type="int16u" writable="true" default="0x0014" optional="false">TargetDropsPerMin</attribute>
+    <attribute side="server" code="0x0009" define="TARE_COMMAND"         type="int8u"  writable="true" default="0x00"   optional="false">TareCommand</attribute>
+    <attribute side="server" code="0x000A" define="HR_RECALIBRATE_COMMAND" type="int8u" writable="true" default="0x00" optional="false">HrRecalibrateCommand</attribute>
+    <attribute side="server" code="0x000B" define="HR_BASELINE_SECONDS_REMAINING" type="int8u" writable="true" default="0x00" optional="false">HrBaselineSecondsRemaining</attribute>
+    <attribute side="server" code="0x000C" define="HR_BASELINE_BPM" type="int16u" writable="true" default="0x0000" optional="false">HrBaselineBpm</attribute>
+    <attribute side="server" code="0x000D" define="TARE_EVENT_COUNT" type="int8u" writable="true" default="0x00" optional="false">TareEventCount</attribute>
+    <attribute side="server" code="0x000E" define="HR_BASELINE_EVENT_COUNT" type="int8u" writable="true" default="0x00" optional="false">HrBaselineEventCount</attribute>
   </cluster>
 </configurator>

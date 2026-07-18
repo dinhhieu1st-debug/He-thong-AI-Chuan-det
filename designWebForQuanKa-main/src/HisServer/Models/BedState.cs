@@ -19,6 +19,39 @@ public sealed class BedState
     public bool DripRateSignal { get; set; } = true;
     public bool LineBlocked { get; set; }
     public bool AeAlarm { get; set; }
+    public int? WeightG { get; set; }
+    public int? DropsPerMin { get; set; }
+    public int? TargetFlowMlH { get; set; }
+    public int? TargetDropsPerMin { get; set; }
+    public bool TareInProgress { get; set; }
+    public bool TareJustCompleted { get; set; }
+    public bool HrBaselineJustCompleted { get; set; }
+    public int? HrBaselineSecondsRemaining { get; set; }
+    public int? HrBaselineBpm { get; set; }
+
+    /// <summary>
+    /// Wall-clock timestamps stamped by THIS server (not the firmware, which
+    /// has no wall-clock time - only relative uptime) the moment it observes
+    /// the corresponding one-shot "just completed" flag go true. Lets the UI
+    /// show "Baseline captured at HH:MM:SS" / "Last tared at HH:MM:SS"
+    /// persistently, instead of relying on catching a transient toast.
+    /// </summary>
+    public DateTime? HrBaselineCapturedAt { get; set; }
+    public DateTime? LastTareCompletedAt { get; set; }
+
+    /// <summary>
+    /// The last TareEventCount/HrBaselineEventCount value seen from this bed -
+    /// internal bookkeeping only (not exposed via BedDto). The firmware's
+    /// one-shot completion flags above can be MISSED if the event fires
+    /// before Zigbee reporting is configured (the auto-tare at boot is fast
+    /// enough to race with network join). These persistent counters can't be
+    /// missed: BedTcpIngestionService compares each incoming reading's count
+    /// against what's stored here and stamps a fresh timestamp whenever it
+    /// differs, regardless of exactly when the underlying event happened.
+    /// </summary>
+    public int? LastSeenTareEventCount { get; set; }
+    public int? LastSeenHrBaselineEventCount { get; set; }
+
     public string? AlertMessage { get; set; }
     public string? DeviceId { get; set; }
     public DateTime? LastDataAt { get; set; }

@@ -108,10 +108,84 @@ static float    flow_anchor_weight_g = 0.0f;
 static uint32_t flow_anchor_ms       = 0;
 static float    flow_ml_per_h        = 0.0f;   /* most recently computed flow rate, ml/hour */
 
+/* Doctor-set target infusion rate (ml/hour). Starts at the SET_FLOW_ML_H
+ * default from sensor_hub.h but can be changed at runtime - either locally
+ * or by the doctor writing the TargetFlowMlH Zigbee attribute from the HIS
+ * Server (see sh_set_target_flow_ml_h() and app.c's
+ * sl_zigbee_af_post_attribute_change_cb()). sh_flow_ratio() compares the
+ * measured flow against THIS value, not the compile-time default, so a
+ * change takes effect immediately without reflashing. */
+static float target_flow_ml_h = SET_FLOW_ML_H;
+
+/* Doctor-set target drop rate (drops/min) - same idea as target_flow_ml_h
+ * above, changeable at runtime via sh_set_target_drops_per_min(). */
+static float target_drops_per_min = SET_DROPS_DPM;
+
+/* ---- Tare button (onboard BTN0, BRD2709A: port B pin 0) -----
+ * Lets the doctor re-zero the scale without power-cycling the board: press
+ * BTN0 with the scale empty, wait for the "tare done" indication, then hang
+ * the new IV bag. Internally this just resets the same tare state machine
+ * hx711_poll() already runs once automatically at boot. */
+#define TARE_BTN_PORT          gpioPortB
+#define TARE_BTN_PIN           0
+#define TARE_BTN_DEBOUNCE_MS   250U
+
+static bool     tare_btn_prev_pressed    = false;
+static uint32_t tare_btn_last_change_ms  = 0;
+
+/* One-shot pulse, consumed by app.c's periodic report: true for exactly one
+ * report cycle right after a tare (button-triggered or the initial
+ * power-on tare) finishes, so the doctor/nurse sees a clear "tare done"
+ * event instead of having to infer it from the weight settling at 0. */
+static bool tare_just_completed = false;
+
+/* Persistent counter, incremented once per completed tare and NEVER reset -
+ * unlike the one-shot pulse above, this can't be missed by a race where the
+ * tare finishes (often within a few seconds of boot) before Zigbee
+ * reporting has even been configured (which only happens after the network
+ * join completes, and can occasionally take longer than the tare itself).
+ * The HIS Server detects "count increased since last seen" instead of
+ * having to catch a transient bit at exactly the right instant, and stamps
+ * its own wall-clock "last tared at" timestamp when it does. */
+static uint8_t tare_event_count = 0;
+
 static void hx711_gpio_init(void)
 {
   GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInput, 0);
+  /* Pull-up: BTN0 ties the pin to GND when pressed (idle = HIGH), matching
+   * the board's standard button wiring. */
+  GPIO_PinModeSet(TARE_BTN_PORT, TARE_BTN_PIN, gpioModeInputPullFilter, 1);
+}
+
+/* Re-arms the exact same tare state machine hx711_poll() already runs once
+ * at boot - it will print "Please keep the scale EMPTY..." and average
+ * HX711_TARE_SAMPLES readings again, exactly like the initial power-on
+ * tare. Shared by the physical BTN0 press and a remote "reset scale"
+ * command from the HIS Server (see sh_flow_trigger_tare() / app.c's
+ * post_attribute_change_cb()). */
+static void hx711_trigger_tare(const char *source)
+{
+  hx711_inited       = false;
+  hx711_tare_started = false;
+  hx711_tare_accum   = 0;
+  hx711_tare_count   = 0;
+  hx711_have_pending = false;
+  hx711_have_sample  = false;
+  printf("[HX711] Tare triggered (%s) - remove any load, re-zeroing the scale...\r\n", source);
+}
+
+static void tare_button_poll(void)
+{
+  uint32_t now = now_ms();
+  bool pressed = (GPIO_PinInGet(TARE_BTN_PORT, TARE_BTN_PIN) == 0);
+
+  if (pressed && !tare_btn_prev_pressed
+      && (now - tare_btn_last_change_ms) >= TARE_BTN_DEBOUNCE_MS) {
+    tare_btn_last_change_ms = now;
+    hx711_trigger_tare("BTN0 pressed");
+  }
+  tare_btn_prev_pressed = pressed;
 }
 
 static bool hx711_is_ready(void)
@@ -289,7 +363,14 @@ static void hx711_poll(void)
     if (hx711_tare_count >= HX711_TARE_SAMPLES) {
       hx711_tare_offset = (int32_t)(hx711_tare_accum / (int64_t)hx711_tare_count);
       hx711_inited = true;
+      tare_just_completed = true;
+      tare_event_count++;   // wraps at 255->0, harmless: the server only checks "did it change"
+      /* Reset the flow-rate anchor to the fresh zero, not whatever weight
+       * was last recorded before a mid-operation retare - otherwise the
+       * next flow computation would see a huge bogus "drop" from the old
+       * (now stale) anchor weight down to the freshly-zeroed scale. */
       flow_anchor_ms = now;
+      flow_anchor_weight_g = 0.0f;
       printf("[HX711] Taring done! Scale is now at 0g. You may hang the IV bag on the scale.\r\n");
     }
     return;
@@ -746,6 +827,7 @@ void sensor_hub_poll(void)
   }
 #endif
 #if FLOW_ENABLED
+  tare_button_poll();
   hx711_poll();
 #endif
 #if HR_ENABLED || SPO2_ENABLED
@@ -795,7 +877,7 @@ ch_state_t sh_spo2_state(void)
 float sh_flow_ratio(void)
 {
 #if FLOW_ENABLED
-  return flow_ml_per_h / SET_FLOW_ML_H;
+  return flow_ml_per_h / target_flow_ml_h;
 #else
   return 1.0f;               /* not connected -> treat as exactly on target (ratio 1.0) */
 #endif
@@ -810,6 +892,85 @@ ch_state_t sh_flow_state(void)
 #endif
 }
 
+/* Raw current weight on the scale, in grams (only meaningful once
+ * sh_flow_state() == CH_OK - i.e. taring has completed and a fresh sample
+ * has been read). */
+float sh_flow_weight_g(void)
+{
+#if FLOW_ENABLED
+  return hx711_weight_g;
+#else
+  return 0.0f;
+#endif
+}
+
+/* Current doctor-set target infusion rate, ml/hour. */
+float sh_target_flow_ml_h(void)
+{
+  return target_flow_ml_h;
+}
+
+/* Applies a new doctor-set target infusion rate (ml/hour). Called either
+ * locally or from app.c's sl_zigbee_af_post_attribute_change_cb() when the
+ * TargetFlowMlH Zigbee attribute is written from the network (i.e. the
+ * doctor changed it from the HIS Server). Rejects non-positive values
+ * (a target of 0 or less makes sh_flow_ratio() meaningless/divide-by-zero). */
+void sh_set_target_flow_ml_h(float ml_per_h)
+{
+  if (ml_per_h > 0.0f) {
+    target_flow_ml_h = ml_per_h;
+  }
+}
+
+/* True for exactly the report cycle(s) while the scale is actively
+ * averaging tare samples (button pressed but not yet finished). */
+bool sh_flow_tare_in_progress(void)
+{
+#if FLOW_ENABLED
+  return hx711_tare_started && !hx711_inited;
+#else
+  return false;
+#endif
+}
+
+/* One-shot: returns true exactly once right after a tare finishes (button-
+ * triggered or the initial power-on tare), then clears itself. app.c calls
+ * this once per AI report tick to latch a "tare done" event into the alarm
+ * bitmap without it getting stuck permanently true. */
+bool sh_flow_tare_just_completed(void)
+{
+#if FLOW_ENABLED
+  if (tare_just_completed) {
+    tare_just_completed = false;
+    return true;
+  }
+  return false;
+#else
+  return false;
+#endif
+}
+
+/* Triggers a tare remotely - same effect as pressing BTN0, but callable
+ * from app.c when the doctor sends a "reset scale" command from the HIS
+ * Server (no physical button press needed). */
+void sh_flow_trigger_tare(void)
+{
+#if FLOW_ENABLED
+  hx711_trigger_tare("remote command");
+#endif
+}
+
+/* Persistent count of completed tares (never resets) - see the comment on
+ * tare_event_count above for why this exists alongside the one-shot pulse. */
+uint8_t sh_flow_tare_event_count(void)
+{
+#if FLOW_ENABLED
+  return tare_event_count;
+#else
+  return 0;
+#endif
+}
+
 /* ---------------- DROPS (drop sensor) ---------------- */
 float sh_drops_per_min(void)
 {
@@ -820,12 +981,12 @@ float sh_drops_per_min(void)
   if (eff == 0) return 0.0f;
   return 60000.0f / (float)eff;
 #else
-  return SET_DROPS_DPM;
+  return target_drops_per_min;
 #endif
 }
 float sh_drops_ratio(void)
 {
-  return sh_drops_per_min() / SET_DROPS_DPM;
+  return sh_drops_per_min() / target_drops_per_min;
 }
 ch_state_t sh_drops_state(void)
 {
@@ -837,3 +998,20 @@ ch_state_t sh_drops_state(void)
 }
 
 uint32_t sh_total_drops(void) { return total_drops; }
+
+/* Current doctor-set target drop rate, drops/min. */
+float sh_target_drops_per_min(void)
+{
+  return target_drops_per_min;
+}
+
+/* Applies a new doctor-set target drop rate. Same idea as
+ * sh_set_target_flow_ml_h() - called locally or from app.c's
+ * sl_zigbee_af_post_attribute_change_cb() when TargetDropsPerMin is written
+ * from the network. Rejects non-positive values (divide-by-zero guard). */
+void sh_set_target_drops_per_min(float dpm)
+{
+  if (dpm > 0.0f) {
+    target_drops_per_min = dpm;
+  }
+}

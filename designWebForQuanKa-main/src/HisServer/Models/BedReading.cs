@@ -15,4 +15,15 @@ public sealed record BedReading(
     bool FlowSignal = true,
     bool DripRateSignal = true,
     bool LineBlocked = false,
-    bool AeAlarm = false);
+    bool AeAlarm = false,
+    int? WeightG = null,
+    int? DropsPerMin = null,
+    int? TargetFlowMlH = null,
+    int? TargetDropsPerMin = null,
+    bool TareInProgress = false,
+    bool TareJustCompleted = false,
+    bool HrBaselineJustCompleted = false,
+    int? HrBaselineSecondsRemaining = null,
+    int? HrBaselineBpm = null,
+    int? TareEventCount = null,
+    int? HrBaselineEventCount = null);

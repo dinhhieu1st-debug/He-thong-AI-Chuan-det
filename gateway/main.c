@@ -12,13 +12,19 @@
  * - Read the JSON fields exposed by zigbee2mqtt_smart_iv_converter.js:
  *   heart_rate, spo2, flow, drop_rate, alarm, signal_lost, spo2_low,
  *   heart_rate_abnormal, line_blocked, ae_alarm, hr_signal, spo2_signal,
- *   flow_signal, drops_signal
+ *   flow_signal, drops_signal, weight_g, drops_per_min, target_flow_ml_h,
+ *   tare_in_progress, tare_just_completed, hr_baseline_just_completed
+ * - Also accepts COMMANDS from the HIS Server over the same TCP socket used
+ *   to forward vitals (newline-delimited JSON, e.g.
+ *   {"cmd":"set_target_flow_ml_h","value":120}) and republishes them to
+ *   zigbee2mqtt's "<topic>/set" so the doctor's change reaches the device.
  *
  * Example received payload:
  * {"heart_rate":81,"spo2":97,"flow":100,"drop_rate":100,"alarm":false,
  *  "signal_lost":false,"spo2_low":false,"heart_rate_abnormal":false,
  *  "line_blocked":false,"ae_alarm":false,"hr_signal":false,"spo2_signal":false,
- *  "flow_signal":false,"drops_signal":true,"linkquality":196}
+ *  "flow_signal":false,"drops_signal":true,"weight_g":480,"drops_per_min":19,
+ *  "target_flow_ml_h":100,"linkquality":196}
  */
 
 #include <stdio.h>
@@ -38,6 +44,7 @@ typedef SOCKET his_socket_t;
 #define his_close(s) closesocket(s)
 #else
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -70,6 +77,18 @@ static const char *his_room = "ICU-1";
 static his_socket_t his_socket = HIS_INVALID_SOCKET;
 
 static int running = 1;
+
+/* Needed by check_his_commands() to republish a doctor's command to MQTT -
+ * set once in main() after the MQTT client and "<topic>/set" string are built. */
+static struct mosquitto *g_mosq = NULL;
+static char g_mqtt_set_topic[300];
+
+/* Partial-line buffer for commands arriving from the HIS Server on
+ * his_socket - a single recv() is not guaranteed to land on a line
+ * boundary, so incomplete data is held here until a '\n' completes it. */
+#define HIS_CMD_BUF_SIZE 512
+static char     his_cmd_buf[HIS_CMD_BUF_SIZE];
+static size_t   his_cmd_buf_len = 0;
 
 /*
  * Automatically runs start_services.bat before connecting to MQTT.
@@ -260,9 +279,14 @@ static his_socket_t his_connect(const char *host, int port)
  */
 static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_rate,
                                int hr_signal, int spo2_signal, int flow_signal,
-                               int drops_signal, int line_blocked, int ae_alarm)
+                               int drops_signal, int line_blocked, int ae_alarm,
+                               int weight_g, int drops_per_min, int target_flow_ml_h,
+                               int target_drops_per_min, int tare_in_progress,
+                               int tare_just_completed, int hr_baseline_just_completed,
+                               int hr_baseline_seconds_remaining, int hr_baseline_bpm,
+                               int tare_event_count, int hr_baseline_event_count)
 {
-    char line[512];
+    char line[800];
     size_t len;
 
     if (his_host == NULL) {
@@ -282,17 +306,129 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "{\"bedId\":\"%s\",\"room\":\"%s\",\"spo2\":%d,\"heartRate\":%d,"
              "\"dripRate\":%d,\"flowRate\":%d,\"heartRateSignal\":%s,"
              "\"spo2Signal\":%s,\"flowSignal\":%s,\"dripRateSignal\":%s,"
-             "\"lineBlocked\":%s,\"aeAlarm\":%s}\n",
+             "\"lineBlocked\":%s,\"aeAlarm\":%s,\"weightG\":%d,"
+             "\"dropsPerMin\":%d,\"targetFlowMlH\":%d,\"targetDropsPerMin\":%d,"
+             "\"tareInProgress\":%s,\"tareJustCompleted\":%s,"
+             "\"hrBaselineJustCompleted\":%s,\"hrBaselineSecondsRemaining\":%d,"
+             "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d}\n",
              his_bed_id, his_room, spo2, heart_rate, drop_rate, flow_rate,
              hr_signal ? "true" : "false", spo2_signal ? "true" : "false",
              flow_signal ? "true" : "false", drops_signal ? "true" : "false",
-             line_blocked ? "true" : "false", ae_alarm ? "true" : "false");
+             line_blocked ? "true" : "false", ae_alarm ? "true" : "false",
+             weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
+             tare_in_progress ? "true" : "false",
+             tare_just_completed ? "true" : "false",
+             hr_baseline_just_completed ? "true" : "false",
+             hr_baseline_seconds_remaining, hr_baseline_bpm,
+             tare_event_count, hr_baseline_event_count);
 
     len = strlen(line);
     if (send(his_socket, line, (int)len, 0) < 0) {
         printf("Lost connection to HIS Server, will retry on the next send\n");
         his_close(his_socket);
         his_socket = HIS_INVALID_SOCKET;
+    }
+}
+
+/*
+ * Publishes a single-field JSON payload to zigbee2mqtt's "<topic>/set",
+ * e.g. publish_mqtt_set("target_flow_ml_h", "120") publishes
+ * {"target_flow_ml_h":120}. field_value_json is inserted as-is (already
+ * valid JSON - a bare number, or "true"), not quoted, so callers pass
+ * numbers/booleans, not strings.
+ */
+static void publish_mqtt_set(const char *description, const char *field_name, const char *field_value_json)
+{
+    if (g_mosq == NULL) {
+        return;
+    }
+
+    char payload[64];
+    snprintf(payload, sizeof(payload), "{\"%s\":%s}", field_name, field_value_json);
+    int pub_rc = mosquitto_publish(g_mosq, NULL, g_mqtt_set_topic,
+                                   (int)strlen(payload), payload, 0, false);
+    if (pub_rc == MOSQ_ERR_SUCCESS) {
+        printf("HIS Server requested %s -> published to %s\n", description, g_mqtt_set_topic);
+    } else {
+        printf("Failed to publish %s command: %s\n", description, mosquitto_strerror(pub_rc));
+    }
+}
+
+/*
+ * Checks for an incoming command line from the HIS Server on the SAME TCP
+ * socket used to forward vitals (the gateway is the TCP client, so the
+ * socket only exists once at least one vitals send has succeeded). Uses a
+ * zero-timeout select() so this never blocks the main loop - if nothing is
+ * waiting, it returns immediately.
+ *
+ * Expected command format (newline-delimited JSON):
+ *   {"cmd":"set_target_flow_ml_h","value":120}
+ *   {"cmd":"set_target_drops_per_min","value":20}
+ *   {"cmd":"reset_tare"}
+ *   {"cmd":"recalibrate_hr_baseline"}
+ *
+ * On a recognized command, republishes to zigbee2mqtt's "<topic>/set" so
+ * the toZigbee converters in zigbee2mqtt_smart_iv_converter.js write the
+ * matching Zigbee attribute down to the device.
+ */
+static void check_his_commands(void)
+{
+    if (his_socket == HIS_INVALID_SOCKET) {
+        return;
+    }
+
+    fd_set readfds;
+    struct timeval tv;
+    FD_ZERO(&readfds);
+    FD_SET(his_socket, &readfds);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    int ready = select((int)his_socket + 1, &readfds, NULL, NULL, &tv);
+    if (ready <= 0 || !FD_ISSET(his_socket, &readfds)) {
+        return;
+    }
+
+    char chunk[256];
+    int n = recv(his_socket, chunk, sizeof(chunk) - 1, 0);
+    if (n <= 0) {
+        /* HIS Server closed the connection or a real error occurred - the
+         * next his_send_bed_data() call will transparently reconnect. */
+        printf("HIS Server command channel closed, will reconnect on next send\n");
+        his_close(his_socket);
+        his_socket = HIS_INVALID_SOCKET;
+        his_cmd_buf_len = 0;
+        return;
+    }
+    chunk[n] = '\0';
+
+    for (int i = 0; i < n && his_cmd_buf_len < HIS_CMD_BUF_SIZE - 1; i++) {
+        if (chunk[i] == '\n') {
+            his_cmd_buf[his_cmd_buf_len] = '\0';
+
+            int value = 0;
+            char value_str[16];
+
+            if (strstr(his_cmd_buf, "\"cmd\"") == NULL) {
+                /* not a recognized command line - ignore */
+            } else if (strstr(his_cmd_buf, "set_target_flow_ml_h") != NULL
+                       && get_int_from_json(his_cmd_buf, "value", &value)) {
+                snprintf(value_str, sizeof(value_str), "%d", value);
+                publish_mqtt_set("target flow rate", "target_flow_ml_h", value_str);
+            } else if (strstr(his_cmd_buf, "set_target_drops_per_min") != NULL
+                       && get_int_from_json(his_cmd_buf, "value", &value)) {
+                snprintf(value_str, sizeof(value_str), "%d", value);
+                publish_mqtt_set("target drop rate", "target_drops_per_min", value_str);
+            } else if (strstr(his_cmd_buf, "reset_tare") != NULL) {
+                publish_mqtt_set("loadcell tare reset", "reset_tare", "true");
+            } else if (strstr(his_cmd_buf, "recalibrate_hr_baseline") != NULL) {
+                publish_mqtt_set("HR baseline recalibration", "recalibrate_hr_baseline", "true");
+            }
+
+            his_cmd_buf_len = 0;
+        } else {
+            his_cmd_buf[his_cmd_buf_len++] = chunk[i];
+        }
     }
 }
 
@@ -347,6 +483,10 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     int heart_rate = 0, spo2 = 0, flow = 0, drop_rate = 0;
     int alarm = 0, signal_lost = 0, spo2_low = 0, heart_rate_abnormal = 0, line_blocked = 0, ae_alarm = 0;
     int hr_signal = 0, spo2_signal = 0, flow_signal = 0, drops_signal = 0;
+    int weight_g = 0, drops_per_min = 0, target_flow_ml_h = 0, target_drops_per_min = 0;
+    int tare_in_progress = 0, tare_just_completed = 0, hr_baseline_just_completed = 0;
+    int hr_baseline_seconds_remaining = 0, hr_baseline_bpm = 0;
+    int tare_event_count = 0, hr_baseline_event_count = 0;
 
     if (msg == NULL || msg->payload == NULL || msg->payloadlen <= 0) {
         return;
@@ -407,9 +547,37 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
            hr_signal ? "OK" : "lost", spo2_signal ? "OK" : "lost",
            flow_signal ? "OK" : "lost", drops_signal ? "OK" : "lost");
 
+    if (get_int_from_json(payload, "weight_g", &weight_g)) {
+        printf("IV bag weight   : %d g\n", weight_g);
+    }
+    if (get_int_from_json(payload, "drops_per_min", &drops_per_min)) {
+        printf("Drops per min   : %d dpm\n", drops_per_min);
+    }
+    if (get_int_from_json(payload, "target_flow_ml_h", &target_flow_ml_h)) {
+        printf("Target flow rate: %d ml/h\n", target_flow_ml_h);
+    }
+    if (get_int_from_json(payload, "target_drops_per_min", &target_drops_per_min)) {
+        printf("Target drop rate: %d dpm\n", target_drops_per_min);
+    }
+    get_bool_from_json(payload, "tare_in_progress", &tare_in_progress);
+    if (get_bool_from_json(payload, "tare_just_completed", &tare_just_completed) && tare_just_completed) {
+        printf("Loadcell tare just completed\n");
+    }
+    if (get_bool_from_json(payload, "hr_baseline_just_completed", &hr_baseline_just_completed) && hr_baseline_just_completed) {
+        printf("HR 60s baseline sample just completed\n");
+    }
+    get_int_from_json(payload, "hr_baseline_seconds_remaining", &hr_baseline_seconds_remaining);
+    get_int_from_json(payload, "hr_baseline_bpm", &hr_baseline_bpm);
+    get_int_from_json(payload, "tare_event_count", &tare_event_count);
+    get_int_from_json(payload, "hr_baseline_event_count", &hr_baseline_event_count);
+
     his_send_bed_data(heart_rate, spo2, flow, drop_rate,
                       hr_signal, spo2_signal, flow_signal, drops_signal,
-                      line_blocked, ae_alarm);
+                      line_blocked, ae_alarm,
+                      weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
+                      tare_in_progress, tare_just_completed, hr_baseline_just_completed,
+                      hr_baseline_seconds_remaining, hr_baseline_bpm,
+                      tare_event_count, hr_baseline_event_count);
 
     free(payload);
 }
@@ -500,6 +668,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    /* Needed by check_his_commands() to republish a doctor's "set target
+     * flow rate" command from the HIS Server down to zigbee2mqtt. */
+    g_mosq = mosq;
+    snprintf(g_mqtt_set_topic, sizeof(g_mqtt_set_topic), "%s/set", mqtt_topic);
+
     mosquitto_connect_callback_set(mosq, on_connect);
     mosquitto_disconnect_callback_set(mosq, on_disconnect);
     mosquitto_message_callback_set(mosq, on_message);
@@ -519,6 +692,12 @@ int main(int argc, char *argv[])
 
     while (running) {
         rc = mosquitto_loop(mosq, 1000, 1);
+
+        /* Non-blocking check for a command from the HIS Server on the
+         * vitals-forwarding socket (e.g. a doctor changing the target flow
+         * rate) - cheap to call every iteration since it returns
+         * immediately when nothing is waiting. */
+        check_his_commands();
 
         if (rc != MOSQ_ERR_SUCCESS) {
             printf("MQTT loop error: %s\n", mosquitto_strerror(rc));

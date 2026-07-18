@@ -30,6 +30,7 @@ public sealed class BedTcpIngestionService : BackgroundService
     private readonly AlertRepository alertRepository;
     private readonly VitalsPersistenceCoordinator persistenceCoordinator;
     private readonly FcmPushService fcmPushService;
+    private readonly BedConnectionRegistry connectionRegistry;
     private readonly IHubContext<MonitoringHub, IMonitoringClient> hub;
     private readonly IOptionsMonitor<TcpOptions> options;
     private readonly ILogger<BedTcpIngestionService> logger;
@@ -41,6 +42,7 @@ public sealed class BedTcpIngestionService : BackgroundService
         AlertRepository alertRepository,
         VitalsPersistenceCoordinator persistenceCoordinator,
         FcmPushService fcmPushService,
+        BedConnectionRegistry connectionRegistry,
         IHubContext<MonitoringHub, IMonitoringClient> hub,
         IOptionsMonitor<TcpOptions> options,
         ILogger<BedTcpIngestionService> logger)
@@ -51,6 +53,7 @@ public sealed class BedTcpIngestionService : BackgroundService
         this.alertRepository = alertRepository;
         this.persistenceCoordinator = persistenceCoordinator;
         this.fcmPushService = fcmPushService;
+        this.connectionRegistry = connectionRegistry;
         this.hub = hub;
         this.options = options;
         this.logger = logger;
@@ -88,41 +91,72 @@ public sealed class BedTcpIngestionService : BackgroundService
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
-        using (client)
-        await using (var stream = client.GetStream())
-        using (var reader = new StreamReader(stream, Encoding.UTF8))
+        // Tracks which bedId this connection is currently registered under in
+        // BedConnectionRegistry, so a command sent from the REST API (e.g. a
+        // doctor's target flow rate change) can be written back down this
+        // same socket. Registered lazily on the first successfully-parsed
+        // line (bedId isn't known before that), and always unregistered when
+        // the connection ends - a gateway only ever forwards one bed, so this
+        // never actually changes mid-connection in practice.
+        string? registeredBedId = null;
+
+        try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            using (client)
+            await using (var stream = client.GetStream())
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
             {
-                string? line;
-                try
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    line = await reader.ReadLineAsync(cancellationToken);
-                }
-                catch (IOException)
-                {
-                    return;
-                }
+                    string? line;
+                    try
+                    {
+                        line = await reader.ReadLineAsync(cancellationToken);
+                    }
+                    catch (IOException)
+                    {
+                        return;
+                    }
 
-                if (line is null)
-                {
-                    return;
-                }
+                    if (line is null)
+                    {
+                        return;
+                    }
 
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
 
-                try
-                {
-                    var reading = BedDataParser.Parse(line);
-                    await ProcessReadingAsync(reading, cancellationToken);
+                    try
+                    {
+                        var reading = BedDataParser.Parse(line);
+
+                        if (registeredBedId != reading.BedId)
+                        {
+                            if (registeredBedId is not null)
+                            {
+                                connectionRegistry.Unregister(registeredBedId);
+                            }
+
+                            connectionRegistry.Register(reading.BedId, stream);
+                            registeredBedId = reading.BedId;
+                        }
+
+                        await ProcessReadingAsync(reading, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Invalid bed data line received: {Line}", line);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Invalid bed data line received: {Line}", line);
-                }
+            }
+        }
+        finally
+        {
+            if (registeredBedId is not null)
+            {
+                connectionRegistry.Unregister(registeredBedId);
             }
         }
     }
@@ -154,6 +188,45 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.DripRateSignal = reading.DripRateSignal;
             state.LineBlocked = reading.LineBlocked;
             state.AeAlarm = reading.AeAlarm;
+            state.WeightG = reading.WeightG;
+            state.DropsPerMin = reading.DropsPerMin;
+            state.TargetFlowMlH = reading.TargetFlowMlH;
+            state.TargetDropsPerMin = reading.TargetDropsPerMin;
+            state.TareInProgress = reading.TareInProgress;
+            state.TareJustCompleted = reading.TareJustCompleted;
+            state.HrBaselineJustCompleted = reading.HrBaselineJustCompleted;
+            state.HrBaselineSecondsRemaining = reading.HrBaselineSecondsRemaining;
+            state.HrBaselineBpm = reading.HrBaselineBpm;
+
+            // The firmware has no wall-clock time (only relative uptime), so
+            // THIS server stamps the actual timestamp the moment it detects a
+            // completion - lets the UI show "captured/tared at HH:MM:SS"
+            // persistently rather than relying on a transient toast the
+            // doctor might not be looking at.
+            //
+            // We use the PERSISTENT event counters (TareEventCount /
+            // HrBaselineEventCount) rather than the one-shot *_just_completed
+            // flags above: those flags pulse true for exactly one firmware
+            // report and can be missed entirely if that report happens to
+            // fire before Zigbee reporting was configured (e.g. the very
+            // fast auto-tare at boot can race with network join, while the
+            // slower 60s HR window essentially never does - this exact
+            // asymmetry was observed in practice). A persistent count can't
+            // be missed: any difference from what we saw last time - however
+            // late we happen to observe it - means a completion happened.
+            if (reading.TareEventCount is int newTareCount
+                && newTareCount != state.LastSeenTareEventCount)
+            {
+                state.LastTareCompletedAt = reading.ReceivedAt;
+                state.LastSeenTareEventCount = newTareCount;
+            }
+            if (reading.HrBaselineEventCount is int newHrBaselineCount
+                && newHrBaselineCount != state.LastSeenHrBaselineEventCount)
+            {
+                state.HrBaselineCapturedAt = reading.ReceivedAt;
+                state.LastSeenHrBaselineEventCount = newHrBaselineCount;
+            }
+
             state.AlertMessage = alertMessage;
             state.LastDataAt = reading.ReceivedAt;
         });

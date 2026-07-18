@@ -52,4 +52,8 @@ void ai_monitor_step(ai_result_t *out);
  * Neu khong goi, baseline mac dinh = scaler.mean[0] (81.68). */
 void ai_monitor_set_hr_baseline(float hr_base);
 
+/* Current active HR baseline (bpm) - the value locked in at the last
+ * calibration, so the HIS Server can show it alongside "captured at". */
+float ai_monitor_get_hr_baseline(void);
+
 #endif /* AI_MONITOR_H */

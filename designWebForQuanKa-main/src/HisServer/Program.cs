@@ -25,6 +25,7 @@ builder.Services.AddSingleton<LogRepository>();
 
 // Domain / services
 builder.Services.AddSingleton<BedStateStore>();
+builder.Services.AddSingleton<BedConnectionRegistry>();
 builder.Services.AddSingleton<VitalsPersistenceCoordinator>();
 builder.Services.AddHttpClient<FcmPushService>();
 
@@ -83,6 +84,19 @@ using (var scope = app.Services.CreateScope())
                 state.DripRateSignal = bed.DripRateSignal;
                 state.LineBlocked = bed.LineBlocked;
                 state.AeAlarm = bed.AeAlarm;
+                state.WeightG = bed.WeightG;
+                state.DropsPerMin = bed.DropsPerMin;
+                state.TargetFlowMlH = bed.TargetFlowMlH;
+                state.TargetDropsPerMin = bed.TargetDropsPerMin;
+                state.TareInProgress = bed.TareInProgress;
+                state.TareJustCompleted = bed.TareJustCompleted;
+                state.HrBaselineJustCompleted = bed.HrBaselineJustCompleted;
+                state.HrBaselineSecondsRemaining = bed.HrBaselineSecondsRemaining;
+                state.HrBaselineBpm = bed.HrBaselineBpm;
+                state.HrBaselineCapturedAt = bed.HrBaselineCapturedAt;
+                state.LastTareCompletedAt = bed.LastTareCompletedAt;
+                state.LastSeenTareEventCount = bed.LastSeenTareEventCount;
+                state.LastSeenHrBaselineEventCount = bed.LastSeenHrBaselineEventCount;
                 state.AlertMessage = bed.AlertMessage;
                 state.DeviceId = bed.DeviceId;
                 state.LastDataAt = bed.LastDataAt;

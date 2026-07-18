@@ -44,5 +44,27 @@ const UiUtils = (() => {
     ).join("")}</div>`;
   }
 
-  return { statusColor, escapeHtml, formatDateTime, formatMetric, signalRowHtml };
+  // Small dismissable notification for the result of an action button (e.g.
+  // "target flow rate set", "tare command sent"). Falls back to console.log
+  // if the toast container isn't present in the page yet.
+  function toast(message, isError) {
+    const container = document.getElementById("toastContainer");
+    if (!container) {
+      console.log(`[toast] ${message}`);
+      return;
+    }
+
+    const el = document.createElement("div");
+    el.className = `toast ${isError ? "error" : ""}`;
+    el.textContent = message;
+    container.appendChild(el);
+
+    setTimeout(() => el.classList.add("visible"), 10);
+    setTimeout(() => {
+      el.classList.remove("visible");
+      setTimeout(() => el.remove(), 300);
+    }, 4000);
+  }
+
+  return { statusColor, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast };
 })();

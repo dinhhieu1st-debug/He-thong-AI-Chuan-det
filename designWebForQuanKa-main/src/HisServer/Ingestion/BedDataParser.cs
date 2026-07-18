@@ -38,10 +38,28 @@ public static class BedDataParser
         var lineBlocked = ReadBool(root, false, "lineBlocked", "line_blocked");
         var aeAlarm = ReadBool(root, false, "aeAlarm", "ae_alarm");
 
+        // Raw telemetry + tare/baseline events (added alongside the doctor-
+        // settable target flow rate feature) - absent on older gateway
+        // builds, so these stay nullable/false rather than defaulting to a
+        // potentially-misleading 0.
+        var weightG = ReadNullableInt(root, "weightG", "weight_g");
+        var dropsPerMin = ReadNullableInt(root, "dropsPerMin", "drops_per_min");
+        var targetFlowMlH = ReadNullableInt(root, "targetFlowMlH", "target_flow_ml_h");
+        var targetDropsPerMin = ReadNullableInt(root, "targetDropsPerMin", "target_drops_per_min");
+        var tareInProgress = ReadBool(root, false, "tareInProgress", "tare_in_progress");
+        var tareJustCompleted = ReadBool(root, false, "tareJustCompleted", "tare_just_completed");
+        var hrBaselineJustCompleted = ReadBool(root, false, "hrBaselineJustCompleted", "hr_baseline_just_completed");
+        var hrBaselineSecondsRemaining = ReadNullableInt(root, "hrBaselineSecondsRemaining", "hr_baseline_seconds_remaining");
+        var hrBaselineBpm = ReadNullableInt(root, "hrBaselineBpm", "hr_baseline_bpm");
+        var tareEventCount = ReadNullableInt(root, "tareEventCount", "tare_event_count");
+        var hrBaselineEventCount = ReadNullableInt(root, "hrBaselineEventCount", "hr_baseline_event_count");
+
         return new BedReading(
             bedId, room, spo2, heartRate, temperature, dripRate, DateTime.UtcNow,
             flowRate, heartRateSignal, spo2Signal, flowSignal, dripRateSignal,
-            lineBlocked, aeAlarm);
+            lineBlocked, aeAlarm, weightG, dropsPerMin, targetFlowMlH, targetDropsPerMin,
+            tareInProgress, tareJustCompleted, hrBaselineJustCompleted, hrBaselineSecondsRemaining,
+            hrBaselineBpm, tareEventCount, hrBaselineEventCount);
     }
 
     private static string? ReadString(JsonElement root, params string[] names)
@@ -78,6 +96,29 @@ public static class BedDataParser
         }
 
         return defaultValue;
+    }
+
+    private static int? ReadNullableInt(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryGetProperty(root, name, out var property))
+            {
+                continue;
+            }
+
+            if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value))
+            {
+                return value;
+            }
+
+            if (int.TryParse(property.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
     }
 
     private static double ReadDouble(JsonElement root, double defaultValue, params string[] names)

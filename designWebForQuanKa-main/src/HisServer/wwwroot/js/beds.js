@@ -49,37 +49,199 @@ const BedsTab = (() => {
     ).join("");
   }
 
+  // One-shot event flags (tare_just_completed / hr_baseline_just_completed)
+  // pulse true for a single reading then the firmware clears them - the
+  // PERSISTENT confirmation ("Baseline captured at HH:MM:SS" / "Last tared
+  // at HH:MM:SS") comes from bed.hrBaselineCapturedAt / bed.lastTareCompletedAt
+  // (stamped server-side, always present once it's happened at least once),
+  // so the doctor sees it whenever they open the panel, not just in the
+  // instant the pulse fires. The toast is just a nice-to-have on top.
+  const shownEventKeys = new Set();
+
+  function maybeShowEventToast(bed) {
+    if (bed.tareJustCompleted) {
+      const key = `${bed.bedId}:tare:${bed.lastUpdated}`;
+      if (!shownEventKeys.has(key)) {
+        shownEventKeys.add(key);
+        UiUtils.toast(`${bed.bedId}: loadcell tare complete - scale is at 0g`);
+      }
+    }
+    if (bed.hrBaselineJustCompleted) {
+      const key = `${bed.bedId}:hr:${bed.lastUpdated}`;
+      if (!shownEventKeys.has(key)) {
+        shownEventKeys.add(key);
+        UiUtils.toast(`${bed.bedId}: HR 60s baseline sample complete`);
+      }
+    }
+  }
+
+  function hrStatusHtml(bed) {
+    const remaining = bed.hrBaselineSecondsRemaining;
+    if (remaining && remaining > 0) {
+      return `<div class="status-line status-line-active">Calibrating baseline… <b>${remaining}s</b> remaining</div>`;
+    }
+    if (bed.hrBaselineCapturedAt) {
+      const bpmSuffix = bed.hrBaselineBpm != null ? ` (${bed.hrBaselineBpm} bpm)` : "";
+      return `<div class="status-line status-line-done">Baseline captured at ${UiUtils.formatDateTime(bed.hrBaselineCapturedAt)}${bpmSuffix}</div>`;
+    }
+    return `<div class="status-line status-line-muted">No baseline captured yet</div>`;
+  }
+
+  function tareStatusHtml(bed) {
+    if (bed.tareInProgress) {
+      return `<div class="status-line status-line-active">Taring in progress…</div>`;
+    }
+    if (bed.lastTareCompletedAt) {
+      return `<div class="status-line status-line-done">Last tared at ${UiUtils.formatDateTime(bed.lastTareCompletedAt)}</div>`;
+    }
+    return `<div class="status-line status-line-muted">Not tared yet</div>`;
+  }
+
+  function settingsSectionHtml(bed) {
+    return `
+      <div class="bed-settings">
+        <h4>Doctor-configurable settings</h4>
+
+        <div class="settings-block">
+          <label>Load cell</label>
+          <div class="metric-row">
+            <div class="metric"><b>${UiUtils.formatMetric(bed.weightG, " g")}</b><span>IV bag weight</span></div>
+          </div>
+          ${tareStatusHtml(bed)}
+          <div class="inline-form" style="margin-top:8px;">
+            <button type="button" id="resetTareBtn" class="btn">Reset scale (tare)</button>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <label>Heart rate</label>
+          ${hrStatusHtml(bed)}
+          <div class="inline-form" style="margin-top:8px;">
+            <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 60s baseline</button>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <label>Infusion rate (AI alert target)</label>
+          <div class="current-target">Current: <b>${UiUtils.formatMetric(bed.targetFlowMlH, " ml/h")}</b></div>
+          <form id="targetFlowForm" class="inline-form">
+            <input type="number" min="1" id="targetFlowInput" placeholder="New target" value="">
+            <button type="submit" class="btn primary">Set</button>
+          </form>
+        </div>
+
+        <div class="settings-block">
+          <label>Drop rate (AI alert target)</label>
+          <div class="current-target">Current: <b>${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
+            &nbsp;·&nbsp; Measured: <b>${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</b></div>
+          <form id="targetDropsForm" class="inline-form">
+            <input type="number" min="1" id="targetDropsInput" placeholder="New target" value="">
+            <button type="submit" class="btn primary">Set</button>
+          </form>
+        </div>
+      </div>`;
+  }
+
+  function bindSettingsHandlers(bed) {
+    document.getElementById("targetFlowForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("targetFlowInput");
+      const value = parseInt(input.value, 10);
+      if (!value || value <= 0) return;
+      try {
+        await Api.setTargetFlow(bed.bedId, value);
+        UiUtils.toast(`${bed.bedId}: target flow rate set to ${value} ml/h`);
+        input.value = "";
+      } catch (err) {
+        UiUtils.toast(`${bed.bedId}: could not set target flow rate (${err.message})`, true);
+      }
+    });
+
+    document.getElementById("targetDropsForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("targetDropsInput");
+      const value = parseInt(input.value, 10);
+      if (!value || value <= 0) return;
+      try {
+        await Api.setTargetDrops(bed.bedId, value);
+        UiUtils.toast(`${bed.bedId}: target drop rate set to ${value} dpm`);
+        input.value = "";
+      } catch (err) {
+        UiUtils.toast(`${bed.bedId}: could not set target drop rate (${err.message})`, true);
+      }
+    });
+
+    document.getElementById("resetTareBtn").addEventListener("click", async () => {
+      try {
+        await Api.resetTare(bed.bedId);
+        UiUtils.toast(`${bed.bedId}: tare command sent - remove any load from the scale`);
+      } catch (err) {
+        UiUtils.toast(`${bed.bedId}: could not send tare command (${err.message})`, true);
+      }
+    });
+
+    document.getElementById("recalibrateHrBtn").addEventListener("click", async () => {
+      try {
+        await Api.recalibrateHr(bed.bedId);
+        UiUtils.toast(`${bed.bedId}: HR recalibration started - measuring for 60s`);
+      } catch (err) {
+        UiUtils.toast(`${bed.bedId}: could not start HR recalibration (${err.message})`, true);
+      }
+    });
+  }
+
+  function closeDetail() {
+    selectedBedId = null;
+    renderDetail();
+  }
+
   function renderDetail() {
     const panel = document.getElementById("bedDetailPanel");
     const bed = selectedBedId ? State.beds.get(selectedBedId) : null;
     if (!bed) {
+      panel.classList.remove("fullscreen-open");
       panel.style.display = "none";
+      document.body.classList.remove("no-scroll");
       return;
     }
 
+    maybeShowEventToast(bed);
+
+    panel.classList.add("fullscreen-open");
     panel.style.display = "block";
+    document.body.classList.add("no-scroll");
     panel.innerHTML = `
-      <h3>${UiUtils.escapeHtml(bed.bedId)}</h3>
-      <div class="sub">${UiUtils.escapeHtml(bed.room)} · ${UiUtils.escapeHtml((bed.status || "").toUpperCase())}</div>
-      <div class="metric-row">
-        <div class="metric"><b>${UiUtils.formatMetric(bed.spo2, "%")}</b><span>SpO2</span></div>
-        <div class="metric"><b>${UiUtils.formatMetric(bed.heartRate, "")}</b><span>Heart Rate</span></div>
-        <div class="metric"><b>${UiUtils.formatMetric(bed.flowRate, "%")}</b><span>Flow Rate</span></div>
-        <div class="metric"><b>${UiUtils.formatMetric(bed.dripRate, "%")}</b><span>Drip Rate</span></div>
+      <div class="fullscreen-header">
+        <button type="button" class="btn" id="closeBedDetailBtn">&larr; Back to beds</button>
       </div>
-      ${UiUtils.signalRowHtml(bed)}
-      ${bed.alertMessage ? `<div class="bed-message">${UiUtils.escapeHtml(bed.alertMessage)}</div>` : ""}
-      <form id="editBedForm">
-        <label>Room</label>
-        <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}">
-        <button type="submit" class="btn primary">Save</button>
-      </form>`;
+      <div class="fullscreen-body">
+        <h3>${UiUtils.escapeHtml(bed.bedId)}</h3>
+        <div class="sub">${UiUtils.escapeHtml(bed.room)} · ${UiUtils.escapeHtml((bed.status || "").toUpperCase())}</div>
+        <div class="metric-row">
+          <div class="metric"><b>${UiUtils.formatMetric(bed.spo2, "%")}</b><span>SpO2</span></div>
+          <div class="metric"><b>${UiUtils.formatMetric(bed.heartRate, "")}</b><span>Heart Rate</span></div>
+          <div class="metric"><b>${UiUtils.formatMetric(bed.flowRate, "%")}</b><span>Flow Rate</span></div>
+          <div class="metric"><b>${UiUtils.formatMetric(bed.dripRate, "%")}</b><span>Drip Rate</span></div>
+        </div>
+        ${UiUtils.signalRowHtml(bed)}
+        ${bed.alertMessage ? `<div class="bed-message">${UiUtils.escapeHtml(bed.alertMessage)}</div>` : ""}
+        <form id="editBedForm">
+          <label>Room</label>
+          <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}">
+          <button type="submit" class="btn primary">Save</button>
+        </form>
+        ${settingsSectionHtml(bed)}
+      </div>`;
+
+    document.getElementById("closeBedDetailBtn").addEventListener("click", closeDetail);
 
     document.getElementById("editBedForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const room = document.getElementById("editBedRoom").value.trim();
       await Api.updateBed(bed.bedId, { room });
     });
+
+    bindSettingsHandlers(bed);
   }
 
   function render() {

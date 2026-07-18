@@ -27,6 +27,11 @@ void ai_monitor_set_hr_baseline(float hr_base)
   if (hr_base > 30.0f && hr_base < 200.0f) hr_baseline = hr_base;
 }
 
+float ai_monitor_get_hr_baseline(void)
+{
+  return hr_baseline;
+}
+
 void ai_monitor_init(void)
 {
   ai_model_init();

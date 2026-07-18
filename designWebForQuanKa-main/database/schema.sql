@@ -27,6 +27,19 @@ CREATE TABLE IF NOT EXISTS beds (
   drip_rate_signal BOOLEAN NOT NULL DEFAULT TRUE,
   line_blocked BOOLEAN NOT NULL DEFAULT FALSE,
   ae_alarm BOOLEAN NOT NULL DEFAULT FALSE,
+  weight_g INT NULL,
+  drops_per_min INT NULL,
+  target_flow_ml_h INT NULL,
+  target_drops_per_min INT NULL,
+  tare_in_progress BOOLEAN NOT NULL DEFAULT FALSE,
+  tare_just_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  hr_baseline_just_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  hr_baseline_seconds_remaining INT NULL,
+  hr_baseline_bpm INT NULL,
+  hr_baseline_captured_at DATETIME(3) NULL,
+  last_tare_completed_at DATETIME(3) NULL,
+  last_seen_tare_event_count INT NULL,
+  last_seen_hr_baseline_event_count INT NULL,
   alert_message VARCHAR(255) NULL,
   device_id VARCHAR(80) NULL,
   last_data_at DATETIME(3) NULL,
@@ -46,6 +59,28 @@ CREATE TABLE IF NOT EXISTS beds (
 --   ALTER TABLE beds ADD COLUMN drip_rate_signal BOOLEAN NOT NULL DEFAULT TRUE;
 --   ALTER TABLE beds ADD COLUMN line_blocked BOOLEAN NOT NULL DEFAULT FALSE;
 --   ALTER TABLE beds ADD COLUMN ae_alarm BOOLEAN NOT NULL DEFAULT FALSE;
+--
+-- Added alongside the doctor-settable target infusion rate + loadcell tare
+-- button + HR baseline indication features:
+--   ALTER TABLE beds ADD COLUMN weight_g INT NULL;
+--   ALTER TABLE beds ADD COLUMN drops_per_min INT NULL;
+--   ALTER TABLE beds ADD COLUMN target_flow_ml_h INT NULL;
+--   ALTER TABLE beds ADD COLUMN target_drops_per_min INT NULL;
+--   ALTER TABLE beds ADD COLUMN tare_in_progress BOOLEAN NOT NULL DEFAULT FALSE;
+--   ALTER TABLE beds ADD COLUMN tare_just_completed BOOLEAN NOT NULL DEFAULT FALSE;
+--   ALTER TABLE beds ADD COLUMN hr_baseline_just_completed BOOLEAN NOT NULL DEFAULT FALSE;
+--
+-- Added alongside the HR countdown + persistent tare/baseline timestamp features:
+--   ALTER TABLE beds ADD COLUMN hr_baseline_seconds_remaining INT NULL;
+--   ALTER TABLE beds ADD COLUMN hr_baseline_captured_at DATETIME(3) NULL;
+--   ALTER TABLE beds ADD COLUMN last_tare_completed_at DATETIME(3) NULL;
+--
+-- Added alongside the persistent event-counter fix for the tare/baseline
+-- completion race (a one-shot bit can be missed if it fires before Zigbee
+-- reporting is configured; a persistent count that only ever goes up cannot):
+--   ALTER TABLE beds ADD COLUMN hr_baseline_bpm INT NULL;
+--   ALTER TABLE beds ADD COLUMN last_seen_tare_event_count INT NULL;
+--   ALTER TABLE beds ADD COLUMN last_seen_hr_baseline_event_count INT NULL;
 
 -- Real device registry. The old app's device screen was 100% hardcoded mock
 -- data with no live wiring at all; this is the first real implementation.

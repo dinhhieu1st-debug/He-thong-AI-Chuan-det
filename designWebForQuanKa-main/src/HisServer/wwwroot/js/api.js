@@ -25,6 +25,12 @@ const Api = (() => {
     getBeds: () => request("GET", "/api/beds"),
     createBed: (bedId, room) => request("POST", "/api/beds", { bedId, room }),
     updateBed: (bedId, patch) => request("PUT", `/api/beds/${encodeURIComponent(bedId)}`, patch),
+    setTargetFlow: (bedId, targetFlowMlH) =>
+      request("PUT", `/api/beds/${encodeURIComponent(bedId)}/target-flow`, { targetFlowMlH }),
+    setTargetDrops: (bedId, targetDropsPerMin) =>
+      request("PUT", `/api/beds/${encodeURIComponent(bedId)}/target-drops`, { targetDropsPerMin }),
+    resetTare: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/tare`),
+    recalibrateHr: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/recalibrate-hr`),
 
     getAlerts: (params) => request("GET", `/api/alerts?${new URLSearchParams(params)}`),
     ackAlert: (id) => request("POST", `/api/alerts/${id}/ack`),
