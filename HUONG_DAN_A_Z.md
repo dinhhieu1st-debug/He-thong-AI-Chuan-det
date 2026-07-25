@@ -403,18 +403,86 @@ uint16_t alarm_bitmap = (uint16_t)((r.reason_missing ? 0x01 : 0)
 Zigbee có cơ chế "reporting": thiết bị tự gửi giá trị mới khi thay đổi, không
 cần bên coordinator liên tục hỏi (poll). `zb_configure_reporting()` (gọi 1 lần
 khi vào mạng, `sl_zigbee_af_stack_status_cb` nhận `SL_STATUS_NETWORK_UP`) đăng
-ký cho cả 5 attribute của cluster `Smart IV Vitals` (cùng 1 endpoint + cluster,
-khác attributeId): gửi report tối thiểu mỗi 1 giây, tối đa mỗi 60 giây (nếu
-60s không đổi vẫn phải gửi 1 lần để bên nhận biết thiết bị còn sống). Vì
-cluster có `mfgCode`, mỗi entry reporting phải set đúng
-`reportingEntry.manufacturerCode = 0x1049` (khác `SL_ZIGBEE_AF_NULL_MANUFACTURER_CODE`
-dùng cho cluster chuẩn). Vì cấu hình này nằm **trong chính firmware**, hệ
-thống không phụ thuộc việc zigbee2mqtt phải gọi đúng lệnh ZCL
-`ConfigureReporting` (lệnh này hay bị timeout — xem mục 4.2).
+ký cho toàn bộ 13 attribute của cluster `Smart IV Vitals` (cùng 1 endpoint +
+cluster, khác attributeId). Vì cluster có `mfgCode`, mỗi entry reporting phải
+set đúng `reportingEntry.manufacturerCode = 0x1049` (khác
+`SL_ZIGBEE_AF_NULL_MANUFACTURER_CODE` dùng cho cluster chuẩn). Vì cấu hình này
+nằm **trong chính firmware**, hệ thống không phụ thuộc việc zigbee2mqtt phải
+gọi đúng lệnh ZCL `ConfigureReporting`.
 
-Mỗi giây, `app_process_action()` gọi `zb_report_ai_result()` ghi cả 5 giá trị
-vào 5 attribute (cùng 1 cluster/endpoint) — reporting plugin tự phát hiện thay
-đổi và gửi gói Zigbee đi.
+Mỗi giây, `app_process_action()` gọi `zb_report_ai_result()` ghi các giá trị
+vào attribute — reporting plugin tự phát hiện thay đổi và gửi gói Zigbee đi.
+
+**Nhịp báo cáo được phân loại theo vai trò, KHÔNG dùng chung một mức.** Bản
+đầu đặt phẳng `minInterval=1s` + `reportableChange=1` cho cả 13 attribute, hậu
+quả là thiết bị phát gần như liên tục: load cell rung ~1g ngay cả khi tải đứng
+yên nên riêng `WeightG` đã báo lại mỗi giây, và coordinator còn trả một Default
+Response cho *từng* khung. Đo thực tế: **~120 bản tin/phút**. Đó là airtime
+2.4GHz dùng chung với WiFi, làm tăng va chạm khung và sẽ tệ hơn nhiều khi
+nhiều giường dùng chung một coordinator.
+
+Cách sửa **không phải** là giãn đều tất cả — làm vậy sẽ trễ cảnh báo, không
+chấp nhận được với thiết bị y tế. Thay vào đó (xem bảng `reportCfgs[]` trong
+`zb_configure_reporting()`):
+
+| Nhóm | `minInterval` | `reportableChange` | Lý do |
+|---|---|---|---|
+| `AlarmBitmap` | 1s | 1 | Cảnh báo phải đi ngay tick đầu tiên, tuyệt đối không bóp |
+| `HeartRate`, `Spo2` | 2s | 1 | Đúng bằng nhịp cửa sổ MAX30102 tự publish |
+| `FlowRatio`, `DropRatio` | 5s | 5 (đơn vị 1%) | Vùng chết 5 điểm % — ngưỡng báo động là 30%/150% nên thừa mịn |
+| `WeightG` | 10s | 5 (gram) | 5g nằm trên mức nhiễu ~1g của cân → tải đứng yên thì ngừng báo |
+| `DropsPerMin` | 5s | 1 | 1 giọt/phút vẫn có ý nghĩa lâm sàng |
+| Ngưỡng đặt + bộ đếm sự kiện | 1s | 1 | Chỉ đổi khi bác sĩ thao tác → phản hồi tức thì, lúc rảnh không tốn gì |
+
+Kết quả sau khi chỉnh: **12 bản tin/phút** (giảm 10 lần) mà độ trễ cảnh báo
+không đổi.
+
+`maxInterval` giữ **60s** cho mọi attribute và **không được vượt 90s**, vì HIS
+Server đánh dấu giường `Offline` sau `Offline.ThresholdSeconds = 90`
+(`appsettings.json`) nếu không nhận được cập nhật nào — để dài hơn thì giường
+khoẻ mạnh vẫn bị hiện Offline.
+
+### 1.4.1 Bác sĩ chỉnh ngưỡng từ xa — KHÔNG cần sửa code, không cần nạp lại chip
+
+Đây là hiểu lầm rất dễ mắc: `SET_FLOW_ML_H` / `SET_DROPS_DPM` trong
+`sensor_hub.h` **chỉ là giá trị mặc định lúc khởi động**, không phải hằng số
+quyết định hành vi. `sh_flow_ratio()` / `sh_drops_ratio()` luôn chia cho biến
+`target_flow_ml_h` / `target_drops_per_min` hiện hành, nên ghi giá trị mới
+xuống là AI đổi cách đánh giá ngay lập tức.
+
+Chuỗi đầy đủ khi bác sĩ nhập số trên tab "Beds and Rooms" rồi bấm nút:
+
+```
+UI (wwwroot/js/beds.js)
+  → PUT /api/beds/{bedId}/target-drops        (Api/BedEndpoints.cs)
+  → TCP {"cmd":"set_target_drops_per_min","value":50}   (cùng socket nhận vitals)
+  → gateway_test check_his_commands()          (gateway/main.c)
+  → MQTT zigbee2mqtt/SmartIV-Sensor/set  {"target_drops_per_min":50}
+  → converter toZigbee                         (zigbee2mqtt_smart_iv_converter.js)
+  → ZCL Write Attributes  TargetDropsPerMin=50  (mfgCode 0x1049, endpoint 2)
+  → sl_zigbee_af_post_attribute_change_cb()    (app.c)
+  → sh_set_target_drops_per_min(50)            (sensor_hub.c)
+```
+
+Cùng cơ chế cho `target_flow_ml_h`, tare cân từ xa (`TareCommand`) và hiệu
+chuẩn lại baseline nhịp tim (`HrRecalibrateCommand`).
+
+**Tuyệt đối không** làm kiểu "app tự sửa code rồi build + nạp chip": mỗi lần
+nạp là chip reset, mất sạch trạng thái đang theo dõi (baseline HR, tare cân,
+kết nối Zigbee) trong hàng chục giây — không thể chấp nhận khi máy đang truyền
+dịch cho bệnh nhân.
+
+**Ngưỡng được lưu vào NVM3 nên sống sót qua mất điện.** Nếu không lưu, một cú
+chớp điện sẽ âm thầm đưa cả hai ngưỡng về mặc định trong khi ca truyền vẫn
+tiếp diễn — AI sẽ đánh giá theo một y lệnh không ai kê, còn dashboard hiển thị
+ngưỡng bác sĩ chưa từng đặt. `targets_save()` / `targets_load()` trong
+`sensor_hub.c` dùng khoá NVM3 `0x0A001` (vùng "user" `0x00000-0x0FFFF` theo
+`sl_token_manager_defines.h`; stack Zigbee nằm từ `0x10000` trở lên nên không
+đụng nhau). Hai ngưỡng nằm chung **một** record để không bao giờ bị cập nhật
+dở dang khi mất điện giữa chừng, có `magic` chống đọc nhầm record lạ và có
+kiểm tra miền giá trị chống record hỏng đẩy số vô lý vào phép chia của AI.
+Hao mòn flash không đáng lo: chỉ ghi khi giá trị **thực sự đổi** (setter thoát
+sớm nếu trùng), không ghi trên đường báo cáo định kỳ.
 
 ### 1.5 Yêu cầu cấu hình quan trọng
 
@@ -426,6 +494,14 @@ vào 5 attribute (cùng 1 cluster/endpoint) — reporting plugin tự phát hi�
   cluster mượn (mỗi endpoint 1 binding). Từ khi gộp về 1 cluster tuỳ chỉnh
   (mục 1.3), chỉ cần **1 binding** cho cluster `Smart IV Vitals` — giá trị 10
   vẫn giữ nguyên vì không hại gì (dư chỗ), không bắt buộc phải giảm lại.
+- **`profileId` của endpoint PHẢI là `260`** (0x0104 Home Automation) trong
+  `config/zcl/zcl_config.zap`. ZAP mặc định đặt `65535` (0xFFFF) khi tạo
+  endpoint kiểu "Custom ZCL Device Type", và giá trị đó làm **mọi lệnh ZCL gửi
+  xuống thiết bị bị drop im lặng** (SDK lọc profile ở
+  `app/framework/util/util.c:471`) trong khi chiều báo cáo lên vẫn chạy bình
+  thường — rất dễ chẩn đoán nhầm. Chỉ sửa ở cấp **endpoint**, giữ nguyên device
+  type là Custom; xem dòng tương ứng trong bảng lỗi mục 9 để biết vì sao không
+  được đổi `deviceTypes.profileId`.
 - Khi mất mạng (`NETWORK_DOWN`), firmware tự gọi
   `sl_zigbee_af_network_steering_start()` để tự tìm và join lại mạng — không
   cần can thiệp thủ công mỗi lần mất điện/reset, miễn là coordinator (NCP) vẫn
@@ -1021,7 +1097,8 @@ dữ liệu thật từ board cảm biến vật lý duy nhất hiện có.
 | Join xong nhưng z2m luôn "0 devices joined" | Thiết bị rejoin từ NVM3 cũ (mạng cũ đã bị z2m reform, không còn khớp) | `network leave` rồi `plugin network-steering start 0` để join lại từ đầu |
 | `Bind ... failed (Status 'TABLE_FULL')` | `SL_ZIGBEE_BINDING_TABLE_SIZE` trên board cảm biến quá nhỏ (mặc định 3, cần ≥5) | Tăng lên 10 trong `config/sl_zigbee_pro_stack_config.h`, build & flash lại |
 | Model/manufacturer "undefined" khi interview | Basic cluster đọc modelID không ổn định | Dùng converter theo `fingerprint` endpoint/cluster thay vì `zigbeeModel` |
-| `configureReporting(...)` timed out, các endpoint sau không được bind | Vòng lặp `configure()` bị throw giữa chừng khi 1 lệnh ZCL timeout | Bỏ `configureReporting()` trong converter, chỉ giữ `reporting.bind()`, bọc try/catch từng endpoint |
+| **MỌI lệnh ZCL gửi XUỐNG thiết bị đều timeout** (`configureReporting(...)`, `smartIvVitals.read(...)`, `smartIvVitals.write(...)` đều `timed out after 10000ms`), trong khi báo cáo thiết bị gửi LÊN vẫn chạy tốt | **Endpoint khai `profileId = 65535`** (0xFFFF, mặc định của "Custom ZCL Device Type" trong ZAP) nhưng zigbee2mqtt gửi lệnh với `profileId = 260` (0x0104 Home Automation). SDK lọc profile ở `app/framework/util/util.c:471` và **drop im lặng, không trả lời gì** → z2m chờ 10s rồi timeout. Chiều gửi lên không bị lọc nên vẫn chạy, tạo cảm giác "một chiều" rất dễ chẩn đoán nhầm là lỗi mạng/binding | Sửa `profileId` của **endpoint** sang `260` trong `config/zcl/zcl_config.zap`, rồi `slc generate` + build + flash. **Chỉ đổi ở cấp endpoint** — nếu đổi luôn `deviceTypes.profileId`/`deviceTypeRef.profileId` sang 260 thì ZAP không resolve được "Custom ZCL Device Type" ở profile HA và **âm thầm xoá sạch mọi endpoint** khỏi bảng sinh ra (`ZCL_FIXED_ENDPOINT_ARRAY { }` rỗng) mà không báo lỗi |
+| ~~`configureReporting(...)` timed out, các endpoint sau không được bind~~ (cách né cũ, ĐÃ LỖI THỜI) | Trước đây tưởng do vòng lặp `configure()` bị throw giữa chừng | Đây thực ra chỉ là **triệu chứng** của lỗi `profileId` ở dòng trên. Sau khi sửa profile thì lệnh ZCL xuống thiết bị chạy bình thường, **không cần** bỏ `configureReporting()` nữa |
 | `alarm` trong MQTT payload luôn `true` dù không có cảnh báo gì | Tính `alarm` bằng `bitmap !== 0` — dính luôn bit tín hiệu (5-8) | Mask đúng `bitmap & 0x1F` (chỉ 5 bit lý do cảnh báo) |
 | mosquitto "Not authorized" trên Pi | `allow_anonymous false` nằm SAU `include_dir` trong `mosquitto.conf` (directive sau đè directive trước) | Sửa trực tiếp `allow_anonymous true` trong file conf chính |
 | Gateway log "Client ... already connected, closing old connection" liên tục | 2 tiến trình `gateway_test` (1 chạy tay + 1 chạy qua systemd) cùng dùng 1 MQTT client ID | `pkill` tiến trình chạy tay thừa, chỉ để lại đúng 1 instance (do systemd quản lý) |

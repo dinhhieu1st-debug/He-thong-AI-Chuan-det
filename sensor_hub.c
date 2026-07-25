@@ -23,7 +23,9 @@
 #include "em_core.h"
 #include "sl_sleeptimer.h"
 #include "sl_udelay.h"
+#include "nvm3_default.h"
 #include <stdio.h>
+#include <string.h>
 
 /* ---- Drop sensor pin (BRD2709A, mikroBUS "AN" = PD02) ---- */
 #define SENSOR_PORT   gpioPortD
@@ -120,6 +122,87 @@ static float target_flow_ml_h = SET_FLOW_ML_H;
 /* Doctor-set target drop rate (drops/min) - same idea as target_flow_ml_h
  * above, changeable at runtime via sh_set_target_drops_per_min(). */
 static float target_drops_per_min = SET_DROPS_DPM;
+
+/* ---- Persisting the doctor's targets across power cycles (NVM3) ----------
+ * Without this, a power blip or a reflash silently reverts BOTH targets to
+ * the SET_FLOW_ML_H / SET_DROPS_DPM compile-time defaults while the infusion
+ * carries on - the AI would then judge the flow against a prescription
+ * nobody ordered, and the bedside dashboard would show a target the doctor
+ * never set. For a medical device that is a real hazard, so both values are
+ * written to flash whenever they actually change and restored at boot.
+ *
+ * Key 0x0A001 is in the NVM3 "user" region (0x00000-0x0FFFF per
+ * sl_token_manager_defines.h) - the Zigbee stack lives in its own region
+ * from 0x10000 up, so there is no collision. Both targets share ONE record
+ * so they can never be left half-updated by a power loss mid-write.
+ *
+ * Flash wear is a non-issue: a write only happens when a doctor actually
+ * changes a target (a handful of times per patient), never on the periodic
+ * report path - sh_set_target_*() below returns early when the value is
+ * unchanged, and app.c re-writes the SAME value into the Zigbee attribute
+ * every second. */
+#define SMART_IV_NVM3_KEY_TARGETS  0x0A001U
+#define SMART_IV_TARGETS_MAGIC     0x53495631U   /* "SIV1" - guards against reading a stale/foreign record */
+
+typedef struct {
+  uint32_t magic;
+  float    flow_ml_h;
+  float    drops_per_min;
+} sh_persisted_targets_t;
+
+static void targets_save(void)
+{
+  sh_persisted_targets_t rec = {
+    .magic         = SMART_IV_TARGETS_MAGIC,
+    .flow_ml_h     = target_flow_ml_h,
+    .drops_per_min = target_drops_per_min,
+  };
+
+  Ecode_t st = nvm3_writeData(nvm3_defaultHandle, SMART_IV_NVM3_KEY_TARGETS,
+                              &rec, sizeof(rec));
+  if (st != ECODE_NVM3_OK) {
+    /* Report but keep running on the in-RAM values: losing persistence is
+     * far less bad than refusing to monitor the patient. */
+    printf("[NVM3] WARNING: could not save the doctor's targets (0x%08lX) - "
+           "they will revert to defaults after a power cycle\r\n", (unsigned long)st);
+    return;
+  }
+  printf("[NVM3] Targets saved: %d ml/h, %d dpm\r\n",
+         (int)(target_flow_ml_h + 0.5f), (int)(target_drops_per_min + 0.5f));
+}
+
+static void targets_load(void)
+{
+  sh_persisted_targets_t rec;
+  uint32_t type = 0;
+  size_t   len  = 0;
+
+  if (nvm3_getObjectInfo(nvm3_defaultHandle, SMART_IV_NVM3_KEY_TARGETS, &type, &len) != ECODE_NVM3_OK
+      || type != NVM3_OBJECTTYPE_DATA || len != sizeof(rec)) {
+    printf("[NVM3] No saved targets yet - using defaults: %d ml/h, %d dpm\r\n",
+           (int)(target_flow_ml_h + 0.5f), (int)(target_drops_per_min + 0.5f));
+    return;
+  }
+
+  if (nvm3_readData(nvm3_defaultHandle, SMART_IV_NVM3_KEY_TARGETS, &rec, sizeof(rec)) != ECODE_NVM3_OK
+      || rec.magic != SMART_IV_TARGETS_MAGIC) {
+    printf("[NVM3] Saved targets unreadable/foreign - keeping defaults\r\n");
+    return;
+  }
+
+  /* Sanity-check before trusting flash contents: a corrupted record must
+   * never be able to push a nonsense prescription into the AI's ratio math
+   * (or divide it by zero). */
+  if (rec.flow_ml_h > 0.0f && rec.flow_ml_h < 10000.0f) {
+    target_flow_ml_h = rec.flow_ml_h;
+  }
+  if (rec.drops_per_min > 0.0f && rec.drops_per_min < 1000.0f) {
+    target_drops_per_min = rec.drops_per_min;
+  }
+
+  printf("[NVM3] Restored the doctor's targets: %d ml/h, %d dpm\r\n",
+         (int)(target_flow_ml_h + 0.5f), (int)(target_drops_per_min + 0.5f));
+}
 
 /* ---- Tare button (onboard BTN0, BRD2709A: port B pin 0) -----
  * Lets the doctor re-zero the scale without power-cycling the board: press
@@ -795,11 +878,119 @@ static void max30102_poll(void)
 }
 
 /* ============================================================================
+ *  Alarm indicators — 3 LEDs + buzzer (see the wiring comment in sensor_hub.h)
+ *
+ *  Ported from the ESP8266 reference sketch
+ *  (he_thong_giam_sat_dich_truyen_3in1_canh_bao.ino), keeping its exact
+ *  behavior: exactly ONE LED lit at a time (green/yellow/red), and the buzzer
+ *  beeping intermittently - fast (300ms) on RED, slow (1000ms) on YELLOW,
+ *  silent on GREEN.
+ *
+ *  Difference vs. the .ino: the beep toggling there ran inside the Arduino
+ *  loop(); here it runs from sh_alert_poll() (called every sensor_hub_poll()),
+ *  so it stays fully NON-BLOCKING - no delay() may ever be used, since the
+ *  Zigbee stack and the drop sensor both need the main loop to keep turning.
+ * ========================================================================== */
+#define ALERT_ACTIVE_HIGH   1     /* 0 if your LED/buzzer modules are active-low */
+
+#define LED_GREEN_PORT   gpioPortA
+#define LED_GREEN_PIN    7        /* mikroBUS PWM = PA07 */
+#define LED_YELLOW_PORT  gpioPortA
+#define LED_YELLOW_PIN   4        /* mikroBUS TX  = PA04 */
+#define LED_RED_PORT     gpioPortA
+#define LED_RED_PIN      5        /* mikroBUS RX  = PA05 */
+#define BUZZER_PORT      gpioPortC
+#define BUZZER_PIN_NUM   4        /* mikroBUS CS  = PC04 */
+
+#define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
+#define BUZZER_PERIOD_YELLOW_MS  1000U    /* slow beep = warning   (matches the .ino) */
+
+static alert_level_t alert_level        = ALERT_GREEN;
+static bool          buzzer_on          = false;
+static uint32_t      buzzer_last_toggle = 0;
+
+static void alert_pin_write(GPIO_Port_TypeDef port, unsigned int pin, bool on)
+{
+#if ALERT_ACTIVE_HIGH
+  if (on) { GPIO_PinOutSet(port, pin); } else { GPIO_PinOutClear(port, pin); }
+#else
+  if (on) { GPIO_PinOutClear(port, pin); } else { GPIO_PinOutSet(port, pin); }
+#endif
+}
+
+static void alert_init(void)
+{
+  GPIO_PinModeSet(LED_GREEN_PORT,  LED_GREEN_PIN,  gpioModePushPull, 0);
+  GPIO_PinModeSet(LED_YELLOW_PORT, LED_YELLOW_PIN, gpioModePushPull, 0);
+  GPIO_PinModeSet(LED_RED_PORT,    LED_RED_PIN,    gpioModePushPull, 0);
+  GPIO_PinModeSet(BUZZER_PORT,     BUZZER_PIN_NUM, gpioModePushPull, 0);
+
+  /* Start from a known-quiet state: green on (nothing wrong yet), buzzer off. */
+  alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,  true);
+  alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN, false);
+  alert_pin_write(LED_RED_PORT,    LED_RED_PIN,    false);
+  alert_pin_write(BUZZER_PORT,     BUZZER_PIN_NUM, false);
+}
+
+void sh_alert_set_level(alert_level_t level)
+{
+  if (level == alert_level) {
+    return;   /* unchanged - don't restart the beep phase on every AI tick */
+  }
+  alert_level = level;
+
+  /* Re-arm the beep so a level change is heard immediately rather than
+   * waiting out the remainder of the previous level's period. */
+  buzzer_last_toggle = now_ms();
+  buzzer_on = (level != ALERT_GREEN);
+
+  alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,  level == ALERT_GREEN);
+  alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN, level == ALERT_YELLOW);
+  alert_pin_write(LED_RED_PORT,    LED_RED_PIN,    level == ALERT_RED);
+  alert_pin_write(BUZZER_PORT,     BUZZER_PIN_NUM, buzzer_on);
+
+  printf("[ALERT] Level -> %s\r\n",
+         level == ALERT_RED ? "RED (danger)"
+         : level == ALERT_YELLOW ? "YELLOW (warning)" : "GREEN (normal)");
+}
+
+alert_level_t sh_alert_level(void)
+{
+  return alert_level;
+}
+
+static void alert_poll(void)
+{
+  if (alert_level == ALERT_GREEN) {
+    if (buzzer_on) {
+      buzzer_on = false;
+      alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+    }
+    return;
+  }
+
+  uint32_t period = (alert_level == ALERT_RED)
+                    ? BUZZER_PERIOD_RED_MS : BUZZER_PERIOD_YELLOW_MS;
+  uint32_t now = now_ms();
+
+  if (now - buzzer_last_toggle >= period) {
+    buzzer_last_toggle = now;
+    buzzer_on = !buzzer_on;
+    alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, buzzer_on);
+  }
+}
+
+/* ============================================================================
  *  Public API
  * ========================================================================== */
 void sensor_hub_init(void)
 {
   CMU_ClockEnable(cmuClock_GPIO, true);
+
+  /* Restore the doctor's last prescription BEFORE any channel starts
+   * producing ratios, so the very first AI tick already judges against the
+   * right target rather than briefly against the compile-time default. */
+  targets_load();
 #if DROPS_ENABLED
   GPIO_PinModeSet(SENSOR_PORT, SENSOR_PIN, gpioModeInput, 0);
   last_state = GPIO_PinInGet(SENSOR_PORT, SENSOR_PIN);
@@ -810,6 +1001,7 @@ void sensor_hub_init(void)
 #if HR_ENABLED || SPO2_ENABLED
   max30102_init();
 #endif
+  alert_init();
 }
 
 void sensor_hub_poll(void)
@@ -833,6 +1025,8 @@ void sensor_hub_poll(void)
 #if HR_ENABLED || SPO2_ENABLED
   max30102_poll();
 #endif
+  /* Non-blocking: only toggles the buzzer when its period has elapsed. */
+  alert_poll();
 }
 
 /* ---------------- HR ---------------- */
@@ -917,8 +1111,9 @@ float sh_target_flow_ml_h(void)
  * (a target of 0 or less makes sh_flow_ratio() meaningless/divide-by-zero). */
 void sh_set_target_flow_ml_h(float ml_per_h)
 {
-  if (ml_per_h > 0.0f) {
+  if (ml_per_h > 0.0f && ml_per_h != target_flow_ml_h) {
     target_flow_ml_h = ml_per_h;
+    targets_save();   /* survives a power cycle - see targets_save() */
   }
 }
 
@@ -1011,7 +1206,8 @@ float sh_target_drops_per_min(void)
  * from the network. Rejects non-positive values (divide-by-zero guard). */
 void sh_set_target_drops_per_min(float dpm)
 {
-  if (dpm > 0.0f) {
+  if (dpm > 0.0f && dpm != target_drops_per_min) {
     target_drops_per_min = dpm;
+    targets_save();   /* survives a power cycle - see targets_save() */
   }
 }

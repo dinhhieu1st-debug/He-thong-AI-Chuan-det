@@ -442,14 +442,14 @@
     {
       "endpointTypeName": "Anonymous Endpoint Type",
       "endpointTypeIndex": 0,
-      "profileId": 65535,
+      "profileId": 260,
       "endpointId": 1,
       "networkId": 0
     },
     {
       "endpointTypeName": "Smart IV Vitals",
       "endpointTypeIndex": 1,
-      "profileId": 65535,
+      "profileId": 260,
       "endpointId": 2,
       "networkId": 0
     }

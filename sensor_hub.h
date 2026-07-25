@@ -49,6 +49,24 @@
 
 typedef enum { CH_DISABLED = 0, CH_OK = 1, CH_LOST = 2 } ch_state_t;
 
+/* ===== Local alarm indicators: 3 LEDs + buzzer =====
+ * Wiring on BRD2709A (mikroBUS header), confirmed by the user on 2026-07-25:
+ *   GREEN  LED -> PWM pin, PA07
+ *   YELLOW LED -> TX  pin, PA04   (mikroBUS UART, NOT the VCOM console,
+ *   RED    LED -> RX  pin, PA05    which is on PB02/PB03 - no conflict)
+ *   BUZZER     -> CS  pin, PC04
+ * Each LED needs a 220-330 ohm series resistor; drive the buzzer through an
+ * NPN transistor if it draws more than a few mA (GPIO limit).
+ * All four outputs are ACTIVE HIGH (set ALERT_ACTIVE_HIGH to 0 in
+ * sensor_hub.c if your modules are the active-low kind). */
+typedef enum { ALERT_GREEN = 0, ALERT_YELLOW = 1, ALERT_RED = 2 } alert_level_t;
+
+/* Sets the level to indicate. Cheap and idempotent - call it as often as you
+ * like (app.c calls it once per AI tick). The actual LED/buzzer driving is
+ * done by sh_alert_poll(), which sensor_hub_poll() already calls. */
+void          sh_alert_set_level(alert_level_t level);
+alert_level_t sh_alert_level(void);
+
 void sensor_hub_init(void);
 void sensor_hub_poll(void);   // call EVERY loop iteration (reads drops continuously)
 

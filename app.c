@@ -103,6 +103,39 @@ static uint8_t app_hr_baseline_seconds_remaining(void)
   return (uint8_t)((HR_CALIB_MS - elapsed) / 1000U);
 }
 
+/* Maps the AI result onto the 3-level local indicator (green/yellow/red LED +
+ * buzzer, driven by sensor_hub.c). The ESP8266 reference sketch distinguished
+ * "warning" from "danger" using two separate HR bands; ai_monitor gives a
+ * single binary reason_hr flag instead, so the same distinction is
+ * reconstructed here from the raw HR against the ABSOLUTE limits in
+ * ai_monitor.h:
+ *   RED    - signal lost on an installed sensor, low SpO2, an infusion-line
+ *            problem (occlusion / free-flow / drops stopped), or HR past the
+ *            absolute bradycardia/tachycardia bounds. All of these need
+ *            someone at the bedside NOW.
+ *   YELLOW - "worth a look" only: HR merely deviating >AI_HR_PCT from the
+ *            patient's own baseline while still inside the absolute bounds,
+ *            or the autoencoder flagging an anomaly no explicit rule caught.
+ *   GREEN  - no alarm at all.
+ * Note this is deliberately INDEPENDENT of the alarm bitmap sent to the HIS
+ * Server: the bitmap keeps carrying every individual reason, while the LEDs
+ * only convey urgency. */
+static alert_level_t alert_level_from_result(const ai_result_t *r)
+{
+  if (!r->alarm) {
+    return ALERT_GREEN;
+  }
+
+  bool hr_critical = r->reason_hr
+                     && (sh_hr_state() == CH_OK)
+                     && (r->feat[0] < AI_HR_ABS_LOW || r->feat[0] > AI_HR_ABS_HIGH);
+
+  if (r->reason_missing || r->reason_spo2 || r->reason_flow || hr_critical) {
+    return ALERT_RED;
+  }
+  return ALERT_YELLOW;
+}
+
 /* Default reporting configuration for the attributes carrying AI data, so
  * the device automatically sends reports to the coordinator (zigbee2mqtt)
  * even before the Pi-side external converter gets a chance to configure its
@@ -112,35 +145,86 @@ static uint8_t app_hr_baseline_seconds_remaining(void)
  * telemetry (so a doctor viewing the bed dashboard can see actual numbers,
  * not just percentages); TargetFlowMlH is reported too so the dashboard can
  * confirm a rate change was actually applied by the device. */
+/* Upper bound on maxInterval for EVERY attribute below. The HIS Server flags
+ * a bed "Offline" after Offline.ThresholdSeconds (90s, see appsettings.json)
+ * without a single update, so a quiet attribute must still report well
+ * inside that window or a perfectly healthy bed would look disconnected. */
+#define ZB_REPORT_MAX_INTERVAL_S   60
+
+/* Per-attribute reporting cadence. A single flat setting for all 13
+ * attributes (previously minInterval=1s + reportableChange=1 across the
+ * board) made the device transmit almost continuously: the load cell's
+ * reading jitters by ~1g even under a perfectly steady load, so WeightG
+ * alone re-reported every second, and the coordinator answers each report
+ * with its own Default Response. That is wasted 2.4GHz airtime shared with
+ * WiFi, it raises the collision rate, and it scales badly once several beds
+ * share one coordinator.
+ *
+ * The fix is NOT a uniformly slower cadence - that would delay alarms, which
+ * is unacceptable here. Instead each attribute is tuned to its actual role:
+ *
+ *   - AlarmBitmap keeps minInterval=1 / change=1: a patient alarm must go
+ *     out on the very next tick it appears, no throttling whatsoever.
+ *   - Vitals (HR/SpO2) stay responsive but are bounded to one report per 2s,
+ *     which is already the rate the MAX30102 window publishes at anyway.
+ *   - Continuous telemetry (ratios, weight, drop rate) gets a deadband
+ *     LARGER than the sensor's own noise, so a steady reading stops
+ *     re-reporting: 5g on the load cell sits above its ~1g jitter, and 5
+ *     percentage points on the ratios is well below anything clinically
+ *     interesting (the alarm thresholds are 30%/150% of target).
+ *   - Settings/counters (targets, baseline, tare/recalibration counts)
+ *     change only when a doctor acts, so they keep minInterval=1 / change=1
+ *     and confirm back to the dashboard instantly - they cost nothing when
+ *     idle precisely because they rarely change.
+ *
+ * maxInterval stays at 60s for everything, so even a completely unchanging
+ * attribute still refreshes the server's "last seen" clock. */
+typedef struct {
+  uint16_t attributeId;
+  uint16_t minIntervalS;
+  uint16_t reportableChange;
+} zb_report_cfg_t;
+
 static void zb_configure_reporting(void)
 {
-  uint16_t attributeIds[] = {
-    ZCL_HEART_RATE_ATTRIBUTE_ID,
-    ZCL_SPO2_ATTRIBUTE_ID,
-    ZCL_FLOW_RATIO_ATTRIBUTE_ID,
-    ZCL_DROP_RATIO_ATTRIBUTE_ID,
-    ZCL_ALARM_BITMAP_ATTRIBUTE_ID,
-    ZCL_WEIGHT_G_ATTRIBUTE_ID,
-    ZCL_DROPS_PER_MIN_ATTRIBUTE_ID,
-    ZCL_TARGET_FLOW_ML_H_ATTRIBUTE_ID,
-    ZCL_TARGET_DROPS_PER_MIN_ATTRIBUTE_ID,
-    ZCL_HR_BASELINE_SECONDS_REMAINING_ATTRIBUTE_ID,
-    ZCL_HR_BASELINE_BPM_ATTRIBUTE_ID,
-    ZCL_TARE_EVENT_COUNT_ATTRIBUTE_ID,
-    ZCL_HR_BASELINE_EVENT_COUNT_ATTRIBUTE_ID,
+  static const zb_report_cfg_t reportCfgs[] = {
+    /* Alarms: never throttled. */
+    { ZCL_ALARM_BITMAP_ATTRIBUTE_ID,                1,  1 },
+
+    /* Vitals: responsive, but no faster than the sensor actually updates. */
+    { ZCL_HEART_RATE_ATTRIBUTE_ID,                  2,  1 },
+    { ZCL_SPO2_ATTRIBUTE_ID,                        2,  1 },
+
+    /* Continuous telemetry: deadband set above each sensor's own noise. */
+    { ZCL_FLOW_RATIO_ATTRIBUTE_ID,                  5,  5 },   /* units of 1% */
+    { ZCL_DROP_RATIO_ATTRIBUTE_ID,                  5,  5 },   /* units of 1% */
+    { ZCL_WEIGHT_G_ATTRIBUTE_ID,                   10,  5 },   /* grams */
+    { ZCL_DROPS_PER_MIN_ATTRIBUTE_ID,               5,  1 },   /* drops/min */
+
+    /* Settings + event counters: only move when a doctor acts -> instant. */
+    { ZCL_TARGET_FLOW_ML_H_ATTRIBUTE_ID,            1,  1 },
+    { ZCL_TARGET_DROPS_PER_MIN_ATTRIBUTE_ID,        1,  1 },
+    { ZCL_HR_BASELINE_BPM_ATTRIBUTE_ID,             1,  1 },
+    { ZCL_TARE_EVENT_COUNT_ATTRIBUTE_ID,            1,  1 },
+    { ZCL_HR_BASELINE_EVENT_COUNT_ATTRIBUTE_ID,     1,  1 },
+
+    /* Live 60s countdown - ticks once a second while calibrating, then sits
+     * at 0. Bounded to 5s so the dashboard shows progress without sending a
+     * frame for every single second of the window. */
+    { ZCL_HR_BASELINE_SECONDS_REMAINING_ATTRIBUTE_ID, 5, 1 },
   };
 
-  for (uint8_t i = 0; i < sizeof(attributeIds) / sizeof(attributeIds[0]); i++) {
+  for (uint8_t i = 0; i < sizeof(reportCfgs) / sizeof(reportCfgs[0]); i++) {
     sl_zigbee_af_plugin_reporting_entry_t reportingEntry;
     reportingEntry.direction = SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED;
     reportingEntry.endpoint = ZB_EP_VITALS;
     reportingEntry.clusterId = ZCL_SMART_IV_VITALS_CLUSTER_ID;
-    reportingEntry.attributeId = attributeIds[i];
+    reportingEntry.attributeId = reportCfgs[i].attributeId;
     reportingEntry.mask = CLUSTER_MASK_SERVER;
     reportingEntry.manufacturerCode = SMART_IV_MFG_CODE;
-    reportingEntry.data.reported.minInterval = 1;
-    reportingEntry.data.reported.maxInterval = 60;
-    reportingEntry.data.reported.reportableChange = 1;
+    reportingEntry.data.reported.minInterval = reportCfgs[i].minIntervalS;
+    reportingEntry.data.reported.maxInterval = ZB_REPORT_MAX_INTERVAL_S;
+    reportingEntry.data.reported.reportableChange = reportCfgs[i].reportableChange;
     sl_zigbee_af_reporting_configure_reported_attribute(&reportingEntry);
   }
 }
@@ -371,6 +455,10 @@ void app_process_action(void)
 
     ai_result_t r;
     ai_monitor_step(&r);
+
+    /* Drive the local LEDs/buzzer straight away, BEFORE the printf/Zigbee
+     * work below - the bedside indicator should never wait on the network. */
+    sh_alert_set_level(alert_level_from_result(&r));
 
     /* Only treat HR/SpO2 as REAL numbers when the channel is CH_OK (fresh
      * sample from a real chip). CH_LOST/CH_DISABLED -> do NOT print/send the

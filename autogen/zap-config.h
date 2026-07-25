@@ -98,8 +98,8 @@
 
 // Array of profile ids
 #define ZCL_FIXED_PROFILE_IDS { \
-  65535, \
-  65535 \
+  260, \
+  260 \
 }
 
 // Array of device ids
