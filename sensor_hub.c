@@ -497,7 +497,18 @@ static void hx711_poll(void)
     if (delta_h > 0.0f) {
       /* Assume infusion fluid density ~1 g/ml (dilute saline/glucose solution) */
       float computed = delta_g / delta_h;
-      flow_ml_per_h = (computed < 0.0f) ? 0.0f : computed;
+
+      /* Clamp to the physically possible range. Without it, one noisy load-cell
+       * reading (loose wire, someone bumping the stand, or no load attached at
+       * all) produces a delta_g of thousands of grams, sending flow_ml_per_h
+       * into the millions. That in turn made sh_flow_ratio() report "3367972%"
+       * and OVERFLOWED the autoencoder's reconstruction error - observed for
+       * real on the chip as err = 2147483647 (INT32_MAX). No infusion regimen
+       * exceeds 2000 ml/h, so anything past that is certainly noise rather than
+       * a genuine measurement. */
+      if (computed < 0.0f)    computed = 0.0f;
+      if (computed > 2000.0f) computed = 2000.0f;
+      flow_ml_per_h = computed;
     }
     flow_anchor_ms = now;
     flow_anchor_weight_g = hx711_weight_g;

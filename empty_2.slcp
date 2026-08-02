@@ -23,6 +23,8 @@ source:
 - path: sensor_hub.c
 - path: ai_monitor.c
 - path: model_runner.cpp
+- path: ts_forecaster.cpp
+- path: ts_monitor.c
 include:
 - path: .
   file_list:
@@ -30,6 +32,9 @@ include:
   - path: sensor_hub.h
   - path: ai_monitor.h
   - path: model_data.h
+  - path: model_data_ts.h
+  - path: ts_forecaster.h
+  - path: ts_monitor.h
 sdk:
   vendor: silabs
   id: simplicity_sdk

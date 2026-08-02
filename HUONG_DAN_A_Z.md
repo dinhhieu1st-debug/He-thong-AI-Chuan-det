@@ -6,7 +6,7 @@ biết gì về hệ thống này** — đọc từ đầu tới cuối là hi�
 liệu, vì sao lại thiết kế như vậy, và sờ vào đâu nếu cần sửa/mở rộng.
 
 > Đây là bản rewrite hoàn toàn của tài liệu cũ. Bản cũ mô tả app WinForms
-> (`Server_FPT_upload` / `designWebForQuanKa-main/Server`) — app đó **không còn
+> (`Server_FPT_upload` / `his-server/Server`) — app đó **không còn
 > được dùng nữa**, đã được viết lại thành app ASP.NET Core (`HisServer`) mô tả
 > trong tài liệu này.
 
@@ -905,9 +905,45 @@ khác hoặc đổi IP.
 
 ---
 
+## 5.5 Gateway dự phòng khi KHÔNG có Raspberry Pi
+
+Khi Pi hỏng (đã xảy ra: hỏng thẻ SD), toàn bộ đoạn giữa có thể thay bằng một
+script chạy ngay trên máy tính:
+
+```
+board → USB-serial (VCOM) → tools/serial_gateway.py → TCP → HIS Server
+```
+
+Firmware in một dòng `[JSON]{...}` mỗi chu kỳ AI trên VCOM, tên trường **đặt
+trùng payload zigbee2mqtt** nên **không phải sửa gì bên server**.
+
+```bash
+# /dev/ttyACM1 la board CAM BIEN (khong phai NCP) - kiem tra bang:
+#   udevadm info -q property -n /dev/ttyACM1 | grep ID_SERIAL_SHORT
+python3 tools/serial_gateway.py --port /dev/ttyACM1 \
+    --server 127.0.0.1 --tcp-port 5000 --bed-id BED-101 --room ICU-1
+```
+
+**Hạn chế phải biết:** đường này **bỏ qua Zigbee hoàn toàn** — không kiểm chứng
+được NCP, zigbee2mqtt hay việc ghép đôi. Dùng để xem giao diện và kiểm chứng AI +
+server, **không thay thế** test thật với Pi. Ngoài ra nó **một chiều**: các lệnh
+từ bác sĩ (đặt ngưỡng, tare cân, hiệu chuẩn baseline) sẽ **không tới được chip**.
+
+**Hai cái bẫy đã gặp:**
+
+1. **Không mở `/dev/ttyACM1` bằng công cụ khác khi gateway đang chạy** — cổng
+   serial không chia sẻ được, gateway sẽ chết với lỗi *"multiple access on port"*.
+2. Script **cố ý tắt DTR/RTS** trước khi mở cổng. Trên board Silabs, DTR nối vào
+   chân reset, nên mở cổng theo mặc định sẽ **reset chip** — hậu quả rất dễ chẩn
+   đoán nhầm: cửa sổ 64 giây của model bị xóa và gom lại từ đầu, dashboard báo
+   "đang gom cửa sổ" mãi không xong trong khi log serial cho thấy model chạy bình
+   thường.
+
+---
+
 ## 6. HIS Server — app cuối cùng (ASP.NET Core)
 
-Thư mục: `designWebForQuanKa-main/src/HisServer`. Đây là app **được viết lại
+Thư mục: `his-server/src/HisServer`. Đây là app **được viết lại
 hoàn toàn** (thay thế bản WinForms cũ) — ASP.NET Core Minimal API, một tiến
 trình duy nhất vừa nhận dữ liệu, vừa lưu DB, vừa phục vụ web UI, vừa đẩy cập
 nhật realtime.
@@ -1129,7 +1165,7 @@ empty_2/
 ├── config/zcl/smart-iv-vitals.xml     dinh nghia cluster "Smart IV Vitals" (0xFC01)
 ├── zigbee2mqtt_smart_iv_converter.js   converter giải mã cho zigbee2mqtt
 ├── gateway/main.c            chương trình C: MQTT → TCP JSON
-└── designWebForQuanKa-main/
+└── his-server/
     ├── database/schema.sql, seed_demo.sql
     └── src/HisServer/
         ├── Ingestion/BedDataParser.cs, BedTcpIngestionService.cs

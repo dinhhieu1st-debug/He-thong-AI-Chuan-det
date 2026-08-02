@@ -22,6 +22,7 @@
 #include "sl_sleeptimer.h"
 #include "sensor_hub.h"
 #include "ai_monitor.h"
+#include "ts_monitor.h"
 
 #include "app/framework/include/af.h"
 #include "network-steering.h"
@@ -120,20 +121,55 @@ static uint8_t app_hr_baseline_seconds_remaining(void)
  * Note this is deliberately INDEPENDENT of the alarm bitmap sent to the HIS
  * Server: the bitmap keeps carrying every individual reason, while the LEDs
  * only convey urgency. */
-static alert_level_t alert_level_from_result(const ai_result_t *r)
+static alert_level_t alert_level_from_result(const ai_result_t *r,
+                                            const ts_result_t *ts)
 {
-  if (!r->alarm) {
-    return ALERT_GREEN;
-  }
-
+  /* ---- TIER 1: ABSOLUTE safety net - alarms IMMEDIATELY, no persistence ----
+   * These three must never be delayed: loss of signal on a sensor that IS
+   * attached, SpO2 below its absolute limit, and heart rate past its absolute
+   * floor/ceiling. The alarm-fatigue literature supports delaying conditions
+   * where a transient excursion is harmless - but that argument does NOT apply
+   * to these three. */
   bool hr_critical = r->reason_hr
                      && (sh_hr_state() == CH_OK)
                      && (r->feat[0] < AI_HR_ABS_LOW || r->feat[0] > AI_HR_ABS_HIGH);
 
-  if (r->reason_missing || r->reason_spo2 || r->reason_flow || hr_critical) {
+  if (r->reason_missing || r->reason_spo2 || hr_critical) {
     return ALERT_RED;
   }
-  return ALERT_YELLOW;
+
+  /* ---- TIER 2: anomaly CONFIRMED through persistence -----------------------
+   * The forecaster's anomaly score must stay above threshold for TS_PERSIST_K
+   * CONSECUTIVE steps before it may alarm. Measured on real ICU data (BIDMC):
+   * deciding instantly gives a 17.6% false-alarm rate on transients - worse
+   * than the old threshold-only approach at 17.2% - while persistence brings it
+   * down to 2.3%. A sustained infusion-line anomaly needs someone at the
+   * bedside, so it maps to RED. */
+  if (ts->anomaly_confirmed) {
+    return ALERT_RED;
+  }
+
+  /* Drip/flow ratio out of band, sustained (clinical rule) -> RED. */
+  if (r->reason_flow) {
+    return ALERT_RED;
+  }
+
+  /* ---- TIER 3: "getting worse, not yet dangerous" -> YELLOW ---------------
+   * Early warning is the forecaster's own contribution: the forecast crosses a
+   * clinical limit within the next 16 seconds even though the CURRENT reading
+   * is still inside it. An instantaneous threshold cannot know this. It maps to
+   * YELLOW rather than RED because it is a prediction, not yet a fact. */
+  if (ts->early_warning) {
+    return ALERT_YELLOW;
+  }
+
+  /* HR well off the patient's own baseline (but still inside the absolute
+   * limits), or the older autoencoder flagging something -> worth a look. */
+  if (r->alarm) {
+    return ALERT_YELLOW;
+  }
+
+  return ALERT_GREEN;
 }
 
 /* Default reporting configuration for the attributes carrying AI data, so
@@ -414,6 +450,16 @@ void app_init(void)
   sensor_hub_init();
   ai_monitor_init();
 
+  /* Load the time-series forecaster. On failure the system STILL runs normally
+   * on the clinical rules and merely loses trend / early warning. The AI must
+   * never be a single point of failure for the device's ability to alarm. */
+  if (ts_monitor_init()) {
+    printf("[TS] Time-series forecasting: ON (64s window, 16s horizon)\r\n");
+  } else {
+    printf("[TS] Forecaster failed to load - running on clinical rules only\r\n");
+  }
+
+
   printf("\r\n=== Smart IV - AI module ready ===\r\n");
   printf("Channels: DROPS=%s HR=%s SpO2=%s FLOW=%s\r\n",
          DROPS_ENABLED ? "ON" : "OFF",
@@ -456,9 +502,16 @@ void app_process_action(void)
     ai_result_t r;
     ai_monitor_step(&r);
 
+    /* Time-series forecaster: pushes this second's sample into the 64s window,
+     * forecasts the next 16s, and reports trend / early warning / a
+     * persistence-confirmed anomaly. Must run BEFORE the alarm decision below,
+     * which consumes its result. */
+    ts_result_t ts;
+    ts_monitor_step(&ts);
+
     /* Drive the local LEDs/buzzer straight away, BEFORE the printf/Zigbee
      * work below - the bedside indicator should never wait on the network. */
-    sh_alert_set_level(alert_level_from_result(&r));
+    sh_alert_set_level(alert_level_from_result(&r, &ts));
 
     /* Only treat HR/SpO2 as REAL numbers when the channel is CH_OK (fresh
      * sample from a real chip). CH_LOST/CH_DISABLED -> do NOT print/send the
@@ -482,16 +535,35 @@ void app_process_action(void)
     printf("[AI] HR=%s SpO2=%s Flow=%d%% Drop=%d%% (dpm=%d) | err=%d/1000 | ",
            hr_str, spo2_str, flow, drop, (int)(sh_drops_per_min() + 0.5f), err);
 
-    if (r.alarm) {
+    if (r.alarm || ts.anomaly_confirmed || ts.early_warning) {
       printf("*** ALARM ***");
-      if (r.reason_missing) printf(" [SIGNAL_LOST]");
-      if (r.reason_spo2)    printf(" [LOW_SpO2]");
-      if (r.reason_hr)      printf(" [HEART_RATE]");
-      if (r.reason_flow)    printf(" [INFUSION_LINE]");
-      if (r.reason_ae)      printf(" [AE]");
+      if (r.reason_missing)     printf(" [SIGNAL_LOST]");
+      if (r.reason_spo2)        printf(" [LOW_SpO2]");
+      if (r.reason_hr)          printf(" [HEART_RATE]");
+      if (r.reason_flow)        printf(" [INFUSION_LINE]");
+      if (r.reason_ae)          printf(" [AE]");
+      if (ts.anomaly_confirmed) printf(" [TS_ANOMALY]");
+      if (ts.early_warning)     printf(" [EARLY_WARN]");
       printf("\r\n");
     } else {
       printf("Normal\r\n");
+    }
+
+    /* A dedicated log line for the forecaster: trend, anomaly score and how
+     * many consecutive steps are above threshold. Very useful when diagnosing
+     * at the bedside - it shows what the model is "thinking" before it
+     * alarms. */
+    if (ts.ready && ts.have_forecast) {
+      const char *tr = (ts.hr_trend == TS_TREND_RISING)  ? "TANG"
+                     : (ts.hr_trend == TS_TREND_FALLING) ? "GIAM" : "on dinh";
+      printf("[TS] HR trend %s (%d bpm/min) | forecast +16s: HR=%d SpO2=%d"
+             " | score=%d/1000 (threshold %d) | persist %u/%u\r\n",
+             tr, (int)ts.hr_trend_bpm_per_min,
+             (int)(ts.hr_forecast_16s + 0.5f), (int)(ts.spo2_forecast_16s + 0.5f),
+             (int)(ts.anomaly_score * 1000.0f), (int)(5.6111f * 1000.0f),
+             (unsigned)ts.persist_count, (unsigned)11u);
+    } else if (!ts.ready) {
+      printf("[TS] Filling the 64-second window...\r\n");
     }
 
     /* Alarm bitmap: bit0=signal lost, bit1=low SpO2, bit2=heart rate,
@@ -502,7 +574,16 @@ void app_process_action(void)
      * bit9=loadcell tare in progress, bit10=tare just completed (one-shot),
      * bit11=HR 60s baseline just completed (one-shot) - lets the doctor/
      * nurse see these events on the bed dashboard instead of only in the
-     * device's own serial log. */
+     * device's own serial log.
+     * bit12-15: TIME-SERIES forecaster output (new). Packed into the SPARE bits
+     * of the existing bitmap on purpose - no ZCL schema change, so the gateway
+     * and server keep working unchanged, and the converter only needs new
+     * decode lines. Dedicated numeric attributes (HrTrendBpmPerMin,
+     * AnomalyScore) can come later if the dashboard needs the actual figures.
+     *   bit12 = persistence-confirmed anomaly
+     *   bit13 = HR trending UP     (> +10 bpm/min over the forecast)
+     *   bit14 = HR trending DOWN   (< -10 bpm/min)
+     *   bit15 = early warning: forecast crosses a clinical limit within 16s */
     bool tare_just_done = sh_flow_tare_just_completed();   // one-shot: consumes itself here
     uint16_t alarm_bitmap = (uint16_t)((r.reason_missing ? 0x01 : 0)
                                         | (r.reason_spo2    ? 0x02 : 0)
@@ -515,8 +596,88 @@ void app_process_action(void)
                                         | (sh_drops_state() == CH_OK ? 0x100 : 0)
                                         | (sh_flow_tare_in_progress() ? 0x200 : 0)
                                         | (tare_just_done              ? 0x400 : 0)
-                                        | (hr_baseline_just_completed  ? 0x800 : 0));
+                                        | (hr_baseline_just_completed  ? 0x800 : 0)
+                                        | (ts.anomaly_confirmed        ? 0x1000 : 0)
+                                        | (ts.hr_trend == TS_TREND_RISING  ? 0x2000 : 0)
+                                        | (ts.hr_trend == TS_TREND_FALLING ? 0x4000 : 0)
+                                        | (ts.early_warning            ? 0x8000 : 0));
     hr_baseline_just_completed = false;   // one-shot: consumed here, same tick it was set
+
+    /* ===== JSON telemetry line on VCOM =======================================
+     * One JSON line per AI cycle so a gateway running on a PC can read it
+     * straight off USB-serial and forward it to the HIS Server - a fallback path
+     * for when the Raspberry Pi
+     * (which normally runs zigbee2mqtt + the gateway) is unavailable. The
+     * Zigbee path keeps running alongside, unaffected.
+     *
+     * Field names deliberately match the existing zigbee2mqtt payload: the
+     * server-side BedDataParser already accepts those aliases, so nothing on
+     * the server needs changing. A channel without signal is sent as null, not
+     * 0, following the convention used throughout: 0 bpm reads like a patient
+     * in cardiac arrest, whereas null means "no measurement". */
+    printf("[JSON]{\"heart_rate\":");
+    if (hr_ok) printf("%d", hr); else printf("null");
+    printf(",\"spo2\":");
+    if (spo2_ok) printf("%d", spo2); else printf("null");
+    printf(",\"flow\":%d,\"drop_rate\":%d,\"drops_per_min\":%d,\"weight_g\":%d"
+           ",\"target_flow_ml_h\":%d,\"target_drops_per_min\":%d"
+           ",\"hr_signal\":%s,\"spo2_signal\":%s,\"flow_signal\":%s,\"drops_signal\":%s"
+           ",\"line_blocked\":%s,\"ae_alarm\":%s,\"alarm\":%s"
+           ",\"tare_in_progress\":%s,\"hr_baseline_bpm\":%d"
+           ",\"hr_baseline_seconds_remaining\":%d"
+           ",\"tare_event_count\":%d,\"hr_baseline_event_count\":%d"
+           ",\"ts_anomaly\":%s,\"ts_trend\":%d,\"ts_early_warning\":%s"
+           ",\"ts_ready\":%s,\"hr_trend_bpm_per_min\":%d,\"ts_anomaly_score\":%d"
+           ",\"drops_trend\":%d,\"drops_trend_dpm_per_min\":%d"
+           ",\"drops_forecast_16s\":%d"
+           ",\"hr_forecast_trusted\":%s,\"drops_forecast_trusted\":%s",
+           flow, drop,
+           (int)(sh_drops_per_min() + 0.5f),
+           (int)(sh_flow_weight_g() < 0.0f ? 0.0f : sh_flow_weight_g() + 0.5f),
+           (int)(sh_target_flow_ml_h() + 0.5f),
+           (int)(sh_target_drops_per_min() + 0.5f),
+           (sh_hr_state()    == CH_OK) ? "true" : "false",
+           (sh_spo2_state()  == CH_OK) ? "true" : "false",
+           (sh_flow_state()  == CH_OK) ? "true" : "false",
+           (sh_drops_state() == CH_OK) ? "true" : "false",
+           r.reason_flow    ? "true" : "false",
+           r.reason_ae      ? "true" : "false",
+           (r.alarm || ts.anomaly_confirmed) ? "true" : "false",
+           sh_flow_tare_in_progress() ? "true" : "false",
+           (int)(ai_monitor_get_hr_baseline() + 0.5f),
+           (int)app_hr_baseline_seconds_remaining(),
+           (int)sh_flow_tare_event_count(),
+           (int)hr_baseline_event_count,
+           ts.anomaly_confirmed ? "true" : "false",
+           (int)ts.hr_trend,
+           ts.early_warning ? "true" : "false",
+           (ts.ready && ts.have_forecast) ? "true" : "false",
+           (int)ts.hr_trend_bpm_per_min,
+           /* score x100 to keep 2 decimals over an integer-only wire format */
+           (int)(ts.anomaly_score * 100.0f + 0.5f),
+           (int)ts.drops_trend,
+           (int)ts.drops_trend_dpm_per_min,
+           (int)(ts.drops_forecast_16s + 0.5f),
+           ts.hr_forecast_trusted    ? "true" : "false",
+           ts.drops_forecast_trusted ? "true" : "false");
+
+    /* The HR/SpO2 forecasts are only sent as NUMBERS while that channel really
+     * has signal; otherwise null. When the PPG sensor drops out, the channel is
+     * filled with a baseline value so the model can still run for the other
+     * channels - the model STILL emits a number for HR, but it is a forecast
+     * made from a fake flat line, not from the patient. Shown on a dashboard it
+     * looks exactly like a real reading (observed: taking a finger off the
+     * sensor while "HR in 16s" kept changing), so null is sent instead and the
+     * UI hides it. */
+    printf(",\"hr_forecast_16s\":");
+    if (ts.ready && ts.have_forecast && ts.hr_valid) {
+      printf("%d", (int)(ts.hr_forecast_16s + 0.5f));
+    } else { printf("null"); }
+    printf(",\"spo2_forecast_16s\":");
+    if (ts.ready && ts.have_forecast && ts.spo2_valid) {
+      printf("%d", (int)(ts.spo2_forecast_16s + 0.5f));
+    } else { printf("null"); }
+    printf("}\r\n");
 
     int16_t  hr_report   = hr_ok   ? (int16_t)hr    : ZCL_HR_INVALID;
     uint16_t spo2_report = spo2_ok ? (uint16_t)spo2  : ZCL_SPO2_INVALID;

@@ -1,4 +1,0 @@
-/home/huynh/SimplicityStudio/v6_workspace/empty_2/empty_3/cmake_gcc/build/CMakeFiles/slc.dir
-/home/huynh/SimplicityStudio/v6_workspace/empty_2/empty_3/cmake_gcc/build/CMakeFiles/empty_3.dir
-/home/huynh/SimplicityStudio/v6_workspace/empty_2/empty_3/cmake_gcc/build/CMakeFiles/edit_cache.dir
-/home/huynh/SimplicityStudio/v6_workspace/empty_2/empty_3/cmake_gcc/build/CMakeFiles/rebuild_cache.dir
