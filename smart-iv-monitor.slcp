@@ -1,6 +1,6 @@
 # Silicon Labs Project Configuration Tools: slcp, v0, Component selection file.
-project_name: empty_2
-label: empty_2
+project_name: smart-iv-monitor
+label: smart-iv-monitor
 description: |
   This example project shows an empty configuration that can be used as a starting point to add components and functionality.
 category: Example|Platform

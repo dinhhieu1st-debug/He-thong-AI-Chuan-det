@@ -486,7 +486,7 @@ thời gian.
 ## 11. Cách tái lập
 
 ```bash
-cd ~/SimplicityStudio/v6_workspace/empty_2
+cd ~/SimplicityStudio/v6_workspace/smart-iv-monitor
 
 # Môi trường (một lần)
 python3 -m venv .venv-ai
@@ -514,11 +514,11 @@ cp out/model_data_ts.h ..
 
 # 5) Build + nạp
 cd ..
-~/.silabs/slt/installs/archive/slc-cli-v6.0.20/slc_cli/slc generate empty_2.slcp -d . -np \
+~/.silabs/slt/installs/archive/slc-cli-v6.0.20/slc_cli/slc generate smart-iv-monitor.slcp -d . -np \
   --sdk-package-path ~/.silabs/slt/installs/conan/p/simpl35774a752829c/p,~/.silabs/slt/installs/conan/p/aiml220b56d6ae053/p \
   --with cli:inst0
 cd cmake_gcc/build && ~/.silabs/slt/installs/conan/p/ninja1b9fed093d653/p/ninja
-~/.silabs/slt/installs/archive/commander/commander flash base/empty_2.hex --serialno 440364712
+~/.silabs/slt/installs/archive/commander/commander flash smart-iv-monitor.hex --serialno 440364712
 ```
 
 ### 11.1 Danh sách file

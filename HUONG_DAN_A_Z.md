@@ -18,7 +18,7 @@ liệu, vì sao lại thiết kế như vậy, và sờ vào đâu nếu cần s
 ┌──────────────┐  Zigbee   ┌──────────────┐  USB/UART   ┌─────────────────────────────┐
 │  Board cảm   │ ────────► │  Board NCP   │ ──────────► │  Raspberry Pi               │
 │  biến (chip  │           │ (Coordinator)│             │  - mosquitto (MQTT broker)  │
-│  empty_2)    │           │              │             │  - zigbee2mqtt              │
+│  smart-iv-monitor)    │           │              │             │  - zigbee2mqtt              │
 │  BRD2709A    │           │  BRD2709A    │             │  - gateway_test (C program) │
 │  xG26        │           │  xG26        │             │                             │
 └──────────────┘           └──────────────┘             └──────────┬──────────────────┘
@@ -40,7 +40,7 @@ Có **4 "trạm" xử lý** dữ liệu, mỗi trạm là một chương trình/
 
 | # | Trạm | Chạy ở đâu | Vai trò |
 |---|---|---|---|
-| 1 | Firmware `empty_2` | Board cảm biến (gắn giường) | Đọc cảm biến giọt, chạy AI, tính ra HR/SpO2/Flow/Drop/cảnh báo, gửi qua Zigbee |
+| 1 | Firmware `smart-iv-monitor` | Board cảm biến (gắn giường) | Đọc cảm biến giọt, chạy AI, tính ra HR/SpO2/Flow/Drop/cảnh báo, gửi qua Zigbee |
 | 2 | Firmware NCP | Board thứ 2 (coordinator) | "Phiên dịch" Zigbee ↔ USB, không có logic riêng, dùng nguyên bản Silicon Labs |
 | 3 | zigbee2mqtt + `gateway_test` | Raspberry Pi | Nhận gói Zigbee qua NCP, giải mã thành JSON dễ đọc (MQTT), rồi bắn tiếp qua TCP tới HIS Server |
 | 4 | HIS Server | Máy chủ (hiện đang chạy trên máy dev) | Nhận dữ liệu, lưu MySQL, tính cảnh báo, phục vụ web UI cho y tá |
@@ -72,7 +72,7 @@ router riêng.
 
 Trong 1 mạng Zigbee luôn có **đúng 1 Coordinator** (thiết bị khởi tạo mạng,
 giữ "sổ" ai đã join), và nhiều **Router**/**End Device** (thiết bị con join
-vào). Trong hệ thống này: board NCP = Coordinator, board cảm biến `empty_2` =
+vào). Trong hệ thống này: board NCP = Coordinator, board cảm biến `smart-iv-monitor` =
 End Device (join vào mạng do NCP tạo ra).
 
 ### 0.5.2 ZCL, cluster, endpoint, attribute — đơn vị dữ liệu nhỏ nhất của Zigbee
@@ -210,7 +210,7 @@ sẽ nói rõ.
 Chip Silicon Labs EFR32 chạy Zigbee có 2 kiểu firmware mẫu:
 - **SoC** (System-on-Chip): firmware Zigbee VÀ logic ứng dụng (đọc cảm biến,
   điều khiển đèn...) chạy chung trên 1 chip, độc lập, không cần máy tính
-  đứng cạnh. Đây là kiểu board cảm biến `empty_2` dùng.
+  đứng cạnh. Đây là kiểu board cảm biến `smart-iv-monitor` dùng.
 - **NCP** (Network Co-Processor): firmware chỉ lo phần Zigbee (join mạng, mã
   hoá, định tuyến mesh...), **không có logic ứng dụng riêng** — nó chỉ là
   "cái tai nghe Zigbee" cắm vào máy tính qua USB/UART, và máy tính (ở đây là
@@ -226,9 +226,9 @@ logic cho zigbee2mqtt qua EZSP.
 
 ---
 
-## 1. Board cảm biến — firmware `empty_2`
+## 1. Board cảm biến — firmware `smart-iv-monitor`
 
-Thư mục: `~/SimplicityStudio/v6_workspace/empty_2/`. Đây là project Simplicity
+Thư mục: `~/SimplicityStudio/v6_workspace/smart-iv-monitor/`. Đây là project Simplicity
 Studio cho chip **EFR32xG26** (board `BRD2709A`).
 
 ### 1.1 Kiến trúc phần mềm firmware
@@ -516,8 +516,8 @@ SLC=~/.silabs/slt/installs/archive/slc-cli-*/slc_cli/slc
 COMMANDER=~/.silabs/slt/installs/archive/commander/commander
 
 # Sinh lại code khi sửa file .zap hoặc .slcp:
-cd ~/SimplicityStudio/v6_workspace/empty_2
-$SLC generate empty_2.slcp -d . -np \
+cd ~/SimplicityStudio/v6_workspace/smart-iv-monitor
+$SLC generate smart-iv-monitor.slcp -d . -np \
   --sdk-package-path ~/.silabs/slt/installs/conan/p/<simplicity_sdk_id>/p,~/.silabs/slt/installs/conan/p/<aiml_ext_id>/p \
   --with cli:inst0
 
@@ -525,7 +525,7 @@ $SLC generate empty_2.slcp -d . -np \
 cd cmake_gcc/build && $NINJA
 
 # Flash (thay serial number đúng board cảm biến — xem bằng lsusb/udevadm):
-$COMMANDER flash base/empty_2.hex --serialno <SERIAL_BOARD_CAM_BIEN>
+$COMMANDER flash smart-iv-monitor.hex --serialno <SERIAL_BOARD_CAM_BIEN>
 ```
 
 Xem serial number + cổng `ttyACM` tương ứng (hữu ích khi có nhiều board cắm
@@ -613,7 +613,7 @@ như bản cũ.
 
 ### 3.2 External converter — "từ điển" giải mã cluster tuỳ chỉnh Smart IV Vitals
 
-File: `zigbee2mqtt_smart_iv_converter.js` (repo `empty_2`), copy vào
+File: `zigbee2mqtt_smart_iv_converter.js` (repo `smart-iv-monitor`), copy vào
 `~/zigbee2mqtt/data/external_converters/` trên Pi.
 
 **Nhận diện thiết bị bằng fingerprint (không dùng chuỗi `zigbeeModel`)**:
@@ -1157,14 +1157,19 @@ dữ liệu thật từ board cảm biến vật lý duy nhất hiện có.
 ## 10. Tổng kết đường dẫn file quan trọng
 
 ```
-empty_2/
+smart-iv-monitor/
 ├── sensor_hub.{c,h}          firmware: đọc cảm biến, trạng thái từng kênh
-├── ai_monitor.{c,h}          firmware: AI + luật lâm sàng
-├── app.c                     firmware: vòng lặp chính, ghi Zigbee
+├── ai_monitor.{c,h}          firmware: autoencoder tức thời + luật lâm sàng
+├── ts_monitor.{c,h}          firmware: cửa sổ 64s + dự báo + persistence
+├── ts_forecaster.{cpp,h}     firmware: runner TFLM cho model dự báo
+├── model_data_ts.h           model dự báo int8 nhúng sẵn (30 KB)
+├── app.c                     firmware: vòng lặp chính, quyết định báo động, ghi Zigbee
 ├── config/zcl/zcl_config.zap cấu hình ZAP: 2 endpoint, cluster tuỳ chỉnh
 ├── config/zcl/smart-iv-vitals.xml     dinh nghia cluster "Smart IV Vitals" (0xFC01)
 ├── zigbee2mqtt_smart_iv_converter.js   converter giải mã cho zigbee2mqtt
 ├── gateway/main.c            chương trình C: MQTT → TCP JSON
+├── tools/serial_gateway.py   gateway dự phòng khi không có Pi (mục 5.5)
+├── ai_timeseries/            pipeline huấn luyện model dự báo (mục AI_TIME_SERIES)
 └── his-server/
     ├── database/schema.sql, seed_demo.sql
     └── src/HisServer/
