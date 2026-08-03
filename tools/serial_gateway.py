@@ -24,7 +24,9 @@ Usage:
 """
 
 import argparse
+import glob
 import json
+import os
 import socket
 import sys
 import time
@@ -35,6 +37,35 @@ except ImportError:
     sys.exit("pyserial is missing. Install it with: pip install pyserial")
 
 PREFIX = "[JSON]"
+
+# Serial number printed on the sensor board's J-Link OB. Used to find the port
+# by identity rather than by number.
+DEFAULT_BOARD_SERIAL = "440364712"
+
+
+def resolve_port(explicit_port, serial_number):
+    """Find the sensor board's tty, preferring identity over the port number.
+
+    /dev/ttyACM* numbering is assigned in enumeration order, so it is NOT stable:
+    unplugging the boards, replugging them in a different order, or one of them
+    re-enumerating is enough to swap ttyACM0 and ttyACM1. That has already
+    happened twice here, and the failure is quiet and confusing - the gateway
+    happily reads the NCP's port, sees no [JSON] lines, and the dashboard simply
+    stops updating with no error anywhere.
+
+    /dev/serial/by-id/ contains a symlink per device named after its USB serial
+    number, which never changes. Prefer that; fall back to the explicit port only
+    when the serial number cannot be matched.
+    """
+    if serial_number:
+        matches = glob.glob(f"/dev/serial/by-id/*{serial_number}*")
+        if matches:
+            resolved = os.path.realpath(matches[0])
+            print(f"[GW] Board serial {serial_number} -> {resolved}", flush=True)
+            return resolved
+        print(f"[GW] WARNING: no device with serial {serial_number} under "
+              f"/dev/serial/by-id - falling back to {explicit_port}", flush=True)
+    return explicit_port
 
 
 class ServerLink:
@@ -82,8 +113,12 @@ class ServerLink:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", default="/dev/ttyACM1",
-                    help="serial port of the SENSOR BOARD (not the NCP)")
+    ap.add_argument("--port", default="/dev/ttyACM0",
+                    help="fallback serial port, only used if --serial finds nothing")
+    ap.add_argument("--serial", default=DEFAULT_BOARD_SERIAL,
+                    help="USB serial number of the SENSOR BOARD (not the NCP); "
+                         "resolved via /dev/serial/by-id. Pass an empty string to "
+                         "use --port directly.")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--server", default="127.0.0.1")
     ap.add_argument("--tcp-port", type=int, default=5000)
@@ -93,7 +128,8 @@ def main():
                     help="print every 10th packet instead of every one")
     args = ap.parse_args()
 
-    print(f"[GW] Reading {args.port} @ {args.baud} -> "
+    port = resolve_port(args.port, args.serial)
+    print(f"[GW] Reading {port} @ {args.baud} -> "
           f"{args.server}:{args.tcp_port} (bed={args.bed_id}, room={args.room})",
           flush=True)
 
@@ -106,7 +142,7 @@ def main():
     # reporting "filling the window" forever while the raw serial log clearly
     # shows the model running perfectly well.
     ser = serial.Serial()
-    ser.port = args.port
+    ser.port = port
     ser.baudrate = args.baud
     ser.timeout = 2
     ser.dtr = False

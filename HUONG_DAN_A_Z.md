@@ -918,11 +918,22 @@ Firmware in một dòng `[JSON]{...}` mỗi chu kỳ AI trên VCOM, tên trườ
 trùng payload zigbee2mqtt** nên **không phải sửa gì bên server**.
 
 ```bash
-# /dev/ttyACM1 la board CAM BIEN (khong phai NCP) - kiem tra bang:
-#   udevadm info -q property -n /dev/ttyACM1 | grep ID_SERIAL_SHORT
-python3 tools/serial_gateway.py --port /dev/ttyACM1 \
-    --server 127.0.0.1 --tcp-port 5000 --bed-id BED-101 --room ICU-1
+# Mac dinh script tu tim board cam bien theo SO SERIAL (440364712) qua
+# /dev/serial/by-id/, nen khong phai quan tam ttyACM may:
+python3 tools/serial_gateway.py
+
+# Doi giuong/phong hoac may chu:
+python3 tools/serial_gateway.py --server 127.0.0.1 --tcp-port 5000 \
+    --bed-id BED-101 --room ICU-1
 ```
+
+**Vì sao tìm theo số serial chứ không theo `/dev/ttyACM*`:** số thứ tự cổng được
+cấp theo thứ tự cắm USB nên **không ổn định** — rút cắm lại, cắm khác thứ tự,
+hoặc một board tự khởi động lại là đủ để `ttyACM0` và `ttyACM1` **hoán đổi cho
+nhau**. Chuyện này đã xảy ra 2 lần, và kiểu hỏng của nó rất khó chẩn đoán: gateway
+vẫn chạy, vẫn mở được cổng, nhưng đó là cổng của **NCP** nên không có dòng
+`[JSON]` nào — dashboard lặng lẽ ngừng cập nhật mà không báo lỗi ở đâu cả.
+`/dev/serial/by-id/` có symlink đặt tên theo số serial USB, không bao giờ đổi.
 
 **Hạn chế phải biết:** đường này **bỏ qua Zigbee hoàn toàn** — không kiểm chứng
 được NCP, zigbee2mqtt hay việc ghép đôi. Dùng để xem giao diện và kiểm chứng AI +
