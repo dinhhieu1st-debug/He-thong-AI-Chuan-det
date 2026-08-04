@@ -8,7 +8,7 @@
     "configurePresets": [
       {
         "name": "project",
-        "displayName": "Configure empty_2",
+        "displayName": "Configure smart-iv-monitor",
         "generator": "Ninja Multi-Config",
         "binaryDir": "${sourceDir}/build",
         "toolchainFile": "${sourceDir}/toolchain.cmake",
@@ -20,10 +20,10 @@
     "buildPresets": [
       {
         "name": "default_config",
-        "displayName": "Build empty_2",
+        "displayName": "Build smart-iv-monitor",
         "configurePreset": "project",
         "configuration": "base",
-        "targets": ["empty_2"]
+        "targets": ["smart-iv-monitor"]
       }
     ],
     "workflowPresets": [

@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": false,
-      "cwd": "/home/huynh/SimplicityStudio/v6_workspace/empty_2/gateway",
-      "program": "/home/huynh/SimplicityStudio/v6_workspace/empty_2/gateway/build/Debug/outDebug",
+      "cwd": "/home/huynh/SimplicityStudio/v6_workspace/smart-iv-monitor/gateway",
+      "program": "/home/huynh/SimplicityStudio/v6_workspace/smart-iv-monitor/gateway/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [
