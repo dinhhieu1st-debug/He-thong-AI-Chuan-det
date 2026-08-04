@@ -191,11 +191,68 @@ const BedsTab = (() => {
         </div>
         ${flags.length ? `<div class="fc-flags">${flags.join("")}</div>` : ""}
         ${(bed.dropsForecastTrusted === false || (bed.hrForecastTrusted === false && bed.hrForecast16s != null))
-          ? `<div class="fc-note">The model only learned NORMAL behaviour. A channel marked
-             <b>“expected if normal”</b> is far outside that range right now, so the figure shown is
-             the level the model expects for a healthy line — <b>not</b> a prediction of what will
-             happen. The gap between it and the current reading is what raises the anomaly score.</div>`
+          ? `<div class="fc-note" title="The model was trained only on normal behaviour, so it cannot predict an abnormal channel. What it reports instead is the value a healthy line would be showing now; the gap between that and the real reading is what raises the anomaly score.">
+             <b>“Expected if normal”</b> = what a healthy line would read now, not a
+             prediction. The gap raises the anomaly score.</div>`
           : ""}
+      </div>`;
+  }
+
+  /* Left rail of the detail view: every live number for this bed in one
+   * block, so "how is the patient right now" is answered without scrolling
+   * and without reading it off a chart.
+   *
+   * A channel whose sensor is reporting no signal is dimmed rather than
+   * hidden - a missing reading is itself information the nurse needs, and
+   * removing the tile would make the layout jump around as sensors drop. */
+  function vitalsSectionHtml(bed) {
+    const tile = (key, unit, label, color, ok) => `
+      <div class="bd-vital${ok === false ? " is-lost" : ""}" style="--vital-color:${color};">
+        <span class="v">${UiUtils.formatMetric(bed[key], "")}<span class="u">${UiUtils.escapeHtml(unit)}</span></span>
+        <span class="k">${UiUtils.escapeHtml(label)}${ok === false ? " · no signal" : ""}</span>
+      </div>`;
+
+    return `
+      <div class="bd-card">
+        <h4>Live vitals</h4>
+        <div class="bd-vitals">
+          ${tile("spo2", "%", "SpO2", "#2470c8", bed.spo2Signal)}
+          ${tile("heartRate", " bpm", "Heart rate", "#dc3c3c", bed.heartRateSignal)}
+          ${tile("flowRate", "%", "Flow vs target", "#1ea050", bed.flowSignal)}
+          ${tile("dripRate", "%", "Drip vs target", "#e69119", bed.dripRateSignal)}
+          ${tile("dropsPerMin", " dpm", "Drops per min", "#7a5bd0")}
+          ${tile("weightG", " g", "IV bag weight", "#0d8f96")}
+        </div>
+      </div>
+      <div class="bd-card">
+        <h4>Sensor channels</h4>
+        <div class="bd-channels">
+          ${channelRow("Heart rate", bed.heartRateSignal)}
+          ${channelRow("SpO2", bed.spo2Signal)}
+          ${channelRow("Flow", bed.flowSignal)}
+          ${channelRow("Drip", bed.dripRateSignal)}
+          ${channelRow("IV line", !bed.lineBlocked, "Flowing", "Blocked / free-flow")}
+        </div>
+      </div>
+      ${bed.alertMessage ? `
+      <div class="bd-card bd-card-alert">
+        <h4>Active alert</h4>
+        <p class="bd-alert-body">${UiUtils.escapeHtml(bed.alertMessage)}</p>
+      </div>` : ""}
+      <div class="bd-card">
+        <h4>Bed</h4>
+        <form id="editBedForm" class="bd-room-form">
+          <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}" placeholder="Room">
+          <button type="submit" class="btn primary">Save</button>
+        </form>
+      </div>`;
+  }
+
+  function channelRow(label, ok, okText = "Signal OK", lostText = "No signal") {
+    return `
+      <div class="bd-channel">
+        <span class="bd-channel-name">${UiUtils.escapeHtml(label)}</span>
+        <span class="bd-channel-state ${ok ? "is-ok" : "is-lost"}">${ok ? okText : lostText}</span>
       </div>`;
   }
 
@@ -206,9 +263,6 @@ const BedsTab = (() => {
 
         <div class="settings-block">
           <label>Load cell</label>
-          <div class="metric-row">
-            <div class="metric"><b>${UiUtils.formatMetric(bed.weightG, " g")}</b><span>IV bag weight</span></div>
-          </div>
           ${tareStatusHtml(bed)}
           <div class="inline-form" style="margin-top:8px;">
             <button type="button" id="resetTareBtn" class="btn">Reset scale (tare)</button>
@@ -224,8 +278,9 @@ const BedsTab = (() => {
         </div>
 
         <div class="settings-block">
-          <label>Infusion rate (AI alert target)</label>
-          <div class="current-target">Current: <b>${UiUtils.formatMetric(bed.targetFlowMlH, " ml/h")}</b></div>
+          <label>Infusion rate (AI alert target)
+            <b class="current-target">${UiUtils.formatMetric(bed.targetFlowMlH, " ml/h")}</b>
+          </label>
           <form id="targetFlowForm" class="inline-form">
             <input type="number" min="1" id="targetFlowInput" placeholder="New target" value="">
             <button type="submit" class="btn primary">Set</button>
@@ -233,9 +288,10 @@ const BedsTab = (() => {
         </div>
 
         <div class="settings-block">
-          <label>Drop rate (AI alert target)</label>
-          <div class="current-target">Current: <b>${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
-            &nbsp;·&nbsp; Measured: <b>${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</b></div>
+          <label>Drop rate (AI alert target)
+            <b class="current-target">${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
+            <span class="measured">measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</span>
+          </label>
           <form id="targetDropsForm" class="inline-form">
             <input type="number" min="1" id="targetDropsInput" placeholder="New target" value="">
             <button type="submit" class="btn primary">Set</button>
@@ -508,31 +564,40 @@ const BedsTab = (() => {
     maybeShowEventToast(bed);
 
     panel.classList.add("fullscreen-open");
-    panel.style.display = "block";
+    // Clear the inline display rather than setting "block": the overlay is a
+    // flex column, and an inline display would beat the stylesheet and let the
+    // 3-column workspace size to its content instead of to the viewport.
+    panel.style.display = "";
     document.body.classList.add("no-scroll");
+    const statusColor = UiUtils.statusColor(bed.status);
     panel.innerHTML = `
-      <div class="fullscreen-header">
-        <button type="button" class="btn" id="closeBedDetailBtn">&larr; Back to beds</button>
-      </div>
-      <div class="fullscreen-body">
-        <h3>${UiUtils.escapeHtml(bed.bedId)}</h3>
-        <div class="sub">${UiUtils.escapeHtml(bed.room)} · ${UiUtils.escapeHtml((bed.status || "").toUpperCase())}</div>
-        <div class="metric-row">
-          <div class="metric"><b>${UiUtils.formatMetric(bed.spo2, "%")}</b><span>SpO2</span></div>
-          <div class="metric"><b>${UiUtils.formatMetric(bed.heartRate, "")}</b><span>Heart Rate</span></div>
-          <div class="metric"><b>${UiUtils.formatMetric(bed.flowRate, "%")}</b><span>Flow Rate</span></div>
-          <div class="metric"><b>${UiUtils.formatMetric(bed.dripRate, "%")}</b><span>Drip Rate</span></div>
+      <div class="bd-header" style="--bd-status:${statusColor};">
+        <button type="button" class="btn" id="closeBedDetailBtn">&larr; Beds</button>
+        <div class="bd-ident">
+          <span class="bd-bed-id">${UiUtils.escapeHtml(bed.bedId)}</span>
+          <span class="bd-room">${UiUtils.escapeHtml(bed.room)}</span>
         </div>
+        <span class="status-chip" style="background:${statusColor};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
         ${UiUtils.signalRowHtml(bed)}
-        ${bed.alertMessage ? `<div class="bed-message">${UiUtils.escapeHtml(bed.alertMessage)}</div>` : ""}
-        <form id="editBedForm">
-          <label>Room</label>
-          <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}">
-          <button type="submit" class="btn primary">Save</button>
-        </form>
-        ${forecastSectionHtml(bed)}
-        ${trendsSectionHtml()}
-        ${settingsSectionHtml(bed)}
+        <div class="bd-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
+      </div>
+      <div class="bd-grid">
+        <div class="bd-col bd-col-side">
+          ${vitalsSectionHtml(bed)}
+        </div>
+        <div class="bd-col bd-col-main">
+          ${trendsSectionHtml()}
+        </div>
+        <div class="bd-col bd-col-side bd-col-right">
+          <div class="bd-card">
+            <h4>AI forecast (on-chip)</h4>
+            ${forecastSectionHtml(bed)}
+          </div>
+          <div class="bd-card">
+            <h4>Doctor-configurable settings</h4>
+            ${settingsSectionHtml(bed)}
+          </div>
+        </div>
       </div>`;
 
     document.getElementById("closeBedDetailBtn").addEventListener("click", closeDetail);
