@@ -5,7 +5,7 @@ const DashboardTab = (() => {
   function bedCardHtml(bed) {
     const color = UiUtils.statusColor(bed.status);
     return `
-      <div class="bed-card">
+      <div class="bed-card" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
         <div class="stripe" style="background:${color};"></div>
         <div class="body">
           <div class="row-top">
@@ -25,17 +25,46 @@ const DashboardTab = (() => {
       </div>`;
   }
 
+  /* The dashboard alert card is deliberately bigger and bolder than the row in
+   * the Alerts tab: this is the thing a nurse must catch from across the
+   * station, and the old one-line row left most of the width empty. Each cause
+   * the server reported gets its own chip so "blocked line + no HR signal"
+   * cannot be skim-read as a single problem. */
   function alertRowHtml(alert) {
     const color = UiUtils.statusColor(alert.level);
+    const level = (alert.level || "").toUpperCase();
+    const causes = String(alert.message || "")
+      .split(" · ")
+      .filter((part) => part.trim() !== "");
+
     return `
-      <div class="alert-item">
-        <div class="stripe" style="background:${color};"></div>
-        <div>
-          <div class="title" style="color:${color};">${UiUtils.escapeHtml(alert.level)} · ${UiUtils.escapeHtml(alert.bedId)}</div>
-          <div class="desc">${UiUtils.escapeHtml(alert.message)}</div>
-          <div class="time">${UiUtils.escapeHtml(alert.room || "")} · ${UiUtils.formatDateTime(alert.createdAt)}</div>
+      <div class="dash-alert sev-${UiUtils.escapeHtml(level.toLowerCase())}"
+           data-bed-id="${UiUtils.escapeHtml(alert.bedId)}" style="--alert-color:${color};">
+        <div class="dash-alert-head">
+          <span class="dash-alert-level">${UiUtils.escapeHtml(level)}</span>
+          <span class="dash-alert-bed">${UiUtils.escapeHtml(alert.bedId)}</span>
+          <span class="dash-alert-room">${UiUtils.escapeHtml(alert.room || "")}</span>
+          <span class="dash-alert-time">${UiUtils.formatDateTime(alert.createdAt)}</span>
+        </div>
+        <div class="dash-alert-causes">
+          ${causes.map((c) => `<span class="dash-alert-cause">${UiUtils.escapeHtml(c)}</span>`).join("")}
         </div>
       </div>`;
+  }
+
+  /* Clicking a bed anywhere on the dashboard opens that bed's detail view
+   * directly, instead of making the user find it again in the Beds tab. The
+   * tab still switches underneath so the back button lands somewhere sensible
+   * and the detail's "Back to beds" means what it says. */
+  function bindOpenBedHandlers(container) {
+    container.querySelectorAll("[data-bed-id]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const bedId = el.getAttribute("data-bed-id");
+        if (!bedId) return;
+        document.querySelector('.nav-btn[data-tab="beds"]').click();
+        BedsTab.openBed(bedId);
+      });
+    });
   }
 
   function render() {
@@ -61,6 +90,9 @@ const DashboardTab = (() => {
     alertsBox.innerHTML = recentAlerts.length === 0
       ? `<div class="empty-state">No recent alerts.</div>`
       : recentAlerts.map(alertRowHtml).join("");
+
+    bindOpenBedHandlers(grid);
+    bindOpenBedHandlers(alertsBox);
 
     const connText = document.getElementById("connText");
     const connDot = document.getElementById("connDot");

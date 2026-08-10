@@ -126,6 +126,26 @@ button { font-family: inherit; }
 .btn.small { padding: 4px 10px; font-size: 11.5px; }
 
 .bed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+
+.room-select { flex: 0 0 200px; cursor: pointer; }
+
+/* ---- One room selected: fewer beds, so make each one worth the space ----
+   auto-fit (not auto-fill) lets the tracks themselves stretch, so three beds
+   in a room fill the row instead of huddling at the left with dead space to
+   the right. The numbers grow with the card - the point of the bigger card is
+   that the vitals are readable from further away, not just that it is bigger. */
+.bed-grid.is-single-room { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; }
+.bed-grid.is-single-room .bed-card .body { padding: 16px 18px; }
+.bed-grid.is-single-room .bed-card .stripe { height: 6px; }
+.bed-grid.is-single-room .bed-card .bed-id { font-size: 17px; }
+.bed-grid.is-single-room .bed-card .bed-room { font-size: 12.5px; }
+.bed-grid.is-single-room .bed-card .status-chip { font-size: 11.5px; padding: 4px 11px; }
+.bed-grid.is-single-room .vitals { gap: 18px; margin-top: 14px; }
+.bed-grid.is-single-room .vital { font-size: 12.5px; }
+.bed-grid.is-single-room .vital b { font-size: 24px; }
+.bed-grid.is-single-room .signal-dot { font-size: 11px; padding: 3px 8px; }
+.bed-grid.is-single-room .bed-message { font-size: 13px; margin-top: 10px; }
+.bed-grid.is-single-room .bed-updated { font-size: 11.5px; }
 .bed-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
   overflow: hidden; cursor: pointer;
@@ -169,6 +189,53 @@ table.data-table tr:last-child td { border-bottom: none; }
 .alert-item .actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 
 .empty-state { color: var(--text-dim); font-size: 13px; padding: 30px; text-align: center; }
+
+/* ---- Dashboard "Latest alerts" -----------------------------------------
+   Laid out as cards across the full width rather than as full-width one-line
+   rows: the old rows spent most of the page width on empty space while the
+   message itself stayed small. Side by side, each alert gets a readable block
+   and three fit on one screen. */
+#dashboardAlerts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px;
+}
+#dashboardAlerts .empty-state { grid-column: 1 / -1; }
+
+.dash-alert {
+  background: var(--panel); border: 1px solid var(--border);
+  border-left: 6px solid var(--alert-color, var(--offline));
+  border-radius: 12px; padding: 12px 14px; cursor: pointer;
+}
+.dash-alert:hover { background: var(--accent-soft); }
+.dash-alert-head {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.dash-alert-level {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+  color: white; background: var(--alert-color); border-radius: 999px; padding: 3px 9px;
+}
+.dash-alert-bed { font-size: 15px; font-weight: 700; }
+.dash-alert-room { font-size: 12px; color: var(--text-dim); }
+.dash-alert-time {
+  margin-left: auto; font-size: 11px; color: var(--text-dim);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.dash-alert-causes { display: flex; flex-direction: column; gap: 5px; }
+.dash-alert-cause {
+  font-size: 13px; font-weight: 600; line-height: 1.35;
+  color: var(--alert-color);
+  padding-left: 14px; position: relative;
+}
+.dash-alert-cause::before {
+  content: "•"; position: absolute; left: 2px; top: -1px; font-size: 15px;
+}
+/* One cause is a sentence, not a list - drop the bullet. */
+.dash-alert-causes .dash-alert-cause:only-child { padding-left: 0; }
+.dash-alert-causes .dash-alert-cause:only-child::before { content: none; }
+
+.dash-alert.sev-critical { animation: alarm-card-pulse 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dash-alert.sev-critical { animation: none; box-shadow: 0 0 0 3px rgba(220, 60, 60, 0.28); }
+}
 
 .split { display: flex; gap: 16px; align-items: flex-start; }
 .split .main-col { flex: 1 1 auto; min-width: 0; }
@@ -262,6 +329,27 @@ body.no-scroll { overflow: hidden; }
 .bd-vital .u { font-size: 11px; font-weight: 600; color: var(--text-dim); }
 .bd-vital .k { display: block; font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
 .bd-vital.is-lost { opacity: 0.55; }
+
+/* Same alarm language as the charts: amber for warning, red + pulse for
+   critical, so the tile and its trace always agree. */
+.bd-vital.sev-warning {
+  --vital-color: var(--warning);
+  background: #fffaf2; border-color: var(--warning);
+}
+.bd-vital.sev-warning .v { color: var(--warning); }
+.bd-vital.sev-critical {
+  --vital-color: var(--critical);
+  background: #fdeaea; border-color: var(--critical);
+  animation: alarm-card-pulse 1.1s ease-in-out infinite;
+}
+.bd-vital.sev-critical .v {
+  color: var(--critical);
+  animation: alarm-value-blink 1.1s steps(1, end) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bd-vital.sev-critical,
+  .bd-vital.sev-critical .v { animation: none; }
+}
 .bd-vital.wide { grid-column: 1 / -1; }
 
 .bd-channels { display: flex; flex-direction: column; gap: 2px; }
@@ -275,9 +363,25 @@ body.no-scroll { overflow: hidden; }
 .bd-channel-state.is-ok { color: var(--stable); }
 .bd-channel-state.is-lost { color: var(--offline); }
 
-.bd-card-alert { border-color: var(--critical); background: #fdeaea; }
-.bd-card-alert > h4 { color: var(--critical); }
-.bd-alert-body { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--critical); line-height: 1.4; }
+.bd-card-alert.sev-critical {
+  border-color: var(--critical); background: #fdeaea;
+  animation: alarm-card-pulse 1.1s ease-in-out infinite;
+}
+.bd-card-alert.sev-critical > h4,
+.bd-card-alert.sev-critical .bd-alert-list { color: var(--critical); }
+.bd-card-alert.sev-warning { border-color: var(--warning); background: #fffaf2; }
+.bd-card-alert.sev-warning > h4,
+.bd-card-alert.sev-warning .bd-alert-list { color: var(--warning); }
+@media (prefers-reduced-motion: reduce) {
+  .bd-card-alert.sev-critical { animation: none; box-shadow: 0 0 0 3px rgba(220, 60, 60, 0.28); }
+}
+
+.bd-alert-list {
+  margin: 0; padding-left: 16px;
+  font-size: 12.5px; font-weight: 600; line-height: 1.45;
+}
+.bd-alert-list li { margin-bottom: 3px; }
+.bd-alert-list li:last-child { margin-bottom: 0; }
 
 /* ---- centre column: charts stretched to the available height ---------- */
 /* Nested grids with an explicit minmax(0, 1fr) track all the way down, rather
@@ -372,6 +476,92 @@ body.no-scroll { overflow: hidden; }
 }
 .pill.warning { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
 
+/* ===================================================================
+ * FULL-SCREEN CRITICAL ALARM
+ *
+ * Sits above the bed detail overlay (z-index 60) but below toasts (100),
+ * so an action's confirmation is still readable while it is up.
+ * =================================================================== */
+.critical-alarm {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(60, 8, 8, 0.55);
+  backdrop-filter: blur(2px);
+  animation: ca-backdrop-pulse 1.2s ease-in-out infinite;
+}
+.critical-alarm.hidden { display: none; }
+
+@keyframes ca-backdrop-pulse {
+  0%, 100% { background: rgba(60, 8, 8, 0.5); }
+  50%      { background: rgba(120, 12, 12, 0.62); }
+}
+
+.ca-panel {
+  background: var(--panel); border-radius: 16px;
+  border: 3px solid var(--critical);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  width: min(760px, 100%); max-height: 100%;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.ca-head {
+  display: flex; align-items: center; gap: 18px;
+  padding: 18px 24px; background: var(--critical); color: white;
+}
+.ca-icon {
+  width: 56px; height: 56px; flex: 0 0 auto; color: white;
+  animation: ca-icon-blink 0.9s steps(1, end) infinite;
+}
+@keyframes ca-icon-blink {
+  0%, 55%   { opacity: 1; }
+  56%, 100% { opacity: 0.3; }
+}
+.ca-title { font-size: 27px; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
+.ca-sub { font-size: 13px; opacity: 0.92; margin-top: 3px; }
+
+.ca-body { padding: 18px 24px; overflow-y: auto; }
+.ca-bed { border-bottom: 1px dashed var(--border); padding-bottom: 16px; margin-bottom: 16px; }
+.ca-bed:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+.ca-bed-head { display: flex; align-items: baseline; gap: 10px; }
+.ca-bed-id { font-size: 24px; font-weight: 700; }
+.ca-bed-room { font-size: 14px; color: var(--text-dim); }
+
+.ca-causes {
+  margin: 10px 0 12px; padding-left: 20px;
+  color: var(--critical); font-size: 15px; font-weight: 600; line-height: 1.5;
+}
+.ca-causes li { margin-bottom: 3px; }
+
+.ca-vitals { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+.ca-vitals b {
+  font-size: 20px; color: var(--text); font-family: 'IBM Plex Mono', monospace;
+  margin-right: 4px;
+}
+
+.ca-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.ca-open { background: var(--critical); color: white; border-color: var(--critical); font-weight: 700; }
+.ca-open:hover { background: #c33434; }
+
+.ca-foot {
+  padding: 12px 24px; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; background: var(--bg);
+}
+
+/* The alarm must still work for anyone who cannot tolerate flashing: the red
+   panel, the triangle and the wording carry it without any motion. */
+@media (prefers-reduced-motion: reduce) {
+  .critical-alarm, .ca-icon { animation: none; }
+  .critical-alarm { background: rgba(90, 10, 10, 0.6); }
+}
+
+@media (max-width: 620px) {
+  .ca-head { padding: 14px 16px; gap: 12px; }
+  .ca-icon { width: 42px; height: 42px; }
+  .ca-title { font-size: 21px; }
+  .ca-body { padding: 14px 16px; }
+}
+
 .toast-container {
   position: fixed; top: 16px; right: 16px; z-index: 100;
   display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
@@ -441,8 +631,49 @@ body.no-scroll { overflow: hidden; }
 .chart-grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart-axis { fill: var(--text-dim); font-size: 10px; font-family: inherit; }
 
+/* A light plot area behind the trace: it separates the drawing surface from
+   the card, and makes the amber/red alarm strokes read at a glance. */
+.chart-plot-bg { fill: #f7f9fc; }
+
 /* Periods the device flagged (line blocked / autoencoder alarm). */
 .chart-alarm-band { fill: var(--critical); opacity: 0.08; }
+
+/* ---- Alarm states on a chart -------------------------------------------
+   The stroke colour is set inline by charts.js (the SVG needs a real colour,
+   not a class); these rules carry the surrounding treatment. Critical also
+   pulses, because a colour change alone is easy to miss on a wall display
+   that nobody is looking directly at. */
+/* The plot background stays neutral in every state - only the trace, the
+   readout and the card's border/pulse carry the alarm. A tinted background
+   behind a chart fights with the line it is meant to make readable. */
+.chart-card.sev-warning {
+  border-color: var(--warning);
+}
+.chart-card.sev-warning .chart-label { color: var(--warning); }
+
+.chart-card.sev-critical {
+  border-color: var(--critical);
+  animation: alarm-card-pulse 1.1s ease-in-out infinite;
+}
+.chart-card.sev-critical .chart-label { color: var(--critical); font-weight: 700; }
+.chart-card.sev-critical .chart-now { animation: alarm-value-blink 1.1s steps(1, end) infinite; }
+
+@keyframes alarm-card-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 60, 60, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(220, 60, 60, 0.28); }
+}
+@keyframes alarm-value-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0.25; }
+}
+
+/* Anyone who gets motion-sick or finds flashing painful still needs the
+   alarm, just not the movement - colour and border carry it on their own. */
+@media (prefers-reduced-motion: reduce) {
+  .chart-card.sev-critical,
+  .chart-card.sev-critical .chart-now { animation: none; }
+  .chart-card.sev-critical { box-shadow: 0 0 0 3px rgba(220, 60, 60, 0.28); }
+}
 
 .chart-foot {
   display: flex; gap: 10px; flex-wrap: wrap;

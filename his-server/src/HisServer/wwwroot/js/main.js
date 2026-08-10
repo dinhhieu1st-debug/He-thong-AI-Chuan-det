@@ -40,6 +40,8 @@
   AlertsTab.init();
   DevicesTab.init();
   SystemLogTab.init();
+  // Last, so the tab modules exist by the time it can open a bed.
+  CriticalAlarm.init();
 
   await MonitoringHub.start();
 })();

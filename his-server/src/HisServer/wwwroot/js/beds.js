@@ -39,10 +39,25 @@ const BedsTab = (() => {
   }
 
   function renderFilters() {
-    const rooms = ["all", ...new Set(Array.from(State.beds.values()).map((b) => b.room).filter(Boolean))];
-    document.getElementById("bedRoomFilters").innerHTML = rooms.map((room) =>
-      `<button class="chip ${room === selectedRoom ? "active" : ""}" data-room="${UiUtils.escapeHtml(room)}">${room === "all" ? "All rooms" : UiUtils.escapeHtml(room)}</button>`
-    ).join("");
+    const beds = Array.from(State.beds.values());
+    const rooms = Array.from(new Set(beds.map((b) => b.room).filter(Boolean))).sort();
+
+    // The bed count per room saves opening a room just to find it empty.
+    const select = document.getElementById("bedRoomFilter");
+    const options = [`<option value="all">All rooms (${beds.length})</option>`].concat(
+      rooms.map((room) => {
+        const count = beds.filter((b) => b.room === room).length;
+        return `<option value="${UiUtils.escapeHtml(room)}">${UiUtils.escapeHtml(room)} (${count})</option>`;
+      })
+    );
+    select.innerHTML = options.join("");
+
+    // A room can disappear when its last bed is removed; fall back to "all"
+    // rather than leaving the list showing a filter that matches nothing.
+    if (selectedRoom !== "all" && !rooms.includes(selectedRoom)) {
+      selectedRoom = "all";
+    }
+    select.value = selectedRoom;
 
     document.getElementById("bedStatusFilters").innerHTML = STATUS_FILTERS.map((status) =>
       `<button class="chip ${status === selectedStatus ? "active" : ""}" data-status="${status}">${status === "all" ? "All statuses" : status}</button>`
@@ -206,22 +221,31 @@ const BedsTab = (() => {
    * hidden - a missing reading is itself information the nurse needs, and
    * removing the tile would make the layout jump around as sensors drop. */
   function vitalsSectionHtml(bed) {
-    const tile = (key, unit, label, color, ok) => `
-      <div class="bd-vital${ok === false ? " is-lost" : ""}" style="--vital-color:${color};">
-        <span class="v">${UiUtils.formatMetric(bed[key], "")}<span class="u">${UiUtils.escapeHtml(unit)}</span></span>
-        <span class="k">${UiUtils.escapeHtml(label)}${ok === false ? " · no signal" : ""}</span>
-      </div>`;
+    /* A tile carries the same severity as that metric's chart, so the number
+     * a nurse reads first and the trace they check second never disagree.
+     * A channel with no signal is dimmed and never coloured by severity: a
+     * reading of 0 from an unplugged probe is not a dangerous reading. */
+    const tile = (key, unit, label, ok) => {
+      const color = (METRIC_BY_KEY[key] || {}).color || "#2470c8";
+      const sev = ok === false ? "ok" : severityOfValue(key, bed[key]);
+      const cls = (ok === false ? " is-lost" : "") + (sev === "ok" ? "" : ` sev-${sev}`);
+      return `
+        <div class="bd-vital${cls}" style="--vital-color:${color};">
+          <span class="v">${UiUtils.formatMetric(bed[key], "")}<span class="u">${UiUtils.escapeHtml(unit)}</span></span>
+          <span class="k">${UiUtils.escapeHtml(label)}${ok === false ? " · no signal" : ""}</span>
+        </div>`;
+    };
 
     return `
       <div class="bd-card">
         <h4>Live vitals</h4>
         <div class="bd-vitals">
-          ${tile("spo2", "%", "SpO2", "#2470c8", bed.spo2Signal)}
-          ${tile("heartRate", " bpm", "Heart rate", "#dc3c3c", bed.heartRateSignal)}
-          ${tile("flowRate", "%", "Flow vs target", "#1ea050", bed.flowSignal)}
-          ${tile("dripRate", "%", "Drip vs target", "#e69119", bed.dripRateSignal)}
-          ${tile("dropsPerMin", " dpm", "Drops per min", "#7a5bd0")}
-          ${tile("weightG", " g", "IV bag weight", "#0d8f96")}
+          ${tile("spo2", "%", "SpO2", bed.spo2Signal)}
+          ${tile("heartRate", " bpm", "Heart rate", bed.heartRateSignal)}
+          ${tile("flowRate", "%", "Flow vs target", bed.flowSignal)}
+          ${tile("dripRate", "%", "Drip vs target", bed.dripRateSignal)}
+          ${tile("dropsPerMin", " dpm", "Drops per min", bed.dripRateSignal)}
+          ${tile("weightG", " g", "IV bag weight", bed.flowSignal)}
         </div>
       </div>
       <div class="bd-card">
@@ -234,17 +258,32 @@ const BedsTab = (() => {
           ${channelRow("IV line", !bed.lineBlocked, "Flowing", "Blocked / free-flow")}
         </div>
       </div>
-      ${bed.alertMessage ? `
-      <div class="bd-card bd-card-alert">
-        <h4>Active alert</h4>
-        <p class="bd-alert-body">${UiUtils.escapeHtml(bed.alertMessage)}</p>
-      </div>` : ""}
+      ${alertCardHtml(bed)}
       <div class="bd-card">
         <h4>Bed</h4>
         <form id="editBedForm" class="bd-room-form">
           <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}" placeholder="Room">
           <button type="submit" class="btn primary">Save</button>
         </form>
+      </div>`;
+  }
+
+  /* The server sends every active cause in one string joined with " · ".
+   * Splitting it back into separate lines matters clinically: "Critically low
+   * SpO2 · IV line blocked · No signal from: HR" read as one run-on sentence
+   * is how the second and third problems get missed. */
+  function alertCardHtml(bed) {
+    if (!bed.alertMessage) return "";
+
+    const causes = String(bed.alertMessage).split(" · ").filter((c) => c.trim() !== "");
+    const critical = (bed.status || "").toLowerCase() === "critical";
+
+    return `
+      <div class="bd-card bd-card-alert${critical ? " sev-critical" : " sev-warning"}">
+        <h4>Active alert${causes.length > 1 ? ` · ${causes.length} problems` : ""}</h4>
+        <ul class="bd-alert-list">
+          ${causes.map((c) => `<li>${UiUtils.escapeHtml(c)}</li>`).join("")}
+        </ul>
       </div>`;
   }
 
@@ -367,19 +406,69 @@ const BedsTab = (() => {
   // Metrics get their own y-scale floor (minSpan) so a steady reading doesn't
   // get magnified into a scary-looking sawtooth by autoscaling. Values here
   // are "the smallest range worth looking at" for each channel clinically.
+  /* `limits` mirrors the server-side thresholds in VitalsStatusEvaluator, so a
+   * chart never turns red for a reading the server calls Stable (or stays calm
+   * for one it calls Critical). A metric with no clinical limit - drops per
+   * minute, bag weight - simply keeps its own colour: colouring those by
+   * arbitrary bounds would cry wolf.
+   *
+   * Colours here are the "all is well" colour. As soon as a metric breaches a
+   * limit, severityOf() overrides it with amber or red - see metricChart(). */
   const TREND_METRICS = [
     // Heart rate uses a FIXED 1-150 bpm axis (not autoscaled): the doctor always
     // reads the same scale, so the shape of the trace is comparable between beds
     // and between visits. A reading above 150 is clamped to the top of the plot -
     // the numeric readout and the "max" figure below the chart still show the
     // true value, so nothing is hidden.
-    { key: "heartRate",   label: "Heart rate",     unit: " bpm", color: "#dc3c3c", yRange: [1, 150] },
-    { key: "spo2",        label: "SpO2",           unit: "%",    color: "#2470c8", minSpan: 8 },
-    { key: "flowRate",    label: "Flow vs target", unit: "%",    color: "#1ea050", minSpan: 40 },
-    { key: "dripRate",    label: "Drip vs target", unit: "%",    color: "#e69119", minSpan: 40 },
-    { key: "dropsPerMin", label: "Drops per min",  unit: " dpm", color: "#7a5bd0", minSpan: 10 },
-    { key: "weightG",     label: "IV bag weight",  unit: " g",   color: "#0d8f96", minSpan: 50 }
+    { key: "heartRate",   label: "Heart rate",     unit: " bpm", color: "#1ea050", yRange: [1, 150],
+      limits: { warnBelow: 60, warnAbove: 110, critBelow: 45, critAbove: 130 } },
+    { key: "spo2",        label: "SpO2",           unit: "%",    color: "#2470c8", minSpan: 8,
+      limits: { warnBelow: 95, critBelow: 90 } },
+    { key: "flowRate",    label: "Flow vs target", unit: "%",    color: "#0d8f96", minSpan: 40,
+      limits: { warnBelow: 70, warnAbove: 130, critBelow: 40, critAbove: 160 } },
+    { key: "dripRate",    label: "Drip vs target", unit: "%",    color: "#7a5bd0", minSpan: 40,
+      limits: { warnBelow: 70, warnAbove: 130, critBelow: 40, critAbove: 160 } },
+    { key: "dropsPerMin", label: "Drops per min",  unit: " dpm", color: "#4f46e5", minSpan: 10 },
+    { key: "weightG",     label: "IV bag weight",  unit: " g",   color: "#64748b", minSpan: 50 }
   ];
+
+  /* No metric may use amber or red as its "all is well" colour: those two
+   * belong to warning and critical alone. Drip used to be amber, which made a
+   * perfectly normal drip chart look like a warning at a glance. */
+  const METRIC_BY_KEY = Object.fromEntries(TREND_METRICS.map((m) => [m.key, m]));
+
+  function severityOfValue(key, value) {
+    const metric = METRIC_BY_KEY[key];
+    if (!metric || !metric.limits || value == null || !Number.isFinite(value)) return "ok";
+    const l = metric.limits;
+    if ((l.critBelow != null && value < l.critBelow)
+     || (l.critAbove != null && value > l.critAbove)) return "critical";
+    if ((l.warnBelow != null && value < l.warnBelow)
+     || (l.warnAbove != null && value > l.warnAbove)) return "warning";
+    return "ok";
+  }
+
+  /* Severity of the most recent reading of one metric. Judged on the latest
+   * value rather than the worst value in the window: the chart answers "how is
+   * this bed right now", and a spike an hour ago that has since resolved must
+   * not keep the card flashing. */
+  function severityOf(metric, samples) {
+    if (!metric.limits) return "ok";
+
+    let latest = null;
+    for (let i = samples.length - 1; i >= 0; i--) {
+      const v = samples[i][metric.key];
+      if (v != null && Number.isFinite(v)) { latest = v; break; }
+    }
+    if (latest == null) return "ok";   // no signal is reported by the alert banner, not by a red chart
+
+    const l = metric.limits;
+    if ((l.critBelow != null && latest < l.critBelow)
+     || (l.critAbove != null && latest > l.critAbove)) return "critical";
+    if ((l.warnBelow != null && latest < l.warnBelow)
+     || (l.warnAbove != null && latest > l.warnAbove)) return "warning";
+    return "ok";
+  }
 
   const TREND_REFRESH_MS = 15000;
 
@@ -466,6 +555,7 @@ const BedsTab = (() => {
       // both - metricChart() lets yRange win when present.
       minSpan: metric.minSpan,
       yRange: metric.yRange,
+      severity: severityOf(metric, trendSamples),
       points: trendSamples.map((s) => ({
         t: new Date(s.recordedAt),
         v: s[metric.key],
@@ -624,6 +714,10 @@ const BedsTab = (() => {
     renderFilters();
     const beds = Array.from(State.beds.values()).filter(matchesFilters).sort((a, b) => a.bedId.localeCompare(b.bedId));
     const grid = document.getElementById("bedsGrid");
+    // Viewing one room means far fewer cards, so let them grow into the space
+    // instead of leaving most of the page empty. Kept off for "all rooms",
+    // where fitting the whole ward on screen matters more than card size.
+    grid.classList.toggle("is-single-room", selectedRoom !== "all");
     grid.innerHTML = beds.length === 0
       ? `<div class="empty-state">No beds match the current filters.</div>`
       : beds.map(bedCardHtml).join("");
@@ -654,9 +748,9 @@ const BedsTab = (() => {
       render();
     });
 
-    document.getElementById("bedRoomFilters").addEventListener("click", (e) => {
-      const room = e.target.getAttribute("data-room");
-      if (room) { selectedRoom = room; render(); }
+    document.getElementById("bedRoomFilter").addEventListener("change", (e) => {
+      selectedRoom = e.target.value;
+      render();
     });
 
     document.getElementById("bedStatusFilters").addEventListener("click", (e) => {
@@ -681,5 +775,20 @@ const BedsTab = (() => {
     render();
   }
 
-  return { init, render };
+  /* Opens a bed's full detail view from outside this module (the dashboard
+   * cards use it). Kept here rather than duplicated there so the selection,
+   * the history fetch and the refresh timer all stay in one place. */
+  function openBed(bedId) {
+    if (!State.beds.has(bedId)) return;
+    if (bedId !== selectedBedId) {
+      trendSamples = null;
+      trendError = null;
+    }
+    selectedBedId = bedId;
+    renderDetail();
+    loadTrends();
+    startTrendRefresh();
+  }
+
+  return { init, render, openBed };
 })();

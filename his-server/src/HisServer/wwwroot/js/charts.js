@@ -124,15 +124,29 @@ const Charts = (() => {
    * @param {number}   opts.decimals digits in the readouts
    * @param {number[]} opts.yRange   optional fixed [lo, hi] y-axis; disables
    *                                 autoscaling so the scale never moves
+   * @param {string}   opts.severity "ok" | "warning" | "critical" — when the
+   *                                 latest value breaches this metric's
+   *                                 clinical limits the trace, the readout and
+   *                                 the card all switch to the alarm colour,
+   *                                 so a bed in trouble is obvious from across
+   *                                 the room rather than only on close reading
    */
   function metricChart(opts) {
     const { points, label, unit = "", color = "#2470c8", minSpan = 5, decimals = 0,
-            yRange = null } = opts;
+            yRange = null, severity = "ok" } = opts;
+
+    // Severity wins over the metric's own colour: a red trace must mean
+    // "this reading is dangerous", never "this happens to be the heart-rate
+    // chart", otherwise the colour carries no information.
+    const SEVERITY_COLOR = { warning: "#e69119", critical: "#dc3c3c" };
+    const strokeColor = SEVERITY_COLOR[severity] || color;
+
+    const sevClass = severity === "ok" ? "" : ` sev-${severity}`;
 
     const withData = points.filter((p) => p.v != null && Number.isFinite(p.v));
     if (points.length === 0 || withData.length === 0) {
       return `
-        <div class="chart-card">
+        <div class="chart-card${sevClass}">
           <div class="chart-head"><span class="chart-label">${escapeXml(label)}</span></div>
           <div class="chart-empty">No data in this period</div>
         </div>`;
@@ -182,18 +196,19 @@ const Charts = (() => {
       : "";
 
     return `
-      <div class="chart-card">
+      <div class="chart-card${sevClass}">
         <div class="chart-head">
           <span class="chart-label">${escapeXml(label)}</span>
-          <span class="chart-now" style="color:${color};">${latest.v.toFixed(decimals)}${escapeXml(unit)}</span>
+          <span class="chart-now" style="color:${strokeColor};">${latest.v.toFixed(decimals)}${escapeXml(unit)}</span>
         </div>
         <svg class="chart-svg" viewBox="0 0 ${VB_W} ${VB_H}" preserveAspectRatio="none" role="img"
              aria-label="${escapeXml(label)} over time">
+          <rect class="chart-plot-bg" x="${PAD_L}" y="${PAD_T}" width="${PLOT_W}" height="${PLOT_H}"/>
           ${bands}
           ${grid}
-          <path d="${path}" fill="none" stroke="${color}" stroke-width="2"
+          <path d="${path}" fill="none" stroke="${strokeColor}" stroke-width="2"
                 stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
-          <circle cx="${xOf(points.indexOf(latest)).toFixed(1)}" cy="${yOf(latest.v).toFixed(1)}" r="3" fill="${color}"/>
+          <circle cx="${xOf(points.indexOf(latest)).toFixed(1)}" cy="${yOf(latest.v).toFixed(1)}" r="3" fill="${strokeColor}"/>
           <text x="${PAD_L}" y="${VB_H - 5}" class="chart-axis">${escapeXml(tStart)}</text>
           <text x="${VB_W - PAD_R}" y="${VB_H - 5}" class="chart-axis" text-anchor="end">${escapeXml(tEnd)}</text>
         </svg>

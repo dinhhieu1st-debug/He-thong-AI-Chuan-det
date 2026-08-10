@@ -88,7 +88,9 @@
       <div class="tab-panel" id="tab-beds">
         <div class="toolbar">
           <input class="search-input" id="bedSearch" placeholder="Search bed or room...">
-          <div class="chip-row" id="bedRoomFilters"></div>
+          <!-- A dropdown rather than a chip per room: a real hospital has far
+               more rooms than fit on one line as chips. -->
+          <select class="search-input room-select" id="bedRoomFilter"></select>
           <div class="chip-row" id="bedStatusFilters"></div>
           <button class="btn primary" id="addBedBtn">+ Add Bed</button>
         </div>
@@ -216,6 +218,9 @@
   </div>
 </div>
 
+<!-- FULL-SCREEN CRITICAL ALARM (filled in by critical-alarm.js) -->
+<div class="critical-alarm hidden" id="criticalAlarm"></div>
+
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="js/vendor/signalr.min.js"></script>
@@ -229,6 +234,7 @@
 <script src="js/alerts.js"></script>
 <script src="js/devices.js"></script>
 <script src="js/system-log.js"></script>
+<script src="js/critical-alarm.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>
