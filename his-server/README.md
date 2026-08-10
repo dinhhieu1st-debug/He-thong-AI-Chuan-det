@@ -20,6 +20,8 @@ src/HisServer/        ASP.NET Core app (backend + static web frontend)
   Services/              Vitals-save throttling, FCM push
   Models/                Shared DTOs
   wwwroot/                Static web frontend (no build step — plain HTML/CSS/JS)
+    js/                     One file per tab, plus charts.js (inline-SVG trends)
+                            and critical-alarm.js (full-screen Critical banner)
 database/schema.sql     MySQL schema (run once before first launch)
 HisServer.sln
 ```

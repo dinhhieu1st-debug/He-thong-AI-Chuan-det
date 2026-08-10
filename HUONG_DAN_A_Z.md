@@ -1004,8 +1004,10 @@ Stable/Warning/Critical — không nơi nào khác (kể cả gateway) được 
 lại, để tránh 2 nơi tính ra kết quả khác nhau.
 
 ```
-Critical  nếu  SpO2 < 90%   HOẶC   lineBlocked = true (dây tắc/free-flow)
-Warning   nếu  SpO2 < 95%   HOẶC   HR < 60 hoặc > 110   HOẶC
+Critical  nếu  SpO2 < 90% (và kênh SpO2 ĐANG có tín hiệu)   HOẶC
+               lineBlocked = true (dây tắc/free-flow)
+Warning   nếu  SpO2 < 95% (và kênh SpO2 ĐANG có tín hiệu)   HOẶC
+               HR < 60 hoặc > 110 (và kênh HR ĐANG có tín hiệu)   HOẶC
                aeAlarm = true (AI phát hiện bất thường)   HOẶC
                bất kỳ 1 trong 4 kênh (HR/SpO2/Flow/Drip) đang mất tín hiệu
 Stable    còn lại
@@ -1013,16 +1015,37 @@ Stable    còn lại
 
 Nguyên tắc quan trọng: **"chưa có dữ liệu" không phải là "ổn định"**. Một
 giường có cảm biến bị rút/hỏng phải hiện Warning để y tá biết cần đi kiểm
-tra/lắp lại — không được lặng lẽ hiện xanh như thể mọi thứ bình thường. Đây
-chính là điểm sửa gần đây nhất (trước đó bug: mất tín hiệu HR/SpO2/Flow không
-hề ảnh hưởng tới status, nên giường vẫn hiện Stable dù 3/4 cảm biến chưa lắp).
+tra/lắp lại — không được lặng lẽ hiện xanh như thể mọi thứ bình thường (trước
+đó có bug: mất tín hiệu HR/SpO2/Flow không hề ảnh hưởng tới status, nên giường
+vẫn hiện Stable dù 3/4 cảm biến chưa lắp).
 
-`DescribeAlert()` sinh nội dung + mã loại cảnh báo theo đúng thứ tự ưu tiên ở
-trên (nghiêm trọng nhất trước), ví dụ:
+Mặt trái của nguyên tắc đó cũng quan trọng không kém: **"chưa có dữ liệu" cũng
+không phải là "nguy kịch"**. Ngưỡng SpO2/HR chỉ được áp cho kênh đang thực sự
+đo. Khi chưa kẹp cảm biến, firmware gửi `spo2 = 0` kèm `spo2_signal = false`;
+nếu đọc con số 0 đó như một chỉ số thật thì giường trống cũng kêu "Critically
+low SpO2: 0%" — một báo động đỏ giả, lại còn che mất vấn đề thật là *cảm biến
+chưa cắm*. Giường đó phải hiện **Warning + "No signal from: HR, SpO2"**.
+
+`DescribeAlert()` liệt kê **TẤT CẢ nguyên nhân đang xảy ra**, nghiêm trọng nhất
+trước, nối bằng `" · "`. Trước đây nó chỉ trả về nguyên nhân đầu tiên khớp, nên
+một giường vừa tụt SpO2 vừa tắc dây chỉ hiện được lý do đầu — y tá đọc xong sẽ
+bỏ sót cái thứ hai. Ví dụ chuỗi thật:
+
+```
+Critically low SpO2: 87% · IV line blocked or free-flowing — check tubing
+immediately · High heart rate: 138 bpm · AI model flagged an abnormal drip pattern
+```
+
+Mã loại cảnh báo (`alertType`) vẫn là **một** mã duy nhất — nguyên nhân nghiêm
+trọng nhất — vì nó là khoá phân loại của bảng `alerts` và của FCM push:
 - `SPO2_LOW_CRITICAL` — "Critically low SpO2: 84%"
 - `LINE_BLOCKED` — "IV line blocked or free-flowing — check tubing immediately"
-- `SENSOR_DISCONNECTED` — "Sensor(s) disconnected: HR, SpO2, Flow"
+- `SENSOR_DISCONNECTED` — "No signal from: HR, SpO2, Flow"
 - `AE_ALARM` — "AI model flagged an abnormal drip pattern"
+
+Web UI tách chuỗi này ngược lại theo `" · "` để hiện mỗi nguyên nhân 1 dòng
+(mục 6.6) — chạy chung một quy ước, nên đổi dấu phân cách ở đây thì phải đổi cả
+`dashboard.js`, `beds.js` và `critical-alarm.js`.
 
 `Domain/AlertTransitionTracker.cs` chỉ tạo bản ghi `alerts` mới khi trạng thái
 **chuyển** vào Warning/Critical (so với lần đọc trước) — không tạo 1 dòng mới
@@ -1078,7 +1101,7 @@ giường hiện tại), `signalr-client.js` lắng nghe sự kiện realtime v�
 | Tab | Nội dung |
 |---|---|
 | **Dashboard** | Tổng quan: số giường theo trạng thái, lưới thẻ giường, cảnh báo mới nhất |
-| **Beds & Rooms** | Danh sách đầy đủ, lọc theo phòng/trạng thái, panel chi tiết 1 giường, thêm giường mới |
+| **Beds & Rooms** | Danh sách đầy đủ, lọc theo phòng/trạng thái, trang chi tiết 1 giường, thêm giường mới |
 | **Alerts** | Lịch sử cảnh báo, lọc theo mức độ/đã-xác-nhận, xác nhận (acknowledge) |
 | **Devices** | Danh sách thiết bị vật lý (gateway/XG26/BLE), trạng thái pin/tín hiệu |
 | **System Log** | Hợp nhất log Alert + Vital theo thời gian, lọc theo ngày/loại, export CSV |
@@ -1087,6 +1110,95 @@ Mỗi thẻ giường hiện 1 hàng "chấm tín hiệu" (`signalRowHtml` trong
 `ui-utils.js`): HR / SpO2 / Flow / Drip / Line — xanh = ổn, xám = mất tín
 hiệu hoặc (với Line) đang tắc/free-flow. Đây là cách y tá nhận biết vấn đề
 thiết bị **ngay trên lưới giường**, không cần mở tab Alerts.
+
+#### Trang chi tiết 1 giường — bố cục 3 cột, KHÔNG cuộn trang
+
+Mở bằng cách bấm thẻ giường ở **Dashboard** hoặc ở **Beds & Rooms** (cả hai đều
+mở thẳng trang chi tiết, không phải đi vòng qua tab khác). Đây là một lớp phủ
+toàn màn hình, chiếm trọn viewport và **trang không bao giờ cuộn** — chỉ từng
+cột tự cuộn khi cửa sổ quá thấp:
+
+| Cột | Nội dung |
+|---|---|
+| Trái (268px) | Live vitals (6 ô số lớn), trạng thái từng kênh cảm biến, thẻ Active alert, sửa phòng |
+| Giữa (co giãn) | 6 biểu đồ trend xếp 2×3, lấp đầy chiều cao còn lại |
+| Phải (330px) | AI forecast on-chip + các cài đặt bác sĩ chỉnh được (tare, baseline HR, target flow/drops) |
+
+Lý do làm vậy: bản cũ giới hạn thân trang ở 640px căn giữa nên mọi thứ xếp
+thành một cột hẹp, hai bên trống, phải cuộn rất dài mới xem hết một giường —
+sai hoàn toàn với bối cảnh trạm điều dưỡng, nơi cần thấy tất cả cùng lúc.
+
+Ba chi tiết kỹ thuật bắt buộc để chiều cao "ăn khớp", **đừng sửa lại**:
+- `renderDetail()` phải xoá `display` inline (`panel.style.display = ""`), KHÔNG
+  gán `"block"` — inline sẽ đè `display:flex` của stylesheet và làm layout co
+  theo nội dung thay vì theo viewport
+- mọi cấp từ lớp phủ xuống tới lưới biểu đồ đều cần track `minmax(0, 1fr)` tường
+  minh; hàng ngầm định `auto` sẽ tự co theo max-content và đẩy hàng biểu đồ thứ
+  3 rơi khỏi màn hình
+- `.chart-svg` bỏ chiều cao cố định 110px, lấy chiều cao mà hàng grid cấp cho
+
+#### Quy ước màu cảnh báo (dùng thống nhất toàn UI)
+
+**Vàng = Warning, Đỏ = Critical, và không màu nào khác được dùng cho hai màu
+này.** Trước đây biểu đồ Drip lấy vàng làm màu "bình thường" nên một đường drip
+khỏe mạnh vẫn trông như đang báo động; Heart rate lấy đỏ nên lúc nào cũng như
+đang nguy kịch. Bảng màu hiện tại khi mọi thứ bình thường:
+
+| Kênh | Màu |
+|---|---|
+| Heart rate | xanh lá `#1ea050` |
+| SpO2 | xanh dương `#2470c8` |
+| Flow vs target | teal `#0d8f96` |
+| Drip vs target | tím `#7a5bd0` |
+| Drops per min | indigo `#4f46e5` |
+| IV bag weight | xám xanh `#64748b` |
+
+Khi chỉ số vượt ngưỡng: đường kẻ + số đổi sang **vàng** (warning) hoặc **đỏ**
+(critical), viền card đổi màu, và ở mức critical thì card + số **nhấp nháy**.
+Nền vùng vẽ luôn giữ xám nhạt `#f7f9fc` ở mọi trạng thái — tô nền theo cảnh báo
+sẽ đánh nhau với chính đường kẻ mà nó cần làm nổi bật.
+
+Ngưỡng đổi màu của biểu đồ (`TREND_METRICS[].limits` trong `beds.js`) **phải
+khớp** với `VitalsStatusEvaluator` (mục 6.3), nếu không sẽ có cảnh biểu đồ đỏ
+lòm trong khi server bảo giường đó Stable. Kênh không có ngưỡng lâm sàng (drops
+per min, bag weight) thì không bao giờ đổi màu — tô màu chúng theo ngưỡng tự
+nghĩ ra chỉ tạo báo động giả.
+
+#### Cảnh báo Critical toàn màn hình — `critical-alarm.js`
+
+Khi một giường **chuyển vào** trạng thái Critical, một lớp phủ đỏ chiếm cả màn
+hình với tam giác cảnh báo nhấp nháy, hiện: mã giường + phòng, **từng nguyên
+nhân một dòng**, 4 chỉ số sống hiện tại, và 2 nút *Open BED-xxx* (nhảy thẳng
+vào trang chi tiết) / *Acknowledge*. Nhiều giường cùng nguy kịch thì tiêu đề
+thành `CRITICAL · N beds` và liệt kê từng giường, kèm *Acknowledge all*. Phím
+`Esc` xác nhận tất cả.
+
+Điều **quan trọng nhất** ở module này không phải phần hiển thị mà là chống nhờn
+cảnh báo. SignalR đẩy dữ liệu mỗi giây, nên nếu bật lại theo *trạng thái* thì
+banner sẽ nhảy lên mỗi giây và y tá sẽ bấm tắt theo phản xạ — cảnh báo mất sạch
+tác dụng. Vì vậy:
+- chỉ kích hoạt đúng **khoảnh khắc chuyển vào** Critical (`wasCritical`), không
+  phải các lần đọc lặp sau đó
+- đã Acknowledge thì giường đó im cho tới khi **hồi phục rồi tái phát**
+  (`dismissed`, xoá khi giường thoát Critical)
+
+Giường vẫn Critical thì mọi chỗ khác vẫn đỏ (chip trạng thái, thẻ Active alert,
+biểu đồ nhấp nháy) — banner chỉ đóng vai trò "ngẩng đầu lên ngay".
+
+Toàn bộ hiệu ứng nhấp nháy đều tắt dưới `@media (prefers-reduced-motion:
+reduce)` và thay bằng viền đỏ dày — cảnh báo vẫn còn nguyên cho người không
+chịu được ánh sáng nhấp nháy.
+
+#### Lọc phòng
+
+Bộ lọc phòng là **dropdown** (`#bedRoomFilter`) chứ không phải mỗi phòng 1 chip:
+bệnh viện thật có hàng chục phòng, chip sẽ tràn hàng. Mỗi mục kèm số giường,
+ví dụ `ICU-1 (2)`. Khi chọn 1 phòng cụ thể, lưới giường thêm class
+`.is-single-room`: thẻ giường rộng tối thiểu 360px (thay vì 260px) và **các số
+vitals to lên 24px** — ít giường thì mỗi thẻ phải đọc được từ xa, thay vì nép
+bé xíu bên trái và bỏ trống hết phần còn lại. Dùng `auto-fit` (không phải
+`auto-fill`) để các cột tự kéo giãn lấp hết hàng. Quay lại "All rooms" thì thẻ
+thu về cỡ nhỏ, vì lúc đó ưu tiên là nhìn được cả khoa trong một màn hình.
 
 ---
 
