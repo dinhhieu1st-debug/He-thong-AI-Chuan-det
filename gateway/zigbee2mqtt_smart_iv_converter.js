@@ -90,6 +90,19 @@ const EVENT_BIT_HR_BASELINE_COMPLETED = 0x800;
 const HR_INVALID = -32768; // 0x8000 read as int16s
 const SPO2_INVALID = 0xFFFF;
 
+// TsFlags bits, matching zb_report_ts_result() in app.c.
+const TS_BIT_READY            = 0x001;
+const TS_BIT_ANOMALY          = 0x002;
+const TS_BIT_EARLY_WARNING    = 0x004;
+const TS_HR_TREND_SHIFT       = 3;     // 2 bits: 0 steady, 1 rising, 2 falling
+const TS_DROPS_TREND_SHIFT    = 5;     // 2 bits, same encoding
+const TS_BIT_HR_TRUSTED       = 0x080;
+const TS_BIT_DROPS_TRUSTED    = 0x100;
+// Sent instead of a number when the model cannot vouch for that channel's
+// forecast (TS_FORECAST_INVALID in app.c) - shown as null, never as a figure
+// the dashboard would label "forecast".
+const TS_FORECAST_INVALID = 0xFFFF;
+
 const fzSmartIv = {
     smart_iv_vitals: {
         cluster: SMART_IV_CLUSTER_NAME,
@@ -148,6 +161,39 @@ const fzSmartIv = {
             }
             if (msg.data.hrBaselineEventCount !== undefined) {
                 result.hr_baseline_event_count = msg.data.hrBaselineEventCount;
+            }
+            if (msg.data.tsFlags !== undefined) {
+                const ts = msg.data.tsFlags;
+                result.ts_ready = (ts & TS_BIT_READY) !== 0;
+                result.ts_anomaly = (ts & TS_BIT_ANOMALY) !== 0;
+                result.ts_early_warning = (ts & TS_BIT_EARLY_WARNING) !== 0;
+                result.ts_trend = (ts >> TS_HR_TREND_SHIFT) & 0x3;
+                result.drops_trend = (ts >> TS_DROPS_TREND_SHIFT) & 0x3;
+                result.hr_forecast_trusted = (ts & TS_BIT_HR_TRUSTED) !== 0;
+                result.drops_forecast_trusted = (ts & TS_BIT_DROPS_TRUSTED) !== 0;
+            }
+            if (msg.data.hrForecast16s !== undefined) {
+                result.hr_forecast_16s = msg.data.hrForecast16s === TS_FORECAST_INVALID
+                    ? null : msg.data.hrForecast16s;
+            }
+            if (msg.data.spo2Forecast16s !== undefined) {
+                result.spo2_forecast_16s = msg.data.spo2Forecast16s === TS_FORECAST_INVALID
+                    ? null : msg.data.spo2Forecast16s;
+            }
+            if (msg.data.dropsForecast16s !== undefined) {
+                result.drops_forecast_16s = msg.data.dropsForecast16s === TS_FORECAST_INVALID
+                    ? null : msg.data.dropsForecast16s;
+            }
+            if (msg.data.hrTrendBpmPerMin !== undefined) {
+                result.hr_trend_bpm_per_min = msg.data.hrTrendBpmPerMin;
+            }
+            if (msg.data.dropsTrendDpmPerMin !== undefined) {
+                result.drops_trend_dpm_per_min = msg.data.dropsTrendDpmPerMin;
+            }
+            if (msg.data.tsAnomalyScoreX100 !== undefined) {
+                // Server field name says X100 for the same reason it is sent
+                // that way: an integer wire format that keeps two decimals.
+                result.ts_anomaly_score = msg.data.tsAnomalyScoreX100;
             }
 
             return result;
@@ -212,6 +258,18 @@ const definition = {
                 hrBaselineBpm:              {name: 'hrBaselineBpm',              ID: 0x000C, type: 0x21}, // int16u
                 tareEventCount:             {name: 'tareEventCount',             ID: 0x000D, type: 0x20}, // int8u
                 hrBaselineEventCount:       {name: 'hrBaselineEventCount',       ID: 0x000E, type: 0x20}, // int8u
+                // On-chip time-series forecaster (ts_monitor.c). Until these
+                // existed its output reached the server ONLY over the serial
+                // fallback gateway, so the dashboard's "AI forecast (on-chip)"
+                // card never left "Collecting the first 64 seconds..." on a bed
+                // running through the Pi.
+                tsFlags:              {name: 'tsFlags',              ID: 0x000F, type: 0x19}, // bitmap16
+                hrForecast16s:        {name: 'hrForecast16s',        ID: 0x0010, type: 0x21}, // int16u
+                spo2Forecast16s:      {name: 'spo2Forecast16s',      ID: 0x0011, type: 0x21}, // int16u
+                hrTrendBpmPerMin:     {name: 'hrTrendBpmPerMin',     ID: 0x0012, type: 0x29}, // int16s
+                tsAnomalyScoreX100:   {name: 'tsAnomalyScoreX100',   ID: 0x0013, type: 0x21}, // int16u
+                dropsForecast16s:     {name: 'dropsForecast16s',     ID: 0x0014, type: 0x21}, // int16u
+                dropsTrendDpmPerMin:  {name: 'dropsTrendDpmPerMin',  ID: 0x0015, type: 0x29}, // int16s
             },
             commands: {},
             commandsResponse: {},
@@ -323,6 +381,21 @@ const definition = {
         e.binary('tare_in_progress', ea.STATE, true, false).withDescription('Loadcell tare in progress'),
         e.binary('tare_just_completed', ea.STATE, true, false).withDescription('Loadcell tare just completed (one-shot)'),
         e.binary('hr_baseline_just_completed', ea.STATE, true, false).withDescription('HR 60s baseline sample just completed (one-shot)'),
+        e.binary('ts_ready', ea.STATE, true, false).withDescription('Forecaster has collected its first 64s window'),
+        e.binary('ts_anomaly', ea.STATE, true, false).withDescription('Persistence-confirmed forecast anomaly'),
+        e.binary('ts_early_warning', ea.STATE, true, false).withDescription('Forecast crosses a clinical limit within 16s'),
+        e.numeric('ts_trend', ea.STATE).withDescription('Heart-rate trend: 0 steady, 1 rising, 2 falling'),
+        e.numeric('drops_trend', ea.STATE).withDescription('Drop-rate trend: 0 steady, 1 rising, 2 falling'),
+        e.numeric('hr_forecast_16s', ea.STATE).withUnit('bpm').withDescription('Forecast heart rate 16s ahead'),
+        e.numeric('spo2_forecast_16s', ea.STATE).withUnit('%').withDescription('Forecast SpO2 16s ahead'),
+        e.numeric('drops_forecast_16s', ea.STATE).withUnit('dpm').withDescription('Forecast drops per minute 16s ahead'),
+        e.numeric('hr_trend_bpm_per_min', ea.STATE).withUnit('bpm/min').withDescription('Heart-rate slope over the forecast'),
+        e.numeric('drops_trend_dpm_per_min', ea.STATE).withUnit('dpm/min').withDescription('Drop-rate slope over the forecast'),
+        e.numeric('ts_anomaly_score', ea.STATE).withDescription('Forecast error score x100 (threshold 561)'),
+        e.binary('hr_forecast_trusted', ea.STATE, true, false)
+            .withDescription('False = the figure is "the normal level there should be", not a forecast'),
+        e.binary('drops_forecast_trusted', ea.STATE, true, false)
+            .withDescription('False = the figure is "the normal level there should be", not a forecast'),
     ],
     configure: async (device, coordinatorEndpoint, logger) => {
         // The firmware already configures its own reporting (interval/threshold)

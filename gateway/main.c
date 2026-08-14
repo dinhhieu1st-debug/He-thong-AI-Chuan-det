@@ -191,6 +191,54 @@ int get_int_from_json(const char *json, const char *key, int *value)
 }
 
 /*
+ * Same, but accepts a NEGATIVE number too.
+ *
+ * get_int_from_json() above deliberately bails out on a leading '-', which is
+ * fine for everything it reads (a weight, a rate, a count - none can be
+ * negative). The forecaster's slopes can: "heart rate falling" IS a negative
+ * bpm/min, and it is the direction that matters clinically. Read through the
+ * unsigned helper, -12 bpm/min would silently arrive as 0, i.e. "steady".
+ */
+int get_signed_int_from_json(const char *json, const char *key, int *value)
+{
+    char pattern[128];
+    char *pos;
+    char *colon;
+    char *number_start;
+
+    if (json == NULL || key == NULL || value == NULL) {
+        return 0;
+    }
+
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+
+    pos = strstr(json, pattern);
+    if (pos == NULL) {
+        return 0;
+    }
+
+    colon = strchr(pos, ':');
+    if (colon == NULL) {
+        return 0;
+    }
+
+    number_start = colon + 1;
+    while (*number_start != '\0' && isspace((unsigned char)*number_start)) {
+        number_start++;
+    }
+
+    if (*number_start != '-' && !isdigit((unsigned char)*number_start)) {
+        return 0;   /* null, or something that is not a number at all */
+    }
+    if (*number_start == '-' && !isdigit((unsigned char)number_start[1])) {
+        return 0;
+    }
+
+    *value = atoi(number_start);
+    return 1;
+}
+
+/*
  * Extracts a bool value (true/false) from a simple JSON payload.
  *
  * Example: get_bool_from_json(payload, "alarm", &value)
@@ -277,6 +325,43 @@ static his_socket_t his_connect(const char *host, int port)
  * from the raw numeric values - the gateway only sends raw data + each
  * channel's signal status, it no longer infers status on its own.
  */
+/* Renders a forecast as a JSON number, or as the literal null when the model
+ * could not vouch for it. */
+static void forecast_text(char *out, size_t size, int have, int value)
+{
+    if (have) {
+        snprintf(out, size, "%d", value);
+    } else {
+        snprintf(out, size, "null");
+    }
+}
+
+/* Output of the on-chip time-series forecaster, forwarded verbatim.
+ *
+ * Grouped in a struct rather than added to his_send_bed_data()'s argument
+ * list, which is already twenty-one values long.
+ *
+ * The three "have_*" flags exist because a missing forecast and a forecast of
+ * zero are completely different statements. When a channel loses signal the
+ * model still produces a number for it - computed from the baseline filler,
+ * not from the patient - so the firmware marks it invalid and the server must
+ * receive null, not a figure the dashboard would label "forecast". */
+typedef struct {
+    int ready;
+    int anomaly;
+    int early_warning;
+    int hr_trend;                  /* 0 steady, 1 rising, 2 falling */
+    int drops_trend;
+    int have_hr_forecast;    int hr_forecast_16s;
+    int have_spo2_forecast;  int spo2_forecast_16s;
+    int have_drops_forecast; int drops_forecast_16s;
+    int hr_trend_bpm_per_min;      /* signed: negative = falling */
+    int drops_trend_dpm_per_min;   /* signed: negative = slowing down */
+    int anomaly_score_x100;
+    int hr_forecast_trusted;
+    int drops_forecast_trusted;
+} ts_forecast_t;
+
 static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_rate,
                                int hr_signal, int spo2_signal, int flow_signal,
                                int drops_signal, int line_blocked, int ae_alarm,
@@ -284,9 +369,14 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
                                int target_drops_per_min, int tare_in_progress,
                                int tare_just_completed, int hr_baseline_just_completed,
                                int hr_baseline_seconds_remaining, int hr_baseline_bpm,
-                               int tare_event_count, int hr_baseline_event_count)
+                               int tare_event_count, int hr_baseline_event_count,
+                               const ts_forecast_t *ts)
 {
-    char line[800];
+    char line[1400];
+    char ts_line[420];
+    char hr_forecast_text[12];
+    char spo2_forecast_text[12];
+    char drops_forecast_text[12];
     size_t len;
 
     if (his_host == NULL) {
@@ -302,6 +392,31 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
         printf("Connected to HIS Server %s:%d (TCP)\n", his_host, his_port);
     }
 
+    forecast_text(hr_forecast_text, sizeof(hr_forecast_text),
+                  ts->have_hr_forecast, ts->hr_forecast_16s);
+    forecast_text(spo2_forecast_text, sizeof(spo2_forecast_text),
+                  ts->have_spo2_forecast, ts->spo2_forecast_16s);
+    forecast_text(drops_forecast_text, sizeof(drops_forecast_text),
+                  ts->have_drops_forecast, ts->drops_forecast_16s);
+
+    /* Field names match what BedDataParser already accepts (it has read these
+     * since the serial fallback gateway started sending them), so nothing on
+     * the server needed changing to light the forecast card up. */
+    snprintf(ts_line, sizeof(ts_line),
+             ",\"tsReady\":%s,\"tsAnomaly\":%s,\"tsEarlyWarning\":%s,"
+             "\"tsTrend\":%d,\"dropsTrend\":%d,"
+             "\"hrTrendBpmPerMin\":%d,\"dropsTrendDpmPerMin\":%d,"
+             "\"tsAnomalyScore\":%d,"
+             "\"hrForecastTrusted\":%s,\"dropsForecastTrusted\":%s",
+             ts->ready ? "true" : "false",
+             ts->anomaly ? "true" : "false",
+             ts->early_warning ? "true" : "false",
+             ts->hr_trend, ts->drops_trend,
+             ts->hr_trend_bpm_per_min, ts->drops_trend_dpm_per_min,
+             ts->anomaly_score_x100,
+             ts->hr_forecast_trusted ? "true" : "false",
+             ts->drops_forecast_trusted ? "true" : "false");
+
     snprintf(line, sizeof(line),
              "{\"bedId\":\"%s\",\"room\":\"%s\",\"spo2\":%d,\"heartRate\":%d,"
              "\"dripRate\":%d,\"flowRate\":%d,\"heartRateSignal\":%s,"
@@ -310,7 +425,9 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"dropsPerMin\":%d,\"targetFlowMlH\":%d,\"targetDropsPerMin\":%d,"
              "\"tareInProgress\":%s,\"tareJustCompleted\":%s,"
              "\"hrBaselineJustCompleted\":%s,\"hrBaselineSecondsRemaining\":%d,"
-             "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d}\n",
+             "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d"
+             "%s"
+             ",\"hrForecast16s\":%s,\"spo2Forecast16s\":%s,\"dropsForecast16s\":%s}\n",
              his_bed_id, his_room, spo2, heart_rate, drop_rate, flow_rate,
              hr_signal ? "true" : "false", spo2_signal ? "true" : "false",
              flow_signal ? "true" : "false", drops_signal ? "true" : "false",
@@ -320,7 +437,9 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              tare_just_completed ? "true" : "false",
              hr_baseline_just_completed ? "true" : "false",
              hr_baseline_seconds_remaining, hr_baseline_bpm,
-             tare_event_count, hr_baseline_event_count);
+             tare_event_count, hr_baseline_event_count,
+             ts_line,
+             hr_forecast_text, spo2_forecast_text, drops_forecast_text);
 
     len = strlen(line);
     if (send(his_socket, line, (int)len, 0) < 0) {
@@ -487,6 +606,14 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     int tare_in_progress = 0, tare_just_completed = 0, hr_baseline_just_completed = 0;
     int hr_baseline_seconds_remaining = 0, hr_baseline_bpm = 0;
     int tare_event_count = 0, hr_baseline_event_count = 0;
+    ts_forecast_t ts;
+
+    memset(&ts, 0, sizeof(ts));
+    /* Both default to "trusted" so an older firmware that never sends these
+     * two flags does not make the dashboard relabel every figure as
+     * untrustworthy - same default the server's parser uses. */
+    ts.hr_forecast_trusted = 1;
+    ts.drops_forecast_trusted = 1;
 
     if (msg == NULL || msg->payload == NULL || msg->payloadlen <= 0) {
         return;
@@ -571,13 +698,43 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     get_int_from_json(payload, "tare_event_count", &tare_event_count);
     get_int_from_json(payload, "hr_baseline_event_count", &hr_baseline_event_count);
 
+    get_bool_from_json(payload, "ts_ready", &ts.ready);
+    get_bool_from_json(payload, "ts_anomaly", &ts.anomaly);
+    get_bool_from_json(payload, "ts_early_warning", &ts.early_warning);
+    get_int_from_json(payload, "ts_trend", &ts.hr_trend);
+    get_int_from_json(payload, "drops_trend", &ts.drops_trend);
+    get_signed_int_from_json(payload, "hr_trend_bpm_per_min", &ts.hr_trend_bpm_per_min);
+    get_signed_int_from_json(payload, "drops_trend_dpm_per_min", &ts.drops_trend_dpm_per_min);
+    get_int_from_json(payload, "ts_anomaly_score", &ts.anomaly_score_x100);
+    get_bool_from_json(payload, "hr_forecast_trusted", &ts.hr_forecast_trusted);
+    get_bool_from_json(payload, "drops_forecast_trusted", &ts.drops_forecast_trusted);
+    /* A forecast field arrives as a number or as null; the parse failing IS
+     * the null case, and it must stay null all the way to the server. */
+    ts.have_hr_forecast = get_int_from_json(payload, "hr_forecast_16s", &ts.hr_forecast_16s);
+    ts.have_spo2_forecast = get_int_from_json(payload, "spo2_forecast_16s", &ts.spo2_forecast_16s);
+    ts.have_drops_forecast = get_int_from_json(payload, "drops_forecast_16s", &ts.drops_forecast_16s);
+
+    if (ts.ready) {
+        printf("AI forecast     : HR+16s=%s SpO2+16s=%s Drops+16s=%s"
+               " | HR %+d bpm/min, drops %+d dpm/min | score=%d/100%s%s\n",
+               ts.have_hr_forecast ? "yes" : "n/a",
+               ts.have_spo2_forecast ? "yes" : "n/a",
+               ts.have_drops_forecast ? "yes" : "n/a",
+               ts.hr_trend_bpm_per_min, ts.drops_trend_dpm_per_min,
+               ts.anomaly_score_x100,
+               ts.anomaly ? " [ANOMALY]" : "",
+               ts.early_warning ? " [EARLY WARNING]" : "");
+    } else {
+        printf("AI forecast     : still filling the 64s window\n");
+    }
+
     his_send_bed_data(heart_rate, spo2, flow, drop_rate,
                       hr_signal, spo2_signal, flow_signal, drops_signal,
                       line_blocked, ae_alarm,
                       weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
                       tare_in_progress, tare_just_completed, hr_baseline_just_completed,
                       hr_baseline_seconds_remaining, hr_baseline_bpm,
-                      tare_event_count, hr_baseline_event_count);
+                      tare_event_count, hr_baseline_event_count, &ts);
 
     free(payload);
 }

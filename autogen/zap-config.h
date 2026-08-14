@@ -33,7 +33,7 @@
 	#define ZCL_GENERATED_MIN_MAX_DEFAULTS { { { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 } } }
 
 
-#define ZCL_GENERATED_ATTRIBUTE_COUNT (20)
+#define ZCL_GENERATED_ATTRIBUTE_COUNT (27)
 
 // This is an array of sl_zigbee_af_attribute_metadata_t structures.
 #define ZCL_GENERATED_ATTRIBUTES { \
@@ -56,7 +56,14 @@
 		  { 0x000B, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 16 Cluster: Smart IV Vitals, Attribute: HrBaselineSecondsRemaining, Side: server*/ \
 		  { 0x000C, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 17 Cluster: Smart IV Vitals, Attribute: HrBaselineBpm, Side: server*/ \
 		  { 0x000D, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 18 Cluster: Smart IV Vitals, Attribute: TareEventCount, Side: server*/ \
-		  { 0x000E, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } } /* 19 Cluster: Smart IV Vitals, Attribute: HrBaselineEventCount, Side: server*/ \
+		  { 0x000E, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 19 Cluster: Smart IV Vitals, Attribute: HrBaselineEventCount, Side: server*/ \
+		  { 0x000F, ZCL_BITMAP16_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 20 Cluster: Smart IV Vitals, Attribute: TsFlags, Side: server*/ \
+		  { 0x0010, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 21 Cluster: Smart IV Vitals, Attribute: HrForecast16s, Side: server*/ \
+		  { 0x0011, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 22 Cluster: Smart IV Vitals, Attribute: Spo2Forecast16s, Side: server*/ \
+		  { 0x0012, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 23 Cluster: Smart IV Vitals, Attribute: HrTrendBpmPerMin, Side: server*/ \
+		  { 0x0013, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 24 Cluster: Smart IV Vitals, Attribute: TsAnomalyScoreX100, Side: server*/ \
+		  { 0x0014, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 25 Cluster: Smart IV Vitals, Attribute: DropsForecast16s, Side: server*/ \
+		  { 0x0015, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } } /* 26 Cluster: Smart IV Vitals, Attribute: DropsTrendDpmPerMin, Side: server*/ \
 		 }
 
  
@@ -66,7 +73,7 @@
 // This is an array of sl_zigbee_af_cluster_t structures.
 #define ZCL_GENERATED_CLUSTERS { \
   { 0x0000, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[0]), 5, 0, CLUSTER_MASK_SERVER, NULL }, /* 0, Endpoint Id: 1, Cluster: Basic, Side: server*/ \
-	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 15, 25, CLUSTER_MASK_SERVER, NULL } /* 1, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
+	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 22, 39, CLUSTER_MASK_SERVER, NULL } /* 1, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
 	 }
 
  
@@ -75,7 +82,7 @@
 // This is an array of sl_zigbee_af_endpoint_type_t structures.
 #define ZCL_GENERATED_ENDPOINT_TYPES { \
   { ((sl_zigbee_af_cluster_t*)&(generatedClusters[0])), 1, 0 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[1])), 1, 25 }, \
+	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[1])), 1, 39 }, \
 	 } 
 // Largest attribute size is needed for various buffers
 #define ZCL_ATTRIBUTE_LARGEST (33)
@@ -84,7 +91,7 @@
 #define ZCL_ATTRIBUTE_SINGLETONS_SIZE (70)
 
 // Total size of attribute storage
-#define ZCL_ATTRIBUTE_MAX_SIZE (25)
+#define ZCL_ATTRIBUTE_MAX_SIZE (39)
 
 // Number of fixed endpoints	
 #define ZCL_FIXED_ENDPOINT_COUNT (2)
@@ -141,7 +148,7 @@
 	  { 1, 0x1049 },  \
 	 } 
 // This is an array of sl_zigbee_af_manufacturer_code_entry_t structures for attributes.
-#define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (15)
+#define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (22)
 #define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODES { \
 					  { 5, 0x1049 },  \
 	  { 6, 0x1049 },  \
@@ -158,9 +165,16 @@
 	  { 17, 0x1049 },  \
 	  { 18, 0x1049 },  \
 	  { 19, 0x1049 },  \
+	  { 20, 0x1049 },  \
+	  { 21, 0x1049 },  \
+	  { 22, 0x1049 },  \
+	  { 23, 0x1049 },  \
+	  { 24, 0x1049 },  \
+	  { 25, 0x1049 },  \
+	  { 26, 0x1049 },  \
 	 } 
 // Array of sl_zigbee_af_plugin_reporting_entry_t structures.
-#define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS_TABLE_SIZE (13)
+#define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS_TABLE_SIZE (20)
 #define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS { \
   { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0000, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HeartRate */ \
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0001, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: Spo2 */ \
@@ -175,6 +189,13 @@
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x000C, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HrBaselineBpm */ \
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x000D, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: TareEventCount */ \
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x000E, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HrBaselineEventCount */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x000F, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: TsFlags */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0010, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HrForecast16s */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0011, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: Spo2Forecast16s */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0012, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HrTrendBpmPerMin */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0013, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: TsAnomalyScoreX100 */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0014, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: DropsForecast16s */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0015, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: DropsTrendDpmPerMin */ \
 	 } 
 
 #define SL_ZIGBEE_ZCL_MANUFACTURER_CODE 0x1049
@@ -209,6 +230,13 @@
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_HR_BASELINE_BPM_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_TARE_EVENT_COUNT_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_HR_BASELINE_EVENT_COUNT_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_TS_FLAGS_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_HR_FORECAST_16_S_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_SPO2_FORECAST_16_S_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_HR_TREND_BPM_PER_MIN_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_TS_ANOMALY_SCORE_X100_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_DROPS_FORECAST_16_S_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE
 
 #define SL_ZIGBEE_AF_SUPPORT_COMMAND_DISCOVERY
 

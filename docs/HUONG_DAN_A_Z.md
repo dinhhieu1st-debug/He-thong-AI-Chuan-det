@@ -360,6 +360,10 @@ chuẩn nào nữa. Chỉ có **2 endpoint**:
 | 2 | (cùng cluster) | `FlowRatio` | int16u | Flow ratio × 100 (100 = đúng 1.00× mức đặt) |
 | 2 | (cùng cluster) | `DropRatio` | int16s | Drop ratio × 100 |
 | 2 | (cùng cluster) | `AlarmBitmap` | bitmap16 | Bitmap cảnh báo + trạng thái tín hiệu (chi tiết bên dưới) |
+| 2 | (cùng cluster) | `TsFlags` (`0x000F`) | bitmap16 | Trạng thái bộ dự báo: bit0 sẵn sàng, bit1 anomaly, bit2 cảnh báo sớm, bit3-4 xu hướng HR, bit5-6 xu hướng giọt, bit7/bit8 forecast HR/giọt có đáng tin không |
+| 2 | (cùng cluster) | `HrForecast16s` `Spo2Forecast16s` `DropsForecast16s` (`0x0010/0x0011/0x0014`) | int16u | Dự báo 16 giây tới. `0xFFFF` = model không bảo đảm được cho kênh đó |
+| 2 | (cùng cluster) | `HrTrendBpmPerMin` `DropsTrendDpmPerMin` (`0x0012/0x0015`) | int16s | Độ dốc (âm = đang giảm) |
+| 2 | (cùng cluster) | `TsAnomalyScoreX100` (`0x0013`) | int16u | Điểm bất thường ×100 (ngưỡng 561) |
 
 Vì cluster có `mfgCode`, ghi attribute phải dùng hàm riêng
 `sl_zigbee_af_write_manufacturer_specific_server_attribute()` (không phải
@@ -1333,6 +1337,8 @@ dữ liệu thật từ board cảm biến vật lý duy nhất hiện có.
 | z2m interview treo mãi không xong (không thấy "Successfully interviewed" dù đợi vài phút) | Trạng thái nội bộ zigbee2mqtt bị kẹt (nguyên nhân chưa rõ hẳn, có thể do nhiều lần join/leave liên tục trong thời gian ngắn lúc test) | `sudo systemctl restart zigbee2mqtt`, mở lại permit-join, gửi lại `network leave` + `plugin network-steering start 0` |
 | Đăng ký `deviceAddCustomCluster` xong nhưng z2m báo device "Not supported" dù `inputClusters` khớp fingerprint | Thiếu field `name` trong định nghĩa attribute (chỉ có `ID`/`type` không đủ) — xác nhận qua struct `Attribute` thật của `zigbee-herdsman` (`zspec/zcl/definition/tstype.d.ts`) | Mỗi attribute phải có đủ `{name, ID, type}`, đặt tên trùng với key trong object `attributes` |
 | Cluster tuỳ chỉnh (mfg-specific) ghi attribute bằng `sl_zigbee_af_write_attribute()` không có tác dụng | Cluster có `mfgCode` (manufacturer-specific) cần hàm ghi riêng | Dùng `sl_zigbee_af_write_manufacturer_specific_server_attribute(endpoint, cluster, attrId, mfgCode, dataPtr, type)` |
+| Thẻ "AI forecast (on-chip)" ở trang chi tiết giường **mãi mãi** hiện "Collecting the first 64 seconds of history..." dù thiết bị đã chạy hàng giờ, trong khi log serial của chip in `[TS] HR trend ... forecast +16s: ...` bình thường | Kết quả bộ dự báo KHÔNG có đường đi qua Zigbee: cluster chỉ có 4 bit xu hướng nhét trong `AlarmBitmap`, không có con số nào. Nó chỉ tới được server qua gateway serial dự phòng (`tools/serial_gateway.py`), nên chạy đúng đường Pi là thẻ đó trống vĩnh viễn | Đã sửa (2026-08-14): thêm 7 attribute `TsFlags`/`*Forecast16s`/`*Trend*`/`TsAnomalyScoreX100` (mục 1.3), firmware ghi trong `zb_report_ts_result()`, converter giải mã, `gateway/main.c` chuyển tiếp. Server không phải sửa gì — `BedDataParser` đã đọc đúng các tên trường đó từ trước |
+| Số âm từ gateway về server luôn thành 0 (ví dụ "nhịp tim đang giảm" −12 bpm/min thành 0 = "ổn định") | `get_int_from_json()` trong `gateway/main.c` cố tình bỏ qua dấu `-` (đúng với mọi trường cũ: cân nặng, số đếm... không bao giờ âm) | Dùng `get_signed_int_from_json()` cho các trường có thể âm |
 | Board "mất tích" hoàn toàn: không log serial, không join Zigbee, mọi lệnh debug/reset đều như không có tác dụng | Tiến trình `silink` (J-Link) cũ bị treo từ phiên debug trước, giữ session hỏng khiến CPU ở trạng thái debug-halt | `ps aux \| grep silink`, `kill -9 <pid>` tiến trình cũ, rồi mass-erase + flash lại để chắc chắn resume chạy |
 
 ---

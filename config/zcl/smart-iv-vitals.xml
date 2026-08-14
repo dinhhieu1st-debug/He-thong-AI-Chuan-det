@@ -24,5 +24,19 @@
     <attribute side="server" code="0x000C" define="HR_BASELINE_BPM" type="int16u" writable="true" default="0x0000" optional="false">HrBaselineBpm</attribute>
     <attribute side="server" code="0x000D" define="TARE_EVENT_COUNT" type="int8u" writable="true" default="0x00" optional="false">TareEventCount</attribute>
     <attribute side="server" code="0x000E" define="HR_BASELINE_EVENT_COUNT" type="int8u" writable="true" default="0x00" optional="false">HrBaselineEventCount</attribute>
+    <!-- Output of the on-chip time-series forecaster (ts_monitor.c). Until
+         these existed, the forecaster's result reached the server ONLY over
+         the USB-serial fallback gateway: the Zigbee path carried four trend
+         BITS inside AlarmBitmap and no numbers at all, so the dashboard's
+         "AI forecast (on-chip)" card sat on "Collecting the first 64
+         seconds..." forever on a bed running through the Pi.
+         0xFFFF on a forecast = no trustworthy value for that channel. -->
+    <attribute side="server" code="0x000F" define="TS_FLAGS" type="bitmap16" writable="true" default="0x0000" optional="false">TsFlags</attribute>
+    <attribute side="server" code="0x0010" define="HR_FORECAST_16S" type="int16u" writable="true" default="0xFFFF" optional="false">HrForecast16s</attribute>
+    <attribute side="server" code="0x0011" define="SPO2_FORECAST_16S" type="int16u" writable="true" default="0xFFFF" optional="false">Spo2Forecast16s</attribute>
+    <attribute side="server" code="0x0012" define="HR_TREND_BPM_PER_MIN" type="int16s" writable="true" default="0x0000" optional="false">HrTrendBpmPerMin</attribute>
+    <attribute side="server" code="0x0013" define="TS_ANOMALY_SCORE_X100" type="int16u" writable="true" default="0x0000" optional="false">TsAnomalyScoreX100</attribute>
+    <attribute side="server" code="0x0014" define="DROPS_FORECAST_16S" type="int16u" writable="true" default="0xFFFF" optional="false">DropsForecast16s</attribute>
+    <attribute side="server" code="0x0015" define="DROPS_TREND_DPM_PER_MIN" type="int16s" writable="true" default="0x0000" optional="false">DropsTrendDpmPerMin</attribute>
   </cluster>
 </configurator>

@@ -249,6 +249,22 @@ static void zb_configure_reporting(void)
      * at 0. Bounded to 5s so the dashboard shows progress without sending a
      * frame for every single second of the window. */
     { ZCL_HR_BASELINE_SECONDS_REMAINING_ATTRIBUTE_ID, 5, 1 },
+
+    /* Forecaster output. TsFlags carries the trend/anomaly STATE, so it goes
+     * out as soon as it changes, like any other alarm-adjacent value. The
+     * numbers next to it are re-forecast every second and would otherwise
+     * undo the 120 -> 12 messages/minute reduction described above all by
+     * themselves, so each gets a deadband big enough that only a movement
+     * worth reading crosses it: 2 bpm on a heart-rate forecast, 1% on SpO2,
+     * 2 drops/min, 5 bpm/min of slope, and 0.5 (50 = 0.50 x100) of anomaly
+     * score against a threshold of 5.61. */
+    { ZCL_TS_FLAGS_ATTRIBUTE_ID,                    1,  1 },
+    { ZCL_HR_FORECAST_16S_ATTRIBUTE_ID,             5,  2 },   /* bpm */
+    { ZCL_SPO2_FORECAST_16S_ATTRIBUTE_ID,           5,  1 },   /* % */
+    { ZCL_HR_TREND_BPM_PER_MIN_ATTRIBUTE_ID,        5,  5 },   /* bpm/min */
+    { ZCL_TS_ANOMALY_SCORE_X100_ATTRIBUTE_ID,       5, 50 },   /* score x100 */
+    { ZCL_DROPS_FORECAST_16S_ATTRIBUTE_ID,          5,  2 },   /* drops/min */
+    { ZCL_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE_ID,     5,  5 },   /* dpm/min */
   };
 
   for (uint8_t i = 0; i < sizeof(reportCfgs) / sizeof(reportCfgs[0]); i++) {
@@ -317,6 +333,73 @@ static void zb_report_ai_result(int16_t hr, uint16_t spo2, uint16_t flow_x100,
   sl_zigbee_af_write_manufacturer_specific_server_attribute(
       ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_HR_BASELINE_EVENT_COUNT_ATTRIBUTE_ID,
       SMART_IV_MFG_CODE, (uint8_t *)&hr_baseline_event_count, ZCL_INT8U_ATTRIBUTE_TYPE);
+}
+
+/* Writes the on-chip forecaster's output into the same custom cluster.
+ *
+ * Kept separate from zb_report_ai_result() only because that function's
+ * argument list is already at thirteen; both run on the same 1s tick.
+ *
+ * Before these attributes existed the forecaster's result reached the server
+ * ONLY through the USB-serial fallback gateway (tools/serial_gateway.py): the
+ * Zigbee path carried four trend bits inside AlarmBitmap and no numbers at
+ * all, so a bed running the normal way - through the Pi - left the "AI
+ * forecast (on-chip)" card stuck on "Collecting the first 64 seconds..."
+ * forever, no matter how long the device had been up.
+ *
+ * A forecast the model itself cannot vouch for is sent as TS_FORECAST_INVALID
+ * rather than as a number. When a PPG channel drops out it is filled with a
+ * baseline so the model can keep running for the other channels; it still
+ * emits a heart rate, but one computed from a flat fake line. On a dashboard
+ * that is indistinguishable from a real reading - the same reason the serial
+ * JSON path sends null there. */
+#define TS_FORECAST_INVALID  0xFFFFu
+
+static void zb_report_ts_result(const ts_result_t *ts)
+{
+  const bool usable = (ts->ready && ts->have_forecast);
+
+  uint16_t flags = (uint16_t)((usable                 ? 0x0001u : 0u)
+                              | (ts->anomaly_confirmed ? 0x0002u : 0u)
+                              | (ts->early_warning     ? 0x0004u : 0u)
+                              | (((uint16_t)ts->hr_trend    & 0x3u) << 3)
+                              | (((uint16_t)ts->drops_trend & 0x3u) << 5)
+                              | (ts->hr_forecast_trusted    ? 0x0080u : 0u)
+                              | (ts->drops_forecast_trusted ? 0x0100u : 0u));
+
+  uint16_t hr_forecast = (usable && ts->hr_valid)
+                         ? (uint16_t)(ts->hr_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
+  uint16_t spo2_forecast = (usable && ts->spo2_valid)
+                           ? (uint16_t)(ts->spo2_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
+  uint16_t drops_forecast = usable
+                            ? (uint16_t)(ts->drops_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
+  int16_t  hr_slope    = (int16_t)ts->hr_trend_bpm_per_min;
+  int16_t  drops_slope = (int16_t)ts->drops_trend_dpm_per_min;
+  /* x100 keeps two decimals over an integer-only wire format, matching the
+   * tsAnomalyScoreX100 the server already parses from the serial path. */
+  uint16_t score_x100  = (uint16_t)(ts->anomaly_score * 100.0f + 0.5f);
+
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_TS_FLAGS_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&flags, ZCL_BITMAP16_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_HR_FORECAST_16S_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&hr_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_SPO2_FORECAST_16S_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&spo2_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_HR_TREND_BPM_PER_MIN_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&hr_slope, ZCL_INT16S_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_TS_ANOMALY_SCORE_X100_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&score_x100, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_DROPS_FORECAST_16S_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&drops_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&drops_slope, ZCL_INT16S_ATTRIBUTE_TYPE);
 }
 
 /** @brief Post Attribute Change
@@ -784,5 +867,6 @@ void app_process_action(void)
                         target_flow_report, target_drops_report,
                         app_hr_baseline_seconds_remaining(), hr_baseline_bpm_report,
                         sh_flow_tare_event_count(), hr_baseline_event_count);
+    zb_report_ts_result(&ts);
   }
 }
