@@ -160,7 +160,23 @@ const definition = {
     // readable during interview (device.modelID = undefined), so we
     // fingerprint on the exact endpoint/cluster "signature" declared in the
     // empty_2 firmware's ZAP config instead of relying on the zigbeeModel string.
+    //
+    // TWO entries on purpose. zigbee-herdsman-converters indexes an external
+    // definition by `fingerprint.modelID` (falling back to the literal key
+    // "null" when absent) and only ever looks at candidates found under the
+    // device's own modelID - the endpoint signature below is checked *after*
+    // that lookup, never instead of it. So an entry without `modelID` is only
+    // reachable while the interview leaves modelID empty; the moment the Basic
+    // read succeeds and the device reports "SmartIV-Sensor", the lookup misses
+    // and z2m logs "Not supported" despite a perfectly matching signature.
+    // Keep both so either interview outcome resolves.
     fingerprint: [{
+        modelID: 'SmartIV-Sensor',
+        endpoints: [
+            {ID: 1, inputClusters: [0]},
+            {ID: 2, inputClusters: [SMART_IV_CLUSTER_ID]},
+        ],
+    }, {
         endpoints: [
             {ID: 1, inputClusters: [0]},
             {ID: 2, inputClusters: [SMART_IV_CLUSTER_ID]},
