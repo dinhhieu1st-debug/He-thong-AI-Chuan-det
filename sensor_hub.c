@@ -597,6 +597,21 @@ static void i2cbb_init_pins(void)
   i2cbb_sda_release();
 }
 
+/* The bus used to be brought up only by max30102_init(), i.e. only when the
+ * HR/SpO2 channels are compiled in. The OLED shares these pins, so it would
+ * have driven an uninitialised bus the moment someone set HR_ENABLED to 0 to
+ * work on another channel - the screen going blank for a reason nowhere near
+ * the code being changed. Every entry point into the bus brings it up. */
+static bool i2cbb_pins_ready = false;
+
+static void i2cbb_ensure_pins(void)
+{
+  if (!i2cbb_pins_ready) {
+    i2cbb_init_pins();
+    i2cbb_pins_ready = true;
+  }
+}
+
 static void i2cbb_start(void)
 {
   i2cbb_sda_release();
@@ -658,17 +673,42 @@ static bool i2cbb_read_byte(uint8_t *out, bool send_ack)
   return true;
 }
 
-/* Write: START, ADDR+W, reg, data..., STOP (matches DFRobot's writeReg()) */
-static bool bloodox_write(uint8_t reg, const uint8_t *data, uint8_t len)
+/* Write to ANY device on this bus: START, ADDR+W, first_byte, data..., STOP.
+ *
+ * Exported (sh_i2c_write) so the bedside OLED can share the MAX30102's two
+ * wires without a second bit-bang implementation. The bus has exactly one
+ * owner - this file - because two independent implementations toggling PC05/
+ * PC07 would eventually interleave and leave a half-finished transaction on
+ * the wires, which shows up as an occasional garbled reading rather than an
+ * obvious failure.
+ *
+ * `first_byte` is the register for a sensor, or the control byte (0x00 =
+ * command, 0x40 = display RAM) for the OLED - the same position in the frame
+ * either way. */
+static bool i2cbb_write_to(uint8_t address, uint8_t first_byte,
+                           const uint8_t *data, uint8_t len)
 {
+  i2cbb_ensure_pins();
   i2cbb_start();
-  bool ok = i2cbb_write_byte((uint8_t)(BLOODOX_I2C_ADDR << 1));
-  ok = ok && i2cbb_write_byte(reg);
+  bool ok = i2cbb_write_byte((uint8_t)(address << 1));
+  ok = ok && i2cbb_write_byte(first_byte);
   for (uint8_t i = 0; ok && i < len; i++) {
     ok = i2cbb_write_byte(data[i]);
   }
   i2cbb_stop();
   return ok;
+}
+
+bool sh_i2c_write(uint8_t address, uint8_t first_byte,
+                  const uint8_t *data, uint8_t len)
+{
+  return i2cbb_write_to(address, first_byte, data, len);
+}
+
+/* Write: START, ADDR+W, reg, data..., STOP (matches DFRobot's writeReg()) */
+static bool bloodox_write(uint8_t reg, const uint8_t *data, uint8_t len)
+{
+  return i2cbb_write_to(BLOODOX_I2C_ADDR, reg, data, len);
 }
 
 /* Read: 2 separate transactions (STOP in between) — matches how DFRobot's
@@ -789,7 +829,7 @@ static bool max30102_try_find(void)
 static void max30102_init(void)
 {
 #if HR_ENABLED || SPO2_ENABLED
-  i2cbb_init_pins();
+  i2cbb_ensure_pins();
 
   /* The module has its own onboard MCU and may need a few hundred ms to
    * boot after power-up (like any sensor module with its own processor).

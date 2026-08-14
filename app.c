@@ -23,6 +23,7 @@
 #include "sensor_hub.h"
 #include "ai_monitor.h"
 #include "ts_monitor.h"
+#include "oled_display.h"
 
 #include "app/framework/include/af.h"
 #include "network-steering.h"
@@ -442,6 +443,90 @@ void sl_zigbee_af_network_steering_complete_cb(sl_status_t status,
   }
 }
 
+/* ============================================================================
+ *  Bedside OLED (1.3" 128x64, I2C, shares PC05/PC07 with the MAX30102)
+ *
+ *  Driven from here rather than from sensor_hub.c because what belongs on the
+ *  screen is the same thing that goes into the alarm bitmap and out over
+ *  Zigbee - the readings AND the reasons - and this function is where those
+ *  already exist. sensor_hub only lends out the bus (sh_i2c_write).
+ *
+ *  A missing or unplugged panel must never affect monitoring: if the module
+ *  does not ACK, oled_ready stays false, one line is printed, and the rest of
+ *  the firmware carries on untouched. Re-init is retried on a slow timer so a
+ *  panel plugged in later (or one that dropped off the bus) comes back on its
+ *  own, without a reset - a reset would cost the HR baseline and the tare.
+ * ========================================================================== */
+#define OLED_RETRY_INTERVAL_MS  10000U
+
+static oled_display_t bedside_oled;
+static bool           oled_ready         = false;
+static uint32_t       oled_last_retry_ms = 0;
+
+static bool oled_bus_write(void *context, uint8_t address, uint8_t control,
+                           const uint8_t *data, uint8_t length)
+{
+  (void)context;
+  return sh_i2c_write(address, control, data, length);
+}
+
+static void oled_try_init(void)
+{
+  /* The retry below runs every 10s forever when no panel is fitted, so the
+   * "not found" line is printed once per absence, not once per attempt: a
+   * repeating line would bury the AI/HX711 output that VCOM is actually for. */
+  static bool reported_missing = false;
+
+  const oled_bus_t bus = { .write = oled_bus_write, .context = NULL };
+  oled_ready = oled_display_init(&bedside_oled, &bus);
+  if (oled_ready) {
+    reported_missing = false;
+    printf("[OLED] Bedside display ready (128x64)\r\n");
+  } else if (!reported_missing) {
+    reported_missing = true;
+    printf("[OLED] No panel at 0x3C/0x3D - running without the bedside screen\r\n");
+  }
+}
+
+static void oled_update(const ai_result_t *r, const ts_result_t *ts,
+                        bool hr_ok, int hr, bool spo2_ok, int spo2,
+                        int flow_pct, uint32_t now)
+{
+  if (!oled_ready) {
+    if (now - oled_last_retry_ms >= OLED_RETRY_INTERVAL_MS) {
+      oled_last_retry_ms = now;
+      oled_try_init();
+    }
+    return;
+  }
+
+  oled_vitals_t v = {
+    .hr_valid   = hr_ok,
+    .hr_bpm     = (uint16_t)(hr   < 0 ? 0 : hr),
+    .spo2_valid = spo2_ok,
+    .spo2_pct   = (uint16_t)(spo2 < 0 ? 0 : spo2),
+    .flow_valid = (sh_flow_state() == CH_OK),
+    .flow_pct   = (int16_t)flow_pct,
+    /* Same condition app.c uses for the serial "*** ALARM ***" line and the
+     * alarm bitmap, so the screen, the log and the ward console can never
+     * disagree about whether this bed is alarming. */
+    .alarm          = (r->alarm || ts->anomaly_confirmed || ts->early_warning),
+    .reason_spo2    = r->reason_spo2,
+    .reason_hr      = r->reason_hr,
+    .reason_flow    = r->reason_flow,
+    .reason_missing = r->reason_missing,
+    .reason_ai      = (r->reason_ae || ts->anomaly_confirmed || ts->early_warning)
+  };
+
+  if (!oled_display_show_vitals(&bedside_oled, &v)) {
+    /* Stopped ACKing - cable pulled, or the bus glitched. Fall back to the
+     * retry path above instead of writing into a panel that isn't there. */
+    oled_ready = false;
+    oled_last_retry_ms = now;
+    printf("[OLED] Display stopped responding - will retry\r\n");
+  }
+}
+
 /* ================= CALLED ONCE AT STARTUP ================= */
 void app_init(void)
 {
@@ -449,6 +534,7 @@ void app_init(void)
 
   sensor_hub_init();
   ai_monitor_init();
+  oled_try_init();
 
   /* Load the time-series forecaster. On failure the system STILL runs normally
    * on the clinical rules and merely loses trend / early warning. The AI must
@@ -531,6 +617,12 @@ void app_process_action(void)
     char hr_str[8], spo2_str[8];
     if (hr_ok)   { snprintf(hr_str,   sizeof(hr_str),   "%d", hr);   } else { snprintf(hr_str,   sizeof(hr_str),   "--"); }
     if (spo2_ok) { snprintf(spo2_str, sizeof(spo2_str), "%d", spo2); } else { snprintf(spo2_str, sizeof(spo2_str), "--"); }
+
+    /* Bedside screen, updated on the same tick and from the same values as
+     * the serial log below and the Zigbee report further down. It only
+     * repaints when the displayed content actually changes, so a steady bed
+     * costs nothing on the shared I2C bus. */
+    oled_update(&r, &ts, hr_ok, hr, spo2_ok, spo2, flow, now);
 
     printf("[AI] HR=%s SpO2=%s Flow=%d%% Drop=%d%% (dpm=%d) | err=%d/1000 | ",
            hr_str, spo2_str, flow, drop, (int)(sh_drops_per_min() + 0.5f), err);

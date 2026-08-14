@@ -70,6 +70,18 @@ alert_level_t sh_alert_level(void);
 void sensor_hub_init(void);
 void sensor_hub_poll(void);   // call EVERY loop iteration (reads drops continuously)
 
+/* ===== Shared I2C bus (PC05=SCL, PC07=SDA) =====
+ * sensor_hub owns the bit-banged bus for the MAX30102; the bedside OLED sits
+ * on the same two wires at a different address and writes through here rather
+ * than bit-banging the pins itself. One owner means two devices can never
+ * interleave half-finished transactions on the bus.
+ *
+ * `first_byte` is whatever goes right after the address: the register number
+ * for a sensor, or the OLED's control byte (0x00 = command, 0x40 = display
+ * RAM). Returns false if the device did not ACK. */
+bool sh_i2c_write(uint8_t address, uint8_t first_byte,
+                  const uint8_t *data, uint8_t len);
+
 /* Current raw value of each channel (only meaningful when state = CH_OK) */
 float      sh_hr(void);
 float      sh_spo2(void);
