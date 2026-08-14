@@ -478,6 +478,77 @@ const BedsTab = (() => {
   let trendError = null;
   let trendTimer = null;
 
+  /* ---- Live tail: keeping the charts level with the Live vitals tiles ----
+   *
+   * The stored history is always behind the tiles, by design and on two
+   * counts: the server only writes a vital_samples row every
+   * VitalsSave.IntervalSeconds (10s), and the browser only refetches that
+   * table every TREND_REFRESH_MS (15s). The tiles meanwhile repaint on every
+   * SignalR update, about once a second - so a nurse could read 143 bpm on the
+   * tile while the trace beside it still ended at a value from up to ~25s ago.
+   * Two views of the same instant disagreeing is exactly what a monitoring
+   * screen must not do.
+   *
+   * Neither knob is safe to just turn down: persisting every reading bloats
+   * the history table, and polling the history endpoint every second puts a
+   * DB query per bed per second behind an already once-a-second push.
+   *
+   * So the SignalR reading the tiles use is also appended to the chart series
+   * as a live point. The DB fetch stays the authority for everything it
+   * covers; live points only ever extend the series past the newest stored
+   * sample, and are dropped as soon as a fetch catches up with them. */
+  let liveSamples = [];
+
+  function clearLiveSamples() {
+    liveSamples = [];
+  }
+
+  /* Turn the bed's current state into a sample shaped exactly like a row from
+   * /history, so renderTrends() cannot tell the two apart. Deduped on
+   * lastUpdated: renderDetail() also runs for re-renders that carry no new
+   * reading (opening the panel, typing in a field), which must not stack
+   * duplicate points on top of each other. */
+  function appendLiveSample(bed) {
+    if (!bed || !bed.lastUpdated) return;
+
+    const t = new Date(bed.lastUpdated);
+    if (Number.isNaN(t.getTime())) return;
+
+    const last = liveSamples[liveSamples.length - 1];
+    if (last && new Date(last.recordedAt).getTime() === t.getTime()) return;
+
+    liveSamples.push({
+      recordedAt: bed.lastUpdated,
+      spo2: bed.spo2,
+      heartRate: bed.heartRate,
+      flowRate: bed.flowRate,
+      dripRate: bed.dripRate,
+      dropsPerMin: bed.dropsPerMin,
+      weightG: bed.weightG,
+      lineBlocked: bed.lineBlocked,
+      aeAlarm: bed.aeAlarm
+    });
+
+    // A live point is only ever a tail on top of the stored series, so the tail
+    // never needs to be longer than the gap a fetch can leave behind. Cap it
+    // anyway: a panel left open for hours would otherwise grow without bound.
+    const cutoff = Date.now() - trendMinutes * 60 * 1000;
+    liveSamples = liveSamples.filter((s) => new Date(s.recordedAt).getTime() >= cutoff);
+  }
+
+  /* Drop live points the freshly fetched history now covers, so a reading is
+   * never plotted twice - once as the live estimate and once as the stored
+   * row. */
+  function pruneLiveSamples() {
+    if (!trendSamples || trendSamples.length === 0) return;
+    const newestStored = new Date(trendSamples[trendSamples.length - 1].recordedAt).getTime();
+    liveSamples = liveSamples.filter((s) => new Date(s.recordedAt).getTime() > newestStored);
+  }
+
+  function chartSamples() {
+    return (trendSamples || []).concat(liveSamples);
+  }
+
   async function loadTrends() {
     if (!selectedBedId) return;
     const bedId = selectedBedId;
@@ -493,6 +564,7 @@ const BedsTab = (() => {
       // one bed's history under another bed's name.
       if (selectedBedId !== bedId) return;
       trendSamples = result.samples || [];
+      pruneLiveSamples();
     } catch (err) {
       if (selectedBedId !== bedId) return;
       trendError = err.message;
@@ -541,7 +613,8 @@ const BedsTab = (() => {
       host.innerHTML = `<div class="empty-state">Loading history…</div>`;
       return;
     }
-    if (!trendSamples || trendSamples.length === 0) {
+    const samples = chartSamples();
+    if (samples.length === 0) {
       host.innerHTML = `<div class="empty-state">No history recorded for this period yet.
         History is sampled periodically once the bed starts sending data.</div>`;
       return;
@@ -555,8 +628,8 @@ const BedsTab = (() => {
       // both - metricChart() lets yRange win when present.
       minSpan: metric.minSpan,
       yRange: metric.yRange,
-      severity: severityOf(metric, trendSamples),
-      points: trendSamples.map((s) => ({
+      severity: severityOf(metric, samples),
+      points: samples.map((s) => ({
         t: new Date(s.recordedAt),
         v: s[metric.key],
         // Shade the periods the device itself flagged, so a dip in the line
@@ -574,6 +647,7 @@ const BedsTab = (() => {
       if (!minutes) return;
       trendMinutes = parseInt(minutes, 10);
       trendSamples = null;    // force the spinner: the new window is a cold load
+      clearLiveSamples();
       renderDetail();
       loadTrends();
     });
@@ -583,6 +657,7 @@ const BedsTab = (() => {
     selectedBedId = null;
     trendSamples = null;
     trendError = null;
+    clearLiveSamples();
     stopTrendRefresh();
     renderDetail();
   }
@@ -694,7 +769,10 @@ const BedsTab = (() => {
 
     // renderDetail() runs on every bed update, so the charts must be repainted
     // from the cached samples each time - loadTrends() is NOT called here, or
-    // every SignalR tick would trigger a history query.
+    // every SignalR tick would trigger a history query. The reading that drove
+    // this re-render is instead appended to the series directly, which is what
+    // keeps the traces level with the Live vitals tiles above them.
+    appendLiveSample(bed);
     bindTrendHandlers();
     renderTrends();
 
@@ -730,6 +808,7 @@ const BedsTab = (() => {
         if (switchingBed) {
           trendSamples = null;   // never show the previous bed's history
           trendError = null;
+          clearLiveSamples();
         }
         renderDetail();
         loadTrends();
