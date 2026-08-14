@@ -35,9 +35,12 @@ designWebForQuanKa-main.zip
 
 # AI training artefacts: the dataset and intermediate model files are large and
 # fully reproducible from the scripts. The exported model that the firmware
-# actually compiles in (firmware/model_data_ts.h) IS tracked.
+# actually compiles in (firmware/model_data_ts.h) IS tracked, and so are the
+# two .tflite files themselves, under ml/models/ - a model nobody outside the
+# team can open is a model nobody can check.
 ml/ai_timeseries/dataset/
 ml/ai_timeseries/out/
+ml/ai_timeseries/out_aer*/
 __pycache__/
 
 # Claude Code local settings

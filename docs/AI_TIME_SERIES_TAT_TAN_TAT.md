@@ -581,8 +581,8 @@ Luật lâm sàng vẫn chạy song song — recall 41–58% chưa đủ để b
 ## 13. Hạn chế — nói thẳng
 
 1. **Recall 58,3% chưa đủ cho thiết bị y tế thật.** Phải giữ luật lâm sàng tuyệt
-   đối song song. Cách nâng: thêm nhánh tái tạo cửa sổ (AER, arXiv 2212.13558) —
-   chip còn dư 99,5% ngân sách nên gần như miễn phí.
+   đối song song. Hướng nâng từng đề xuất — thêm nhánh tái tạo cửa sổ (AER,
+   arXiv 2212.13558) — **đã thử và ĐO, kết quả là không ăn thua**: xem mục 13.1.
 2. **Phần truyền dịch (giọt/cân nặng) vẫn là mô phỏng.** HR/SpO2 đã dùng dữ liệu
    ICU thật (BIDMC, 52 bệnh nhân) nhưng **chưa có bộ dữ liệu công khai có nhãn cho
    truyền dịch IV** — phần này buộc phải mô phỏng, dù được gắn lên chuỗi sinh hiệu
@@ -596,6 +596,63 @@ Luật lâm sàng vẫn chạy song song — recall 41–58% chưa đủ để b
    thị mũi tên xu hướng cho biến động nhỏ hơn thế.
 6. **Chưa kiểm chứng trên bệnh nhân/giàn thật.** Mọi con số ở đây là trên dataset
    mô phỏng, cộng phép đo thời gian chạy trên chip thật.
+
+### 13.1 Đã thử nhánh tái tạo cửa sổ (AER) — và vì sao KHÔNG dùng
+
+Ý tưởng của AER: model hiện tại chỉ hỏi *"64 giây vừa rồi thì 16 giây tới ra
+sao"*, nên bất thường = phần tương lai nó không dự báo nổi. Câu hỏi đó có điểm
+mù: tương lai gần của một sinh hiệu bị chi phối bởi **giá trị hiện tại**, nên
+một đợt trôi chậm mà model đã "chấp nhận" là mức hiện hành vẫn được dự báo đúng
+và bị chấm là bình thường — dù bản thân cửa sổ 64 giây đó đã bất thường. Nhánh
+tái tạo hỏi câu bổ sung: *"nén cửa sổ này qua encoder rồi dựng lại được không"*
+— một cửa sổ có **hình dạng** lạ thì không dựng lại được, bất kể nó dễ dự báo
+tới đâu.
+
+Đã cài đặt đầy đủ trong `ml/ai_timeseries/train_aer.py`: **chung encoder**, thêm
+một đầu ra tái tạo, chấm điểm bằng đúng giao thức của `evaluate.py` (chọn tham
+số trên tập validation, báo cáo **một lần** trên test, và không cho phép tỉ lệ
+báo nhầm trên các cú nháy tệ hơn luật hiện tại).
+
+**Lần 1 — không có bottleneck** (`--bottleneck 0`):
+
+| Cách quyết định | normal (nhầm) | transient (NHẦM) | recall |
+|---|---|---|---|
+| A. Ngưỡng tức thời (luật hiện tại) | 9,6% | 17,2% | 34,6% |
+| B. Chỉ dự báo, K=10 | 1,8% | 2,3% | **45,8%** |
+| C. Chỉ tái tạo, K=22 | 5,0% | 6,9% | 14,8% |
+| D. AER gộp (α=0,1), K=9 | 1,9% | 2,5% | **47,8%** |
+
+Trông như +2,0 điểm. Nhưng nhánh tái tạo ở đây **không phải autoencoder thật**:
+code của encoder là `(64/8)×32 = 256` giá trị, đúng bằng kích thước cửa sổ
+`64×4 = 256`, tức **không nén gì cả** — nó học được cách gần như chép lại, mà
+một cái máy chép thì dựng lại cửa sổ bất thường cũng ngon lành như cửa sổ bình
+thường. Đúng như đo được: một mình nó chỉ đạt 14,8%.
+
+**Lần 2 — ép qua bottleneck 16 chiều** (`--bottleneck 16`), đây mới là phép thử
+công bằng:
+
+| Cách quyết định | normal | transient | recall |
+|---|---|---|---|
+| B. Chỉ dự báo, K=11 | 1,4% | 2,2% | **39,2%** |
+| C. Chỉ tái tạo, K=30 | 4,8% | 4,7% | 14,5% |
+| D. AER gộp (α=0,2), K=10 | 1,8% | 1,9% | **39,4%** |
+
+**Kết luận: không dùng.** Ba lý do, theo thứ tự quan trọng:
+
+1. **Mức "cải thiện" nhỏ hơn nhiễu giữa các lần chạy.** Chỉ riêng cột "chỉ dự
+   báo" đã dao động 45,8% → 39,2% giữa hai lần huấn luyện (**6,6 điểm**), trong
+   khi phần AER thêm vào được 2,0 và 0,2 điểm. Không thể tuyên bố một mức tăng
+   nhỏ hơn độ dao động của chính phép đo.
+2. **Quét trọng số cho thấy tái tạo càng nặng càng tệ**: α = 0,0 → 1,0 làm recall
+   trên validation rơi 57,5% → 35,2%. Nếu nhánh này thực sự bổ sung thông tin,
+   đường cong đã không đơn điệu giảm như vậy.
+3. **Giá phải trả là thật**: model từ 30.616 lên 63.064 byte (+32 KB flash), thêm
+   một tensor đầu ra phải đọc và 256 phép tính sai số mỗi giây trên chip — đổi
+   lấy 0,2 điểm.
+
+Giữ lại `train_aer.py` trong repo để bất kỳ ai muốn kiểm chứng lại đều chạy được
+`--eval-only` mà không cần huấn luyện lại. Hướng đáng đầu tư hơn cho recall là
+**dữ liệu**, không phải kiến trúc: xem hạn chế 2 và 3 ngay trên.
 
 ---
 

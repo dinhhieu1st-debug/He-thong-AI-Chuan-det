@@ -52,6 +52,9 @@ nhân đi đâu để suy luận:
   chỉ số đang **đi về đâu**, không chỉ đang ở đâu — cảnh báo sớm trước khi
   vượt ngưỡng lâm sàng.
 
+Hai file `.tflite` đang chạy nằm trong [`ml/models/`](ml/models/) — mở bằng
+[Netron](https://netron.app) là xem được từng lớp, không phải hộp đen.
+
 Song song với AI luôn có **luật lâm sàng cứng** (SpO2 < 90%, nhịp tim lệch
 >30% baseline riêng của bệnh nhân, flow ngoài 0.3–1.5× mức bác sĩ đặt...).
 Hai cơ chế OR với nhau: thà báo thừa còn hơn bỏ sót.
@@ -67,6 +70,7 @@ Repo xếp theo **trạm xử lý**: mã của trạm nào nằm trong thư mụ
 | `firmware/` | **Trạm 1** — mã nguồn chạy trên chip: đọc cảm biến, AI, báo động, OLED, Zigbee |
 | `gateway/` | **Trạm 3** — `main.c` (cầu MQTT → TCP) và converter cho zigbee2mqtt, đều chạy trên Pi |
 | `server/` | **Trạm 4** — HIS Server: ASP.NET Core + MySQL + SignalR + web UI |
+| `ml/models/` | Hai file `.tflite` **đang chạy thật trên chip** — mở bằng Netron là xem được |
 | `ml/ai_timeseries/` | Pipeline huấn luyện model dự báo (Python), xuất ra header nhúng vào firmware |
 | `tools/` | `serial_gateway.py` — đường dự phòng đọc thẳng USB khi không có Pi |
 | `docs/` | Toàn bộ tài liệu (xem bên dưới) |
@@ -89,6 +93,8 @@ rồi chạy lại `slc generate`.
 | File | Nội dung |
 |---|---|
 | [`docs/HUONG_DAN_A_Z.md`](docs/HUONG_DAN_A_Z.md) | **Đọc file này trước.** Toàn bộ hệ thống từ chip tới web, giải thích cả *vì sao* thiết kế như vậy, kèm bảng lỗi thường gặp |
+| [`docs/AI_HOAT_DONG_THE_NAO.md`](docs/AI_HOAT_DONG_THE_NAO.md) | AI làm gì, **khi nào báo động và khi nào cố tình không báo**, kèm 6 ví dụ cụ thể — viết cho người không đọc code |
+| [`ml/models/`](ml/models/) | Hai file `.tflite` đang chạy thật trên chip, mở bằng Netron được |
 | [`docs/AI_TIME_SERIES_TAT_TAN_TAT.md`](docs/AI_TIME_SERIES_TAT_TAN_TAT.md) | Model dự báo chuỗi thời gian: dữ liệu, huấn luyện, đánh giá, nhúng vào firmware |
 | [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset và phương pháp của autoencoder |
 | [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI |
