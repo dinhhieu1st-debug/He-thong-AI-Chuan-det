@@ -17,17 +17,17 @@ filter:
 package: platform
 quality: production
 readme:
-- path: readme.md
+- path: docs/slc-project-readme.md
 source:
-- path: app.c
-- path: sensor_hub.c
-- path: oled_display.c
-- path: ai_monitor.c
-- path: model_runner.cpp
-- path: ts_forecaster.cpp
-- path: ts_monitor.c
+- path: firmware/app.c
+- path: firmware/sensor_hub.c
+- path: firmware/oled_display.c
+- path: firmware/ai_monitor.c
+- path: firmware/model_runner.cpp
+- path: firmware/ts_forecaster.cpp
+- path: firmware/ts_monitor.c
 include:
-- path: .
+- path: firmware
   file_list:
   - path: app.h
   - path: sensor_hub.h

@@ -208,7 +208,7 @@ xuất hiện ở cả train và test** — model đã thấy trước động l
 
 Tải dữ liệu:
 ```bash
-mkdir -p ai_timeseries/dataset/bidmc && cd ai_timeseries/dataset/bidmc
+mkdir -p ml/ai_timeseries/dataset/bidmc && cd ml/ai_timeseries/dataset/bidmc
 for i in $(seq -w 1 53); do
   curl -fO "https://physionet.org/files/bidmc/1.0.0/bidmc_csv/bidmc_${i}_Numerics.csv"
 done          # 53 file, tong 468 KB
@@ -250,7 +250,7 @@ SpO2 của bệnh nhân ICU thật khó dự báo hơn nhiều so với chuỗi 
 
 ## 5. Dataset mô phỏng thuần (chi tiết)
 
-`ai_timeseries/make_timeseries_dataset.py` → `dataset/iv_timeseries_1hz.csv`
+`ml/ai_timeseries/make_timeseries_dataset.py` → `dataset/iv_timeseries_1hz.csv`
 
 ### 5.1 Khác biệt then chốt so với bộ cũ
 
@@ -312,7 +312,7 @@ mẫu transient   : 807 (1,1%) — tất cả đều label_alarm = 0
 
 ## 6. Huấn luyện
 
-`ai_timeseries/train_forecaster.py`
+`ml/ai_timeseries/train_forecaster.py`
 
 - **Tách theo BỆNH NHÂN** 60/20/20 (72/24/24 ca), không tách theo dòng → tránh rò
   rỉ dữ liệu, đánh giá trung thực
@@ -525,16 +525,16 @@ cd cmake_gcc/build && ~/.silabs/slt/installs/conan/p/ninja1b9fed093d653/p/ninja
 
 | File | Vai trò |
 |---|---|
-| `ai_timeseries/make_timeseries_dataset.py` | Sinh dataset MÔ PHỎNG THUẦN |
-| `ai_timeseries/make_hybrid_dataset.py` | Sinh dataset LAI (HR/SpO2 từ BIDMC thật) ← nên dùng |
-| `ai_timeseries/dataset/bidmc/` | 53 file `*_Numerics.csv` tải từ PhysioNet (468 KB) |
-| `ai_timeseries/dataset/iv_hybrid_1hz.csv` | Dataset lai (75.036 dòng) |
-| `ai_timeseries/train_forecaster.py` | Train CNN dự báo + xuất int8 |
-| `ai_timeseries/evaluate.py` | Đánh giá: dự báo, xu hướng, so sánh 3 cách quyết định |
-| `ai_timeseries/export_model_header.py` | `.tflite` → mảng byte C |
-| `ai_timeseries/dataset/iv_timeseries_1hz.csv` | Dataset (72.000 dòng) |
-| `ai_timeseries/out/forecaster_int8.tflite` | Model int8 |
-| `ai_timeseries/out/quant_params.txt` | Hằng số quantize + chuẩn hóa |
+| `ml/ai_timeseries/make_timeseries_dataset.py` | Sinh dataset MÔ PHỎNG THUẦN |
+| `ml/ai_timeseries/make_hybrid_dataset.py` | Sinh dataset LAI (HR/SpO2 từ BIDMC thật) ← nên dùng |
+| `ml/ai_timeseries/dataset/bidmc/` | 53 file `*_Numerics.csv` tải từ PhysioNet (468 KB) |
+| `ml/ai_timeseries/dataset/iv_hybrid_1hz.csv` | Dataset lai (75.036 dòng) |
+| `ml/ai_timeseries/train_forecaster.py` | Train CNN dự báo + xuất int8 |
+| `ml/ai_timeseries/evaluate.py` | Đánh giá: dự báo, xu hướng, so sánh 3 cách quyết định |
+| `ml/ai_timeseries/export_model_header.py` | `.tflite` → mảng byte C |
+| `ml/ai_timeseries/dataset/iv_timeseries_1hz.csv` | Dataset (72.000 dòng) |
+| `ml/ai_timeseries/out/forecaster_int8.tflite` | Model int8 |
+| `ml/ai_timeseries/out/quant_params.txt` | Hằng số quantize + chuẩn hóa |
 | `model_data_ts.h` | Model nhúng dạng mảng byte (ở gốc project) |
 | `ts_forecaster.cpp` / `.h` | Runner TFLM trên chip |
 

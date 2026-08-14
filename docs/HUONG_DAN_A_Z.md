@@ -231,6 +231,11 @@ logic cho zigbee2mqtt qua EZSP.
 Thư mục: `~/SimplicityStudio/v6_workspace/smart-iv-monitor/`. Đây là project Simplicity
 Studio cho chip **EFR32xG26** (board `BRD2709A`).
 
+> **Đường dẫn file:** toàn bộ mã nguồn tự viết của firmware nằm trong thư mục
+> `firmware/` (từ 2026-08-14, xem mục 10 để biết vì sao `config/`, `autogen/`,
+> `cmake_gcc/` vẫn phải ở gốc). Trong tài liệu này, khi nhắc `app.c`,
+> `sensor_hub.c`... là nói tới `firmware/app.c`, `firmware/sensor_hub.c`...
+
 ### 1.1 Kiến trúc phần mềm firmware
 
 Ba lớp, mỗi lớp một file:
@@ -238,7 +243,8 @@ Ba lớp, mỗi lớp một file:
 ```
 sensor_hub.{c,h}   ← đọc cảm biến vật lý (giọt/loadcell/MAX30102), theo dõi "còn tín hiệu hay không"
 ai_monitor.{c,h}   ← gom dữ liệu, chuẩn hoá, chạy model AI + luật lâm sàng, ra kết luận cảnh báo
-app.c              ← vòng lặp chính, gọi 2 lớp trên, rồi ghi kết quả vào Zigbee
+oled_display.{c,h} ← driver màn hình đầu giường (mục 1.7), không tự quyết định gì
+app.c              ← vòng lặp chính, gọi các lớp trên, rồi ghi kết quả vào Zigbee + màn hình
 ```
 
 **`sensor_hub.h`** — mỗi kênh cảm biến có 3 trạng thái, đây là ý tưởng cốt lõi
@@ -541,6 +547,60 @@ network leave                        # rời mạng hiện tại
 plugin network-steering start 0      # bắt đầu join mạng mới (cần permit-join đang bật)
 ```
 
+### 1.7 Màn hình OLED đầu giường
+
+Console cho y tá nằm ở trạm điều dưỡng, và nó chỉ hiện được dữ liệu khi cả
+chuỗi phía sau còn sống: Zigbee → Pi → zigbee2mqtt → gateway → HIS Server.
+Y tá đang chỉnh khoá con lăn thì đứng **ở giường**, không nhìn xuống cuối hành
+lang; và những lúc chuỗi kia chết (đã xảy ra), đầu giường là nơi duy nhất còn
+số liệu. Vì vậy thiết bị có màn hình riêng.
+
+**Phần cứng**: OLED I2C 1.3 inch 128x64, mắc **song song trên đúng bus I2C của
+MAX30102** (chỉ khác địa chỉ):
+
+| Chân OLED | Nối vào |
+|---|---|
+| VDD/VCC | 3V3 (KHÔNG dùng 5V — chân I2C của EFR32 là mức logic 3.3V) |
+| GND | GND |
+| SCK/SCL | PC05 (chung với SCL của MAX30102) |
+| SDA | PC07 (chung với SDA của MAX30102) |
+
+Chữ **SCK** in trên màn OLED I2C nghĩa là xung clock I2C — nối vào SCL, tuyệt
+đối không nối vào chân SPI nào.
+
+**Màn hình hiện gì** (`firmware/oled_display.c`): HR và SpO2 cỡ lớn ở nửa
+trên, dòng Flow so với mức bác sĩ đặt ở giữa, và **một dòng lý do cảnh báo có
+khung** ở dưới. Kênh chưa có tín hiệu hiện `--`, không bao giờ hiện `0` —
+cùng nguyên tắc với server ở mục 6.3 ("chưa có dữ liệu" không phải là một chỉ
+số). Thứ tự ưu tiên lý do đặt **trùng** `DescribeAlert()` trong
+`VitalsStatusEvaluator.cs`, để màn hình đầu giường và console không nói hai
+nguyên nhân khác nhau cho cùng một sự cố.
+
+**Ba điểm kỹ thuật đáng nhớ:**
+
+- **Chỉ `sensor_hub.c` được sờ vào bus I2C.** OLED ghi qua `sh_i2c_write()`
+  chứ không tự bit-bang PC05/PC07: hai bộ bit-bang độc lập sẽ có lúc chen vào
+  giữa giao dịch của nhau và để lại một giao dịch dở dang trên dây — biểu hiện
+  là thỉnh thoảng đọc sai một mẫu chứ không phải lỗi rõ ràng, rất khó tìm.
+- **Chỉ vẽ lại khi nội dung thay đổi.** Một khung hình đầy đủ là 1024 byte;
+  đẩy chừng đó mỗi giây qua bus bit-bang tốn khoảng 100ms trong chu kỳ AI 1
+  giây để vẽ lại đúng bức tranh cũ.
+- **Không có màn hình thì vẫn phải theo dõi bình thường.** Nếu không có thiết
+  bị nào ACK ở `0x3C`/`0x3D`, firmware in đúng **một** dòng rồi chạy tiếp, và
+  tự thử lại mỗi 10 giây — cắm màn hình vào sau, hoặc màn rớt bus rồi cắm lại,
+  đều tự lên mà không cần reset (reset là mất baseline HR và tare cân, mục
+  1.4.1).
+
+Bảng font 5x7 trong `oled_display.c` có đủ **A-Z**, khác bản gốc chỉ có đúng
+17 chữ cái mà hai màn hình của nó dùng — thêm chữ mới vào bản đó thì ký tự
+thiếu sẽ render ra ô trắng mà không báo lỗi gì.
+
+Phần điều khiển panel (chuỗi lệnh khởi tạo, offset cột 2 của SH1106, cách
+refresh từng page, gửi cả lệnh charge-pump của SSD1306 lẫn DC-DC của SH1106 để
+chạy được với cả hai loại controller bán cùng tên "OLED 1.3 inch") được port
+từ bản firmware thử nghiệm riêng cho cảm biến nhịp tim (`IoT_Challenge-main`,
+2026-08-11), nơi nó đã chạy thật trên đúng module này.
+
 ---
 
 ## 2. Board NCP (Coordinator)
@@ -613,7 +673,7 @@ như bản cũ.
 
 ### 3.2 External converter — "từ điển" giải mã cluster tuỳ chỉnh Smart IV Vitals
 
-File: `zigbee2mqtt_smart_iv_converter.js` (repo `smart-iv-monitor`), copy vào
+File: `gateway/zigbee2mqtt_smart_iv_converter.js`, copy vào
 `~/zigbee2mqtt/data/external_converters/` trên Pi.
 
 **Nhận diện thiết bị bằng fingerprint (không dùng chuỗi `zigbeeModel`)**:
@@ -954,7 +1014,7 @@ từ bác sĩ (đặt ngưỡng, tare cân, hiệu chuẩn baseline) sẽ **khô
 
 ## 6. HIS Server — app cuối cùng (ASP.NET Core)
 
-Thư mục: `his-server/src/HisServer`. Đây là app **được viết lại
+Thư mục: `server/src/HisServer`. Đây là app **được viết lại
 hoàn toàn** (thay thế bản WinForms cũ) — ASP.NET Core Minimal API, một tiến
 trình duy nhất vừa nhận dữ liệu, vừa lưu DB, vừa phục vụ web UI, vừa đẩy cập
 nhật realtime.
@@ -1279,27 +1339,46 @@ dữ liệu thật từ board cảm biến vật lý duy nhất hiện có.
 
 ## 10. Tổng kết đường dẫn file quan trọng
 
+Repo được xếp theo **trạm xử lý** (mục 0): mã của trạm nào nằm trong thư mục
+của trạm đó.
+
 ```
 smart-iv-monitor/
-├── sensor_hub.{c,h}          firmware: đọc cảm biến, trạng thái từng kênh
-├── ai_monitor.{c,h}          firmware: autoencoder tức thời + luật lâm sàng
-├── ts_monitor.{c,h}          firmware: cửa sổ 64s + dự báo + persistence
-├── ts_forecaster.{cpp,h}     firmware: runner TFLM cho model dự báo
-├── model_data_ts.h           model dự báo int8 nhúng sẵn (30 KB)
-├── app.c                     firmware: vòng lặp chính, quyết định báo động, ghi Zigbee
-├── config/zcl/zcl_config.zap cấu hình ZAP: 2 endpoint, cluster tuỳ chỉnh
-├── config/zcl/smart-iv-vitals.xml     dinh nghia cluster "Smart IV Vitals" (0xFC01)
-├── zigbee2mqtt_smart_iv_converter.js   converter giải mã cho zigbee2mqtt
-├── gateway/main.c            chương trình C: MQTT → TCP JSON
+├── firmware/                 TRẠM 1 - mã chạy trên chip end device
+│   ├── sensor_hub.{c,h}        đọc cảm biến, trạng thái từng kênh, bus I2C dùng chung
+│   ├── ai_monitor.{c,h}        autoencoder tức thời + luật lâm sàng
+│   ├── ts_monitor.{c,h}        cửa sổ 64s + dự báo + persistence
+│   ├── ts_forecaster.{cpp,h}   runner TFLM cho model dự báo
+│   ├── oled_display.{c,h}      màn hình OLED đầu giường (mục 1.7)
+│   ├── model_data_ts.h         model dự báo int8 nhúng sẵn (30 KB)
+│   └── app.c                   vòng lặp chính, quyết định báo động, ghi Zigbee
+├── gateway/                  TRẠM 3 - mã chạy trên Raspberry Pi
+│   ├── main.c                  chương trình C: MQTT → TCP JSON
+│   └── zigbee2mqtt_smart_iv_converter.js   converter giải mã cho zigbee2mqtt
+├── server/                   TRẠM 4 - HIS Server (ASP.NET Core)
+│   ├── database/schema.sql, seed_demo.sql
+│   └── src/HisServer/
+│       ├── Ingestion/BedDataParser.cs, BedTcpIngestionService.cs
+│       ├── Domain/VitalsStatusEvaluator.cs, AlertTransitionTracker.cs
+│       ├── Data/*.Repository.cs
+│       ├── Api/*Endpoints.cs
+│       ├── Program.cs
+│       └── wwwroot/            web UI (index.html, css/, js/)
+├── ml/ai_timeseries/         pipeline huấn luyện model dự báo (mục AI_TIME_SERIES)
 ├── tools/serial_gateway.py   gateway dự phòng khi không có Pi (mục 5.5)
-├── ai_timeseries/            pipeline huấn luyện model dự báo (mục AI_TIME_SERIES)
-└── his-server/
-    ├── database/schema.sql, seed_demo.sql
-    └── src/HisServer/
-        ├── Ingestion/BedDataParser.cs, BedTcpIngestionService.cs
-        ├── Domain/VitalsStatusEvaluator.cs, AlertTransitionTracker.cs
-        ├── Data/*.Repository.cs
-        ├── Api/*Endpoints.cs
-        ├── Program.cs
-        └── wwwroot/          web UI (index.html, css/, js/)
+├── docs/                     toàn bộ tài liệu, kể cả file này
+│
+│   ── Bốn thứ dưới đây PHẢI nằm ở gốc repo, không gom vào firmware/ được:
+├── smart-iv-monitor.slcp     mô tả project cho Simplicity Studio / slc
+├── config/                   do `slc generate` sinh ra tại gốc project
+├── autogen/                  do `slc generate` sinh ra tại gốc project
+├── cmake_gcc/                do `slc generate` sinh ra tại gốc project
+└── main.c                    file mẫu của SLC, sinh ở gốc project
 ```
+
+Simplicity Studio và `slc` coi **gốc repo là gốc project** và tự sinh
+`autogen/`, `config/`, `cmake_gcc/` ở đúng đó; đẩy chúng vào thư mục con sẽ
+làm hỏng cả việc mở project trong Studio lẫn lệnh `slc generate` ở mục 1.6.
+Vì vậy chỉ có **mã nguồn tự viết** được gom vào `firmware/` — đường dẫn của
+chúng khai trong `smart-iv-monitor.slcp` (mục `source:`/`include:`), nên khi
+thêm file .c mới phải khai vào đó rồi chạy lại `slc generate`.

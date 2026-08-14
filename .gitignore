@@ -21,7 +21,8 @@ zigbee_ble_dynamic_multiprotocol_light_V2*/
 trashed_modified_files/
 
 # Arduino reference sketches from the ESP8266 prototype, plus assorted scratch
-# files. The firmware logic they inspired now lives in sensor_hub.c / app.c.
+# files. The firmware logic they inspired now lives in firmware/sensor_hub.c
+# and firmware/app.c.
 *.ino
 codecambien.c
 codemoi.txt
@@ -34,10 +35,15 @@ designWebForQuanKa-main.zip
 
 # AI training artefacts: the dataset and intermediate model files are large and
 # fully reproducible from the scripts. The exported model that the firmware
-# actually compiles in (model_data_ts.h, at the repo root) IS tracked.
-ai_timeseries/dataset/
-ai_timeseries/out/
+# actually compiles in (firmware/model_data_ts.h) IS tracked.
+ml/ai_timeseries/dataset/
+ml/ai_timeseries/out/
 __pycache__/
 
 # Claude Code local settings
 .claude/
+
+# A copy of a teammate's fork, unpacked here while porting its OLED code over
+# (see section 1.7 of docs/HUONG_DAN_A_Z.md). Not part of this project's build.
+IoT_Challenge-main/
+IoT_Challenge-main.zip
