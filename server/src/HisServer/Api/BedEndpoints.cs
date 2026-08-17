@@ -37,8 +37,13 @@ public static class BedEndpoints
              * that nothing maintains - reading that instead is why this page
              * first showed "no device assigned" for a bed whose device was
              * plainly online. One direction of the link, one source of truth. */
+            /* Only devices that have actually announced themselves count as
+             * "the device for this bed". The demo seed leaves a placeholder
+             * per bed with no address; showing one here would tell an
+             * administrator a bed is equipped when nothing is plugged in. */
             var byBed = (await devices.GetAllAsync())
-                .Where(d => !string.IsNullOrWhiteSpace(d.AssignedBedId))
+                .Where(d => !string.IsNullOrWhiteSpace(d.AssignedBedId)
+                            && !string.IsNullOrWhiteSpace(d.Eui64))
                 .GroupBy(d => d.AssignedBedId!, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().DeviceId, StringComparer.OrdinalIgnoreCase);
 

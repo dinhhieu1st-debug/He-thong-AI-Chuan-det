@@ -124,10 +124,36 @@ const DevicesTab = (() => {
     });
 
     document.getElementById("deleteDeviceBtn").addEventListener("click", async () => {
-      await Api.deleteDevice(device.deviceId);
-      State.removeDevice(device.deviceId);
-      selectedDeviceId = null;
-      render();
+      /* Deleting used to happen on one click, with nothing said about what it
+       * meant. A device that is currently sending data is not a stale entry to
+       * tidy up - it is a monitor on a bed - so the warning says which bed, and
+       * says out loud that the row comes back by itself rather than leaving the
+       * reader to fear they have broken something permanently. */
+      const live = device.lastDataAt
+        && (Date.now() - new Date(device.lastDataAt).getTime()) < 120000;
+
+      const warning = live
+        ? `${device.deviceId} is SENDING DATA right now`
+          + `${device.assignedBedId ? ` for ${device.assignedBedId}` : ""}.\n\n`
+          + `Removing it only deletes this record — the hardware keeps running, `
+          + `and the gateway will re-add it as an unassigned device within a `
+          + `minute or two. You would then have to assign it to a bed again.\n\n`
+          + `Remove it anyway?`
+        : `Remove the record for ${device.deviceId}?\n\n`
+          + `If the device is still on the Zigbee network it will reappear as `
+          + `unassigned and need assigning to a bed again.`;
+
+      if (!confirm(warning)) return;
+
+      try {
+        await Api.deleteDevice(device.deviceId);
+        State.removeDevice(device.deviceId);
+        selectedDeviceId = null;
+        UiUtils.toast(`${device.deviceId} removed`);
+        render();
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+      }
     });
   }
 
@@ -167,6 +193,11 @@ const DevicesTab = (() => {
       <div class="pending-devices">
         <div class="section-title" style="margin-top:0;">
           New devices waiting to be assigned (${pending.length})
+        </div>
+        <div class="muted" style="margin-bottom:8px;">
+          Devices appear here on their own when they join the Zigbee network,
+          or when the gateway re-reads its inventory. Assign one to a bed to
+          start recording its health.
         </div>
         <table class="data-table">
           <thead><tr><th>Device</th><th>Seen</th><th>Bed</th><th></th></tr></thead>

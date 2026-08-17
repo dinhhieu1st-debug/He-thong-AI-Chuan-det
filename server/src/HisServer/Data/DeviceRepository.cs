@@ -106,15 +106,30 @@ public sealed class DeviceRepository
         _ => status.ToString().ToUpperInvariant()
     };
 
-    /// <summary>The device assigned to a bed, if any. Used by the ingestion
-    /// path to attach live health to the right hardware.</summary>
+    /// <summary>
+    /// The REAL device assigned to a bed - one that has actually announced
+    /// itself over Zigbee, identified by having an eui64.
+    ///
+    /// The eui64 filter is the important part. The demo seed creates a
+    /// placeholder row per bed (XG26-BED-101 and friends) with no address and
+    /// the bed already assigned, so a plain "first row for this bed" query
+    /// happily hands back a device that does not exist. That is exactly what
+    /// happened once a real device was deleted: live telemetry silently
+    /// reattached to the placeholder, which then showed ONLINE with a signal
+    /// strength - an equipment list stating something untrue, which is the one
+    /// thing this whole feature exists to prevent.
+    ///
+    /// Most recently seen first, so if two real devices ever claim one bed the
+    /// live one wins and the stale one is ignored rather than fought over.
+    /// </summary>
     public async Task<DeviceRecord?> GetByBedAsync(string bedId, CancellationToken ct = default)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(ct);
         var row = await connection.QuerySingleOrDefaultAsync(
             "SELECT device_id, device_type, assigned_bed_id, room, status, battery_percent, rssi, eui64, last_seen_at, " +
             "link_quality, channels_lost, last_data_at " +
-            "FROM devices WHERE assigned_bed_id = @bedId LIMIT 1", new { bedId });
+            "FROM devices WHERE assigned_bed_id = @bedId AND eui64 IS NOT NULL " +
+            "ORDER BY last_seen_at DESC LIMIT 1", new { bedId });
         return row is null ? null : MapRow(row);
     }
 

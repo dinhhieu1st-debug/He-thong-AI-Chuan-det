@@ -65,6 +65,13 @@ typedef int his_socket_t;
 /* zigbee2mqtt publishes device_joined / device_interview / device_leave here. */
 #define BRIDGE_EVENT_TOPIC "zigbee2mqtt/bridge/event"
 
+/* The full inventory, RETAINED by zigbee2mqtt and republished whenever it
+ * changes. Subscribing means the gateway re-announces every known device as
+ * soon as it connects - so a device removed from the server by mistake comes
+ * back on its own, instead of needing someone to make the hardware rejoin the
+ * Zigbee network just to be seen again. */
+#define BRIDGE_DEVICES_TOPIC "zigbee2mqtt/bridge/devices"
+
 #define BUFFER_SIZE 256
 
 #define AUTO_START_SERVICES 1
@@ -585,6 +592,14 @@ void on_connect(struct mosquitto *mosq, void *userdata, int rc)
         } else {
             printf("Listening for new devices on: %s\n", BRIDGE_EVENT_TOPIC);
         }
+
+        sub_rc = mosquitto_subscribe(mosq, NULL, BRIDGE_DEVICES_TOPIC, 0);
+        if (sub_rc != MOSQ_ERR_SUCCESS) {
+            printf("Error subscribing to %s: %s\n",
+                   BRIDGE_DEVICES_TOPIC, mosquitto_strerror(sub_rc));
+        } else {
+            printf("Reading the device inventory from: %s\n", BRIDGE_DEVICES_TOPIC);
+        }
     } else {
         printf("Error connecting to MQTT broker, error code: %d\n", rc);
     }
@@ -740,6 +755,136 @@ static int handle_bridge_event(const char *payload)
     return 1;
 }
 
+#define MAX_INVENTORY_DEVICES 32
+#define MAX_IEEE_LEN 32
+
+/*
+ * Reads the address at an "ieee_address" match. Returns the position just
+ * after the closing quote, or NULL if the payload is malformed.
+ */
+static const char *inventory_read_address(const char *match, const char *key,
+                                          char *out, size_t out_size)
+{
+    const char *start = match + strlen(key);
+    const char *end = strchr(start, '"');
+    size_t len;
+
+    if (end == NULL) {
+        return NULL;
+    }
+
+    len = (size_t)(end - start);
+    if (len >= out_size) {
+        len = out_size - 1;
+    }
+    memcpy(out, start, len);
+    out[len] = '\0';
+    return end;
+}
+
+/*
+ * Is the record containing this address the coordinator? zigbee2mqtt orders
+ * keys alphabetically, so "type" sits after "ieee_address" within the same
+ * object; looking no further than the next address keeps the check inside one
+ * record.
+ */
+static int inventory_record_is_coordinator(const char *after_address, const char *key)
+{
+    const char *next = strstr(after_address, key);
+    size_t window = next != NULL ? (size_t)(next - after_address) : strlen(after_address);
+    char *record = (char *)malloc(window + 1);
+    int result = 0;
+
+    if (record == NULL) {
+        return 0;
+    }
+
+    memcpy(record, after_address, window);
+    record[window] = '\0';
+    result = strstr(record, "\"type\":\"Coordinator\"") != NULL;
+    free(record);
+    return result;
+}
+
+/*
+ * Announces every device in zigbee2mqtt's retained inventory.
+ *
+ * The payload is a JSON ARRAY of full device records, far too large and nested
+ * for the flat helpers above, so this scans for each "ieee_address" instead of
+ * parsing properly. That is enough: the address IS the device id, and the rest
+ * of the record is of no interest here.
+ *
+ * The coordinator appears in the same list and must be skipped - it is the USB
+ * stick in the Pi, not a bedside monitor, and adding it to the equipment
+ * inventory would leave the technician with a device that can never be
+ * assigned to a bed. zigbee2mqtt orders keys alphabetically, so "type" sits
+ * after "ieee_address" inside the same object: looking ahead only as far as
+ * the NEXT address keeps the check inside one record.
+ */
+static void handle_device_inventory(const char *payload)
+{
+    /* The coordinator's address appears TWICE in this payload: once as its own
+     * record, and again inside every other device's bindings, where it is the
+     * destination those devices report to. The second occurrence carries no
+     * "type" field, so checking only the surrounding record let the USB stick
+     * into the equipment inventory as if it were a bedside monitor.
+     *
+     * So: collect the coordinator addresses first, then announce everything
+     * else exactly once. Deduplicating also stops a device with several
+     * bindings being announced several times. */
+    char skip[MAX_INVENTORY_DEVICES][MAX_IEEE_LEN];
+    char seen[MAX_INVENTORY_DEVICES][MAX_IEEE_LEN];
+    int skip_count = 0;
+    int seen_count = 0;
+    int announced = 0;
+    const char *key = "\"ieee_address\":\"";
+    const char *cursor;
+
+    for (cursor = payload; (cursor = strstr(cursor, key)) != NULL; ) {
+        char ieee[MAX_IEEE_LEN];
+        const char *end = inventory_read_address(cursor, key, ieee, sizeof(ieee));
+        if (end == NULL) {
+            break;
+        }
+
+        if (inventory_record_is_coordinator(end, key) && skip_count < MAX_INVENTORY_DEVICES) {
+            snprintf(skip[skip_count++], MAX_IEEE_LEN, "%s", ieee);
+        }
+        cursor = end;
+    }
+
+    for (cursor = payload; (cursor = strstr(cursor, key)) != NULL; ) {
+        char ieee[MAX_IEEE_LEN];
+        const char *end = inventory_read_address(cursor, key, ieee, sizeof(ieee));
+        int i, skip_this = 0;
+
+        if (end == NULL) {
+            break;
+        }
+
+        for (i = 0; i < skip_count; i++) {
+            if (strcmp(skip[i], ieee) == 0) { skip_this = 1; break; }
+        }
+        for (i = 0; !skip_this && i < seen_count; i++) {
+            if (strcmp(seen[i], ieee) == 0) { skip_this = 1; break; }
+        }
+
+        if (!skip_this) {
+            if (seen_count < MAX_INVENTORY_DEVICES) {
+                snprintf(seen[seen_count++], MAX_IEEE_LEN, "%s", ieee);
+            }
+            his_announce_device(ieee, "");
+            announced++;
+        }
+
+        cursor = end;
+    }
+
+    if (announced > 0) {
+        printf("Announced %d device(s) from the zigbee2mqtt inventory\n", announced);
+    }
+}
+
 /*
  * Callback fired when MQTT data is received.
  *
@@ -788,6 +933,12 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
 
     if (msg->topic != NULL && strcmp(msg->topic, BRIDGE_EVENT_TOPIC) == 0) {
         handle_bridge_event(payload);
+        free(payload);
+        return;
+    }
+
+    if (msg->topic != NULL && strcmp(msg->topic, BRIDGE_DEVICES_TOPIC) == 0) {
+        handle_device_inventory(payload);
         free(payload);
         return;
     }
