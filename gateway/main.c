@@ -554,6 +554,24 @@ static void check_his_commands(void)
                 publish_mqtt_set("loadcell tare reset", "reset_tare", "true");
             } else if (strstr(his_cmd_buf, "recalibrate_hr_baseline") != NULL) {
                 publish_mqtt_set("HR baseline recalibration", "recalibrate_hr_baseline", "true");
+            } else if (strstr(his_cmd_buf, "rescan_devices") != NULL) {
+                /* Re-subscribing makes the broker redeliver the RETAINED
+                 * inventory, which is then announced device by device.
+                 *
+                 * Needed because zigbee2mqtt republishes that topic only when
+                 * the Zigbee network changes. Removing a device record on the
+                 * server changes nothing on the radio, so without this the
+                 * device would not be seen again until the gateway happened to
+                 * restart - which is exactly how a deleted device came to look
+                 * permanently lost. */
+                printf("Rescan requested by HIS Server\n");
+                if (g_mosq != NULL) {
+                    mosquitto_unsubscribe(g_mosq, NULL, BRIDGE_DEVICES_TOPIC);
+                    if (mosquitto_subscribe(g_mosq, NULL, BRIDGE_DEVICES_TOPIC, 0) != MOSQ_ERR_SUCCESS) {
+                        printf("Rescan failed: could not re-subscribe to %s\n",
+                               BRIDGE_DEVICES_TOPIC);
+                    }
+                }
             }
 
             his_cmd_buf_len = 0;

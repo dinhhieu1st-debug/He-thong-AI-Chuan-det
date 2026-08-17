@@ -302,6 +302,22 @@ const DevicesTab = (() => {
       if (f) { typeFilter = f; render(); }
     });
 
+    document.getElementById("rescanDevicesBtn")?.addEventListener("click", async () => {
+      /* Asks the gateway to re-announce everything zigbee2mqtt knows about.
+       * The list it returns is the same one a join produces, so a device
+       * removed here comes back as unassigned and is assigned to a bed the
+       * normal way - no hidden path that only works for re-adds. */
+      try {
+        const result = await Api.rescanDevices();
+        UiUtils.toast(result.gateways > 0
+          ? `Rescan sent to ${result.gateways} gateway(s)`
+          : "No gateway is connected right now", result.gateways === 0);
+        setTimeout(async () => State.setDevices(await Api.getDevices()), 3000);
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+      }
+    });
+
     document.getElementById("addDeviceBtn").addEventListener("click", () => {
       document.getElementById("addDeviceModal").classList.remove("hidden");
     });

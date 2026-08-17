@@ -30,6 +30,27 @@ public sealed class BedConnectionRegistry
         connections[bedId] = new Connection(stream, new SemaphoreSlim(1, 1));
     }
 
+    /// <summary>
+    /// Sends the same line to every connected gateway.
+    ///
+    /// Used for commands that are not about one bed - "re-read your device
+    /// inventory" concerns the gateway itself, and a ward may have one gateway
+    /// per room. Returns how many accepted it, so the caller can tell "sent to
+    /// two gateways" from "no gateway is connected".
+    /// </summary>
+    public async Task<int> BroadcastCommandAsync(string jsonLine, CancellationToken cancellationToken = default)
+    {
+        var delivered = 0;
+        foreach (var bedId in connections.Keys)
+        {
+            if (await TrySendCommandAsync(bedId, jsonLine, cancellationToken))
+            {
+                delivered++;
+            }
+        }
+        return delivered;
+    }
+
     public void Unregister(string bedId)
     {
         connections.TryRemove(bedId, out _);

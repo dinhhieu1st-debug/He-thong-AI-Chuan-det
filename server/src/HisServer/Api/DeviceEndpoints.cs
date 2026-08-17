@@ -68,6 +68,21 @@ public static class DeviceEndpoints
         group.MapGet("/{deviceId}/events", async (string deviceId, DeviceRepository repository) =>
             Results.Ok((await repository.GetEventsAsync(deviceId)).Select(DeviceEventDto.From)));
 
+        /* Ask the gateways to re-read their device inventory.
+         *
+         * zigbee2mqtt republishes its device list only when the Zigbee network
+         * changes, so deleting a record here changes nothing on the radio and
+         * the device would not be seen again until the gateway restarted. This
+         * is what makes "remove it, then add it back" a thing a technician can
+         * actually do - and test - from this page. */
+        group.MapPost("/rescan", async (BedConnectionRegistry connections) =>
+        {
+            var delivered = await connections.BroadcastCommandAsync("{\"cmd\":\"rescan_devices\"}");
+            return delivered == 0
+                ? Results.Ok(new { gateways = 0, message = "No gateway is connected right now" })
+                : Results.Ok(new { gateways = delivered });
+        });
+
         group.MapDelete("/{deviceId}", async (string deviceId, DeviceRepository repository) =>
         {
             var deleted = await repository.DeleteAsync(deviceId);

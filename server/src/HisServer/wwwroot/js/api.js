@@ -69,6 +69,7 @@ const Api = (() => {
     claimFaultReport: (id) => request("POST", `/api/fault-reports/${id}/claim`),
     resolveFaultReport: (id, resolutionNote) =>
       request("POST", `/api/fault-reports/${id}/resolve`, { resolutionNote }),
+    rescanDevices: () => request("POST", "/api/devices/rescan"),
     getDeviceEvents: (deviceId) =>
       request("GET", `/api/devices/${encodeURIComponent(deviceId)}/events`),
 
