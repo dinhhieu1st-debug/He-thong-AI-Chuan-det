@@ -13,11 +13,11 @@ const Api = (() => {
      * errors instead of saying the obvious thing: you are signed out. */
     if (response.status === 401) {
       location.href = "/login.html";
-      throw new Error("Phiên đăng nhập đã hết hạn");
+      throw new Error("Your session has expired");
     }
 
     if (response.status === 403) {
-      throw new Error("Bạn không có quyền thực hiện thao tác này");
+      throw new Error("You do not have permission for that action");
     }
 
     if (!response.ok) {

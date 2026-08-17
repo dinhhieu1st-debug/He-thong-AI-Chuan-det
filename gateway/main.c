@@ -62,6 +62,9 @@ typedef int his_socket_t;
 #define DEFAULT_DEVICE_ID "0x64028ffffe641802"
 #define DEFAULT_TOPIC "zigbee2mqtt/0x64028ffffe641802"
 
+/* zigbee2mqtt publishes device_joined / device_interview / device_leave here. */
+#define BRIDGE_EVENT_TOPIC "zigbee2mqtt/bridge/event"
+
 #define BUFFER_SIZE 256
 
 #define AUTO_START_SERVICES 1
@@ -566,6 +569,20 @@ void on_connect(struct mosquitto *mosq, void *userdata, int rc)
         if (sub_rc != MOSQ_ERR_SUCCESS) {
             printf("Error subscribing to topic: %s\n", mosquitto_strerror(sub_rc));
         }
+
+        /* zigbee2mqtt announces every join/interview on this topic. Without it
+         * a device that joined the network was invisible to the server: the
+         * technician had to read the IEEE address out of the z2m log over SSH
+         * and type it into the Devices tab, where a single wrong character
+         * produced a device row that matched nothing and looked, from the UI,
+         * exactly like a device that was simply offline. */
+        sub_rc = mosquitto_subscribe(mosq, NULL, BRIDGE_EVENT_TOPIC, 0);
+        if (sub_rc != MOSQ_ERR_SUCCESS) {
+            printf("Error subscribing to %s: %s\n",
+                   BRIDGE_EVENT_TOPIC, mosquitto_strerror(sub_rc));
+        } else {
+            printf("Listening for new devices on: %s\n", BRIDGE_EVENT_TOPIC);
+        }
     } else {
         printf("Error connecting to MQTT broker, error code: %d\n", rc);
     }
@@ -584,6 +601,141 @@ void on_disconnect(struct mosquitto *mosq, void *userdata, int rc)
     if (rc != 0) {
         printf("Waiting to automatically reconnect...\n");
     }
+}
+
+/*
+ * Extracts a string value from a flat JSON payload:
+ *   get_string_from_json(payload, "ieee_address", buf, sizeof buf)
+ *
+ * The existing helpers only read numbers and booleans; a device address is
+ * neither. Same minimal-parser approach as the rest of this file - the
+ * payloads are machine-generated and flat, so a full JSON library would be
+ * a dependency bought for nothing.
+ */
+int get_string_from_json(const char *json, const char *key, char *out, size_t out_size)
+{
+    char pattern[128];
+    char *pos;
+    char *colon;
+    char *start;
+    char *end;
+    size_t length;
+
+    if (json == NULL || key == NULL || out == NULL || out_size == 0) {
+        return 0;
+    }
+
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    pos = strstr(json, pattern);
+    if (pos == NULL) {
+        return 0;
+    }
+
+    colon = strchr(pos, ':');
+    if (colon == NULL) {
+        return 0;
+    }
+
+    start = colon + 1;
+    while (*start != '\0' && isspace((unsigned char)*start)) {
+        start++;
+    }
+    if (*start != '"') {
+        return 0;               /* null, a number, an object - not a string */
+    }
+    start++;
+
+    end = strchr(start, '"');
+    if (end == NULL) {
+        return 0;
+    }
+
+    length = (size_t)(end - start);
+    if (length >= out_size) {
+        length = out_size - 1;
+    }
+    memcpy(out, start, length);
+    out[length] = '\0';
+    return 1;
+}
+
+/*
+ * Tells the HIS Server that a Zigbee device joined, so it appears in the
+ * Devices tab for a technician to assign to a bed.
+ *
+ * Sent over the SAME TCP connection that carries vitals, as a line with a
+ * "type" field. Vitals lines have no such field, so the server can tell them
+ * apart, and no second port, protocol or credential is introduced for what is
+ * one message per device per join.
+ */
+static void his_announce_device(const char *device_id, const char *friendly_name)
+{
+    char line[400];
+    size_t len;
+
+    if (his_host == NULL || device_id == NULL || device_id[0] == '\0') {
+        return;
+    }
+
+    if (his_socket == HIS_INVALID_SOCKET) {
+        his_socket = his_connect(his_host, his_port);
+        if (his_socket == HIS_INVALID_SOCKET) {
+            printf("Could not reach HIS Server to announce device %s\n", device_id);
+            return;
+        }
+        printf("Connected to HIS Server %s:%d (TCP)\n", his_host, his_port);
+    }
+
+    snprintf(line, sizeof(line),
+             "{\"type\":\"device_announce\",\"deviceId\":\"%s\",\"friendlyName\":\"%s\"}\n",
+             device_id, friendly_name != NULL ? friendly_name : "");
+
+    len = strlen(line);
+    if (send(his_socket, line, (int)len, 0) < 0) {
+        printf("Lost connection to HIS Server while announcing a device\n");
+        his_close(his_socket);
+        his_socket = HIS_INVALID_SOCKET;
+    } else {
+        printf("Announced device to HIS Server: %s (%s)\n",
+               device_id, friendly_name != NULL ? friendly_name : "unnamed");
+    }
+}
+
+/*
+ * Handles one zigbee2mqtt bridge event. Returns 1 if the message was a bridge
+ * event (and must not be parsed as vitals).
+ */
+static int handle_bridge_event(const char *payload)
+{
+    char type[64];
+    char ieee[64];
+    char name[96];
+
+    if (!get_string_from_json(payload, "type", type, sizeof(type))) {
+        return 1;               /* a bridge event we do not care about */
+    }
+
+    /* device_joined fires the moment it associates; device_interview fires
+     * again when z2m knows what it is. Both carry the address, and taking
+     * either means a device shows up even if the interview stalls - the
+     * failure the error table in the A-Z guide describes. */
+    if (strcmp(type, "device_joined") != 0 && strcmp(type, "device_interview") != 0) {
+        if (strcmp(type, "device_leave") == 0) {
+            printf("Zigbee device left the network\n");
+        }
+        return 1;
+    }
+
+    if (!get_string_from_json(payload, "ieee_address", ieee, sizeof(ieee))) {
+        return 1;
+    }
+    if (!get_string_from_json(payload, "friendly_name", name, sizeof(name))) {
+        name[0] = '\0';
+    }
+
+    printf("\nZigbee event: %s -> %s (%s)\n", type, ieee, name[0] ? name : "unnamed");
+    his_announce_device(ieee, name);
+    return 1;
 }
 
 /*
@@ -627,6 +779,12 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
 
     memcpy(payload, msg->payload, (size_t)msg->payloadlen);
     payload[msg->payloadlen] = '\0';
+
+    if (msg->topic != NULL && strcmp(msg->topic, BRIDGE_EVENT_TOPIC) == 0) {
+        handle_bridge_event(payload);
+        free(payload);
+        return;
+    }
 
     printf("\nMQTT message received\n");
     printf("Topic: %s\n", msg->topic);

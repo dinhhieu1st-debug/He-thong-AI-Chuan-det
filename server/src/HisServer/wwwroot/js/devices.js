@@ -92,12 +92,93 @@ const DevicesTab = (() => {
     });
   }
 
+  /* Devices that announced themselves over Zigbee but have no bed yet.
+   *
+   * They are pulled to the top rather than left to sort in among the rest:
+   * an unassigned device forwards no vitals, so it is the one thing on this
+   * screen that needs someone to act. */
+  function pendingBannerHtml() {
+    /* Only bedside sensors. A gateway serves a ROOM and legitimately has no
+     * bed, so listing gateways here would put three rows that need no action
+     * next to the one that does - and a list where most entries are noise
+     * stops being read. */
+    const pending = Array.from(State.devices.values())
+      .filter((d) => !d.assignedBedId && (d.deviceType || "").toUpperCase() === "XG26")
+      .sort((a, b) => (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""));
+
+    if (pending.length === 0) return "";
+
+    const beds = Array.from(State.beds.values())
+      .sort((a, b) => a.bedId.localeCompare(b.bedId));
+
+    const rows = pending.map((d) => `
+      <tr>
+        <td><b>${UiUtils.escapeHtml(d.deviceId)}</b></td>
+        <td class="muted">${d.lastSeenAt ? UiUtils.formatDateTime(d.lastSeenAt) : "—"}</td>
+        <td>
+          <select class="search-input" data-assign-bed="${UiUtils.escapeHtml(d.deviceId)}" style="max-width:170px;">
+            <option value="">Choose a bed…</option>
+            ${beds.map((b) => `<option value="${UiUtils.escapeHtml(b.bedId)}">${UiUtils.escapeHtml(b.bedId)} · ${UiUtils.escapeHtml(b.room)}</option>`).join("")}
+          </select>
+        </td>
+        <td><button class="btn primary" data-assign-device="${UiUtils.escapeHtml(d.deviceId)}">Assign</button></td>
+      </tr>`).join("");
+
+    return `
+      <div class="pending-devices">
+        <div class="section-title" style="margin-top:0;">
+          New devices waiting to be assigned (${pending.length})
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Device</th><th>Seen</th><th>Bed</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  async function assignDevice(deviceId) {
+    const select = document.querySelector(`[data-assign-bed="${CSS.escape(deviceId)}"]`);
+    const bedId = select ? select.value : "";
+    if (!bedId) {
+      UiUtils.toast("Choose a bed first", true);
+      return;
+    }
+
+    const device = State.devices.get(deviceId);
+    const bed = State.beds.get(bedId);
+    try {
+      await Api.updateDevice(deviceId, {
+        deviceId,
+        deviceType: device.deviceType,
+        assignedBedId: bedId,
+        // The room comes from the bed, not from a second thing to type: a
+        // device assigned to BED-101 is in whatever room BED-101 is in.
+        room: bed ? bed.room : device.room,
+        status: "Online",
+        batteryPercent: device.batteryPercent,
+        rssi: device.rssi,
+        eui64: device.eui64 || deviceId
+      });
+      UiUtils.toast(`${deviceId} assigned to ${bedId}`);
+      State.setDevices(await Api.getDevices());
+    } catch (err) {
+      UiUtils.toast(err.message, true);
+    }
+  }
+
   function render() {
     const devices = Array.from(State.devices.values()).filter(matchesFilters).sort((a, b) => a.deviceId.localeCompare(b.deviceId));
     const grid = document.getElementById("devicesGrid");
+    const banner = document.getElementById("pendingDevices");
+    if (banner) banner.innerHTML = pendingBannerHtml();
+
     grid.innerHTML = devices.length === 0
       ? `<div class="empty-state">No devices match the current filters.</div>`
       : devices.map(deviceCardHtml).join("");
+
+    document.querySelectorAll("[data-assign-device]").forEach((btn) => {
+      btn.addEventListener("click", () => assignDevice(btn.getAttribute("data-assign-device")));
+    });
 
     grid.querySelectorAll(".device-card").forEach((card) => {
       card.addEventListener("click", () => {
@@ -116,6 +197,9 @@ const DevicesTab = (() => {
 
   function init() {
     State.on("devices-changed", render);
+    State.on("device-discovered", (device) => {
+      UiUtils.toast(`New device joined: ${device.deviceId}`);
+    });
 
     document.getElementById("deviceSearch").addEventListener("input", (e) => {
       searchTerm = e.target.value;

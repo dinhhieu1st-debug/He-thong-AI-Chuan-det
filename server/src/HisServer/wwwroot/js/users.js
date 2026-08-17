@@ -32,25 +32,25 @@ const UsersTab = (() => {
   function userRow(u) {
     return `
       <tr data-user-id="${u.userId}" class="user-row" style="cursor:pointer;">
-        <td><b>${UiUtils.escapeHtml(u.username)}</b>${u.isActive ? "" : ` <span class="muted">(đã khoá)</span>`}</td>
+        <td><b>${UiUtils.escapeHtml(u.username)}</b>${u.isActive ? "" : ` <span class="muted">(disabled)</span>`}</td>
         <td>${UiUtils.escapeHtml(u.fullName || "—")}</td>
         <td>${rolePill(u.role)}</td>
-        <td class="muted">${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "chưa đăng nhập"}</td>
-        <td>${u.mustChangePassword ? `<span class="muted">chờ đổi mật khẩu</span>` : ""}</td>
+        <td class="muted">${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "never signed in"}</td>
+        <td>${u.mustChangePassword ? `<span class="muted">must change password</span>` : ""}</td>
       </tr>`;
   }
 
   function detailHtml() {
     if (!selected) {
-      return `<div class="empty-state">Chọn một tài khoản để xem và phân công.</div>`;
+      return `<div class="empty-state">Select an account to view and assign.</div>`;
     }
     const u = selected.user;
     const rows = selected.assignments.map((a) => `
       <tr>
-        <td>${a.scopeType === "ROOM" ? "Phòng" : "Giường"}</td>
+        <td>${a.scopeType === "ROOM" ? "Room" : "Bed"}</td>
         <td><b>${UiUtils.escapeHtml(a.scopeValue)}</b></td>
         <td style="text-align:right;">
-          <button class="btn danger" data-remove-assignment="${a.assignmentId}">Bỏ</button>
+          <button class="btn danger" data-remove-assignment="${a.assignmentId}">Remove</button>
         </td>
       </tr>`).join("");
 
@@ -60,36 +60,36 @@ const UsersTab = (() => {
           <h3>${UiUtils.escapeHtml(u.fullName || u.username)}</h3>
           ${rolePill(u.role)}
         </div>
-        <div class="kv"><span>Tài khoản</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
-        <div class="kv"><span>Trạng thái</span><b>${u.isActive ? "Đang hoạt động" : "Đã khoá"}</b></div>
-        <div class="kv"><span>Tạo lúc</span><b>${UiUtils.formatDateTime(u.createdAt)}</b></div>
+        <div class="kv"><span>Account</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
+        <div class="kv"><span>Status</span><b>${u.isActive ? "Active" : "Disabled"}</b></div>
+        <div class="kv"><span>Created</span><b>${UiUtils.formatDateTime(u.createdAt)}</b></div>
 
         <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
           <select class="search-input" id="userRoleSelect" style="max-width:180px;">
-            <option value="NURSE"${u.role === "NURSE" ? " selected" : ""}>Điều dưỡng</option>
-            <option value="TECHNICIAN"${u.role === "TECHNICIAN" ? " selected" : ""}>Kỹ thuật viên</option>
-            <option value="ADMIN"${u.role === "ADMIN" ? " selected" : ""}>Quản trị viên</option>
+            <option value="NURSE"${u.role === "NURSE" ? " selected" : ""}>Nurse</option>
+            <option value="TECHNICIAN"${u.role === "TECHNICIAN" ? " selected" : ""}>Technician</option>
+            <option value="ADMIN"${u.role === "ADMIN" ? " selected" : ""}>Administrator</option>
           </select>
-          <button class="btn" id="saveRoleBtn">Lưu vai trò</button>
-          <button class="btn" id="toggleActiveBtn">${u.isActive ? "Khoá tài khoản" : "Mở khoá"}</button>
-          <button class="btn" id="resetPwBtn">Đặt lại mật khẩu</button>
-          <button class="btn danger" id="deleteUserBtn">Xoá</button>
+          <button class="btn" id="saveRoleBtn">Save role</button>
+          <button class="btn" id="toggleActiveBtn">${u.isActive ? "Disable account" : "Enable"}</button>
+          <button class="btn" id="resetPwBtn">Reset password</button>
+          <button class="btn danger" id="deleteUserBtn">Delete</button>
         </div>
       </div>
 
-      <div class="section-title">Phân công phụ trách</div>
+      <div class="section-title">Duty assignments</div>
       <div class="toolbar">
         <select class="search-input" id="assignScope" style="max-width:140px;">
-          <option value="ROOM">Phòng</option>
-          <option value="BED">Giường</option>
+          <option value="ROOM">Room</option>
+          <option value="BED">Bed</option>
         </select>
-        <input class="search-input" id="assignValue" placeholder="ICU-1 hoặc BED-101" style="max-width:220px;">
-        <button class="btn primary" id="addAssignBtn">Thêm phân công</button>
+        <input class="search-input" id="assignValue" placeholder="ICU-1 or BED-101" style="max-width:220px;">
+        <button class="btn primary" id="addAssignBtn">Add assignment</button>
       </div>
       ${selected.assignments.length === 0
-        ? `<div class="empty-state">Chưa phân công phòng hoặc giường nào.</div>`
+        ? `<div class="empty-state">No rooms or beds assigned yet.</div>`
         : `<table class="data-table">
-             <thead><tr><th>Phạm vi</th><th>Giá trị</th><th></th></tr></thead>
+             <thead><tr><th>Scope</th><th>Value</th><th></th></tr></thead>
              <tbody>${rows}</tbody>
            </table>`}`;
   }
@@ -99,18 +99,18 @@ const UsersTab = (() => {
     if (!host) return;
 
     if (error) {
-      host.innerHTML = `<div class="empty-state">Không tải được danh sách người dùng: ${UiUtils.escapeHtml(error)}</div>`;
+      host.innerHTML = `<div class="empty-state">Could not load users: ${UiUtils.escapeHtml(error)}</div>`;
       return;
     }
 
     host.innerHTML = `
       <div class="toolbar">
-        <button class="btn primary" id="addUserBtn">+ Thêm tài khoản</button>
+        <button class="btn primary" id="addUserBtn">+ Add account</button>
       </div>
       <div class="split">
         <div class="main-col">
           <table class="data-table">
-            <thead><tr><th>Tài khoản</th><th>Họ tên</th><th>Vai trò</th><th>Đăng nhập lần cuối</th><th></th></tr></thead>
+            <thead><tr><th>Account</th><th>Full name</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead>
             <tbody>${users.map(userRow).join("")}</tbody>
           </table>
         </div>
@@ -132,43 +132,43 @@ const UsersTab = (() => {
 
     document.getElementById("saveRoleBtn")?.addEventListener("click", async () => {
       const role = document.getElementById("userRoleSelect").value;
-      await guard(() => Api.updateUser(userId, { role }), "Đã cập nhật vai trò");
+      await guard(() => Api.updateUser(userId, { role }), "Role updated");
     });
 
     document.getElementById("toggleActiveBtn")?.addEventListener("click", async () => {
       await guard(() => Api.updateUser(userId, { isActive: !selected.user.isActive }),
-                  "Đã cập nhật trạng thái tài khoản");
+                  "Account status updated");
     });
 
     document.getElementById("resetPwBtn")?.addEventListener("click", async () => {
       /* The administrator types the new password and passes it on out of band.
        * It is marked "must change", so the owner replaces it at next login and
        * the administrator's copy stops being valid. */
-      const next = prompt("Mật khẩu mới (tối thiểu 8 ký tự):");
+      const next = prompt("New password (at least 8 characters):");
       if (!next) return;
       await guard(() => Api.resetUserPassword(userId, next),
-                  "Đã đặt lại mật khẩu. Người dùng phải đổi khi đăng nhập.");
+                  "Password reset. The user must change it at next sign-in.");
     });
 
     document.getElementById("deleteUserBtn")?.addEventListener("click", async () => {
-      if (!confirm(`Xoá tài khoản '${selected.user.username}'? Thao tác này không hoàn tác được.`)) return;
+      if (!confirm(`Delete account '${selected.user.username}'? This cannot be undone.`)) return;
       await guard(async () => {
         await Api.deleteUser(userId);
         selected = null;
-      }, "Đã xoá tài khoản");
+      }, "Account deleted");
     });
 
     document.getElementById("addAssignBtn")?.addEventListener("click", async () => {
       const scope = document.getElementById("assignScope").value;
       const value = document.getElementById("assignValue").value.trim();
       if (!value) return;
-      await guard(() => Api.addAssignment(userId, scope, value), "Đã thêm phân công");
+      await guard(() => Api.addAssignment(userId, scope, value), "Assignment added");
     });
 
     document.querySelectorAll("[data-remove-assignment]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         await guard(() => Api.removeAssignment(btn.getAttribute("data-remove-assignment")),
-                    "Đã bỏ phân công");
+                    "Assignment removed");
       });
     });
   }
@@ -192,23 +192,23 @@ const UsersTab = (() => {
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML = `
       <form class="modal-card" id="newUserForm">
-        <h3>Thêm tài khoản</h3>
-        <label for="nuUsername">Tên đăng nhập</label>
+        <h3>Add account</h3>
+        <label for="nuUsername">Username</label>
         <input id="nuUsername" required minlength="3" autocomplete="off">
-        <label for="nuFullName">Họ và tên</label>
+        <label for="nuFullName">Full name</label>
         <input id="nuFullName" autocomplete="off">
-        <label for="nuRole">Vai trò</label>
+        <label for="nuRole">Role</label>
         <select id="nuRole">
-          <option value="NURSE">Điều dưỡng</option>
-          <option value="TECHNICIAN">Kỹ thuật viên</option>
-          <option value="ADMIN">Quản trị viên</option>
+          <option value="NURSE">Nurse</option>
+          <option value="TECHNICIAN">Technician</option>
+          <option value="ADMIN">Administrator</option>
         </select>
-        <label for="nuPassword">Mật khẩu ban đầu (tối thiểu 8 ký tự)</label>
+        <label for="nuPassword">Initial password (at least 8 characters)</label>
         <input type="password" id="nuPassword" required minlength="8" autocomplete="new-password">
         <div class="form-error" id="nuError"></div>
         <div class="modal-actions">
-          <button type="button" class="btn" id="nuCancel">Huỷ</button>
-          <button type="submit" class="btn primary">Tạo</button>
+          <button type="button" class="btn" id="nuCancel">Cancel</button>
+          <button type="submit" class="btn primary">Create</button>
         </div>
       </form>`;
     document.body.appendChild(backdrop);
@@ -225,7 +225,7 @@ const UsersTab = (() => {
           password: backdrop.querySelector("#nuPassword").value
         });
         backdrop.remove();
-        UiUtils.toast("Đã tạo tài khoản. Người dùng phải đổi mật khẩu khi đăng nhập.");
+        UiUtils.toast("Account created. The user must change the password at first sign-in.");
         await load();
       } catch (err) {
         errorBox.textContent = err.message;

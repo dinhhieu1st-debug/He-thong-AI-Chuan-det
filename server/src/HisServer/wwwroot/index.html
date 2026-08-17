@@ -46,11 +46,11 @@
     </button>
     <button class="nav-btn" data-tab="profile">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"></path></svg>
-      <span>Ca trực của tôi</span>
+      <span>My shift</span>
     </button>
     <button class="nav-btn" data-tab="users" data-cap="users.manage">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path></svg>
-      <span>Người dùng</span>
+      <span>Users</span>
     </button>
 
     <div class="sidebar-footer">
@@ -59,7 +59,7 @@
         <div style="font-size:12px; font-weight:600; color:white;" id="sessionName">…</div>
         <div style="font-size:10.5px; color:#9fb2cc;" id="sessionRole">…</div>
       </div>
-      <button type="button" id="logoutBtn" title="Đăng xuất"
+      <button type="button" id="logoutBtn" title="Sign out"
               style="background:none; border:none; color:#9fb2cc; cursor:pointer; padding:4px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path></svg>
       </button>
@@ -139,6 +139,7 @@
 
       <!-- DEVICES -->
       <div class="tab-panel" id="tab-devices">
+        <div id="pendingDevices"></div>
         <div class="toolbar">
           <input class="search-input" id="deviceSearch" placeholder="Search device or bed...">
           <div class="chip-row" id="deviceTypeFilters">

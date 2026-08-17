@@ -752,3 +752,8 @@ body.no-scroll { overflow: hidden; }
 }
 .bd-patient-actions { display: flex; gap: 6px; }
 .bd-patient-actions .btn { flex: 1; justify-content: center; }
+.pending-devices {
+  border: 1px solid #f0d5a8; background: #fffaf0;
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
+}
+.pending-devices .data-table { background: #fff; }

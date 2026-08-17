@@ -40,7 +40,7 @@ public static class AuthEndpoints
             {
                 logger.LogWarning("Failed login for '{Username}' from {Ip}",
                     request.Username, http.Connection.RemoteIpAddress);
-                return Results.Json(new { error = "Sai tài khoản hoặc mật khẩu" },
+                return Results.Json(new { error = "Incorrect username or password" },
                                     statusCode: StatusCodes.Status401Unauthorized);
             }
 
@@ -76,7 +76,7 @@ public static class AuthEndpoints
 
             if (!PasswordHasher.Verify(request.CurrentPassword ?? string.Empty, user.PasswordHash))
             {
-                return Results.BadRequest(new { error = "Mật khẩu hiện tại không đúng" });
+                return Results.BadRequest(new { error = "Current password is incorrect" });
             }
 
             var next = request.NewPassword ?? string.Empty;
@@ -84,12 +84,12 @@ public static class AuthEndpoints
             {
                 return Results.BadRequest(new
                 {
-                    error = $"Mật khẩu mới phải có ít nhất {MinPasswordLength} ký tự"
+                    error = $"New password must be at least {MinPasswordLength} characters"
                 });
             }
             if (next == request.CurrentPassword)
             {
-                return Results.BadRequest(new { error = "Mật khẩu mới phải khác mật khẩu cũ" });
+                return Results.BadRequest(new { error = "New password must differ from the old one" });
             }
 
             await users.SetPasswordAsync(user.UserId, PasswordHasher.Hash(next), mustChange: false);

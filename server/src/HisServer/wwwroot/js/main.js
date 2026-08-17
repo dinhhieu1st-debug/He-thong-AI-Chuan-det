@@ -5,8 +5,8 @@
     alerts: "Alerts",
     devices: "Devices",
     "system-log": "System Log",
-    profile: "Ca trực của tôi",
-    users: "Người dùng"
+    profile: "My shift",
+    users: "Users"
   };
 
   /* Tabs that fetch on demand instead of riding the live SignalR feed. They

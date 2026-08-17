@@ -41,22 +41,22 @@ public static class UserEndpoints
             var username = (request.Username ?? string.Empty).Trim();
             if (username.Length < 3)
             {
-                return Results.BadRequest(new { error = "Tên đăng nhập phải có ít nhất 3 ký tự" });
+                return Results.BadRequest(new { error = "Username must be at least 3 characters" });
             }
             if ((request.Password ?? string.Empty).Length < MinPasswordLength)
             {
                 return Results.BadRequest(new
                 {
-                    error = $"Mật khẩu phải có ít nhất {MinPasswordLength} ký tự"
+                    error = $"Password must be at least {MinPasswordLength} characters"
                 });
             }
             if (!TryParseRole(request.Role, out var role))
             {
-                return Results.BadRequest(new { error = "Vai trò không hợp lệ" });
+                return Results.BadRequest(new { error = "Unknown role" });
             }
             if (await users.FindByUsernameAsync(username) is not null)
             {
-                return Results.Conflict(new { error = $"Tài khoản '{username}' đã tồn tại" });
+                return Results.Conflict(new { error = $"Account '{username}' already exists" });
             }
 
             var id = await users.CreateAsync(username, PasswordHasher.Hash(request.Password!),
@@ -73,7 +73,7 @@ public static class UserEndpoints
             var role = user.Role;
             if (request.Role is not null && !TryParseRole(request.Role, out role))
             {
-                return Results.BadRequest(new { error = "Vai trò không hợp lệ" });
+                return Results.BadRequest(new { error = "Unknown role" });
             }
 
             var isActive = request.IsActive ?? user.IsActive;
@@ -87,7 +87,7 @@ public static class UserEndpoints
             {
                 return Results.BadRequest(new
                 {
-                    error = "Không thể tự hạ quyền hoặc tự khoá tài khoản đang đăng nhập"
+                    error = "You cannot demote or disable the account you are signed in with"
                 });
             }
 
@@ -102,7 +102,7 @@ public static class UserEndpoints
             {
                 return Results.BadRequest(new
                 {
-                    error = $"Mật khẩu phải có ít nhất {MinPasswordLength} ký tự"
+                    error = $"Password must be at least {MinPasswordLength} characters"
                 });
             }
             if (await users.FindByIdAsync(userId) is null) return Results.NotFound();
@@ -118,7 +118,7 @@ public static class UserEndpoints
             var self = await AuthEndpoints.CurrentUserAsync(http, users);
             if (self is not null && self.UserId == userId)
             {
-                return Results.BadRequest(new { error = "Không thể xoá chính tài khoản đang đăng nhập" });
+                return Results.BadRequest(new { error = "You cannot delete the account you are signed in with" });
             }
             await users.DeleteAsync(userId);
             return Results.NoContent();
@@ -135,12 +135,12 @@ public static class UserEndpoints
             if (await users.FindByIdAsync(userId) is null) return Results.NotFound();
             if (!Enum.TryParse<AssignmentScope>(request.ScopeType, ignoreCase: true, out var scope))
             {
-                return Results.BadRequest(new { error = "scopeType phải là ROOM hoặc BED" });
+                return Results.BadRequest(new { error = "scopeType must be ROOM or BED" });
             }
             var value = (request.ScopeValue ?? string.Empty).Trim();
             if (value.Length == 0)
             {
-                return Results.BadRequest(new { error = "Thiếu tên phòng hoặc mã giường" });
+                return Results.BadRequest(new { error = "Missing room name or bed id" });
             }
 
             await users.AddAssignmentAsync(userId, scope, value);

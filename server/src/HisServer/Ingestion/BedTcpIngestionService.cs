@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using HisServer.Data;
 using HisServer.Domain;
 using HisServer.Hubs;
@@ -31,6 +32,7 @@ public sealed class BedTcpIngestionService : BackgroundService
     private readonly VitalsPersistenceCoordinator persistenceCoordinator;
     private readonly FcmPushService fcmPushService;
     private readonly BedConnectionRegistry connectionRegistry;
+    private readonly DeviceRepository deviceRepository;
     private readonly IHubContext<MonitoringHub, IMonitoringClient> hub;
     private readonly IOptionsMonitor<TcpOptions> options;
     private readonly ILogger<BedTcpIngestionService> logger;
@@ -43,6 +45,7 @@ public sealed class BedTcpIngestionService : BackgroundService
         VitalsPersistenceCoordinator persistenceCoordinator,
         FcmPushService fcmPushService,
         BedConnectionRegistry connectionRegistry,
+        DeviceRepository deviceRepository,
         IHubContext<MonitoringHub, IMonitoringClient> hub,
         IOptionsMonitor<TcpOptions> options,
         ILogger<BedTcpIngestionService> logger)
@@ -54,6 +57,7 @@ public sealed class BedTcpIngestionService : BackgroundService
         this.persistenceCoordinator = persistenceCoordinator;
         this.fcmPushService = fcmPushService;
         this.connectionRegistry = connectionRegistry;
+        this.deviceRepository = deviceRepository;
         this.hub = hub;
         this.options = options;
         this.logger = logger;
@@ -130,6 +134,16 @@ public sealed class BedTcpIngestionService : BackgroundService
 
                     try
                     {
+                        /* A gateway sends two kinds of line on this socket.
+                         * Vitals have no "type" field (the format predates
+                         * this), so anything carrying one is a control message
+                         * and is handled separately - which keeps every older
+                         * gateway working untouched. */
+                        if (TryHandleControlLine(line, stream, out var handled) && handled)
+                        {
+                            continue;
+                        }
+
                         var reading = BedDataParser.Parse(line);
 
                         if (registeredBedId != reading.BedId)
@@ -158,6 +172,91 @@ public sealed class BedTcpIngestionService : BackgroundService
             {
                 connectionRegistry.Unregister(registeredBedId);
             }
+        }
+    }
+
+    /// <summary>
+    /// Handles a non-vitals line. Returns true when the line WAS a control
+    /// message (so the caller must not try to parse it as a reading).
+    ///
+    /// Today there is one: a gateway telling the server that a Zigbee device
+    /// joined the network. Before this, a device that joined was invisible to
+    /// the server - the technician had to type its address into the Devices
+    /// tab by hand, from a zigbee2mqtt log they had to SSH in to read, and a
+    /// typo produced a device row matching nothing.
+    /// </summary>
+    private bool TryHandleControlLine(string line, NetworkStream stream, out bool handled)
+    {
+        handled = false;
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            if (!document.RootElement.TryGetProperty("type", out var typeElement))
+            {
+                return false;
+            }
+
+            var type = typeElement.GetString();
+            if (!string.Equals(type, "device_announce", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var root = document.RootElement;
+            var deviceId = ReadString(root, "deviceId") ?? ReadString(root, "device_id");
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                return false;
+            }
+
+            var friendlyName = ReadString(root, "friendlyName") ?? ReadString(root, "friendly_name");
+            _ = Task.Run(() => AnnounceDeviceAsync(deviceId!, friendlyName));
+            handled = true;
+            return true;
+        }
+        catch (JsonException)
+        {
+            // Not JSON at all - let the reading parser produce the real error.
+            return false;
+        }
+    }
+
+    private static string? ReadString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String
+            ? element.GetString()
+            : null;
+
+    private async Task AnnounceDeviceAsync(string deviceId, string? friendlyName)
+    {
+        try
+        {
+            var existing = await deviceRepository.GetAsync(deviceId);
+
+            /* An already-assigned device that rejoins (a power cut, a firmware
+             * flash) must NOT be pushed back to PENDING and lose its bed - it
+             * is the same device coming back, and the technician should not
+             * have to re-assign it every time the ward loses power. */
+            var device = existing ?? new DeviceRecord
+            {
+                DeviceId = deviceId,
+                DeviceType = DeviceType.Xg26,
+                Status = DeviceStatus.Pending
+            };
+
+            device.Eui64 = deviceId;
+            device.LastSeenAt = DateTime.UtcNow;
+            if (existing is null)
+            {
+                logger.LogInformation("New Zigbee device announced: {DeviceId} ({FriendlyName})",
+                    deviceId, friendlyName ?? "unnamed");
+            }
+
+            await deviceRepository.UpsertAsync(device);
+            await hub.Clients.All.DeviceDiscovered(DeviceDto.From(device));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not record announced device {DeviceId}", deviceId);
         }
     }
 

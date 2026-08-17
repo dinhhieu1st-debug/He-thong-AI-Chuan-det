@@ -1,4 +1,4 @@
-/* "Ca trực của tôi" - the shift view.
+/* "My shift" - the shift view.
  *
  * Answers the question a nurse actually has at handover: which beds am I
  * responsible for right now, who is in them, and is any of them in trouble.
@@ -29,7 +29,7 @@ const ProfileTab = (() => {
   function bedRow(bed) {
     const patient = bed.patientName
       ? `${UiUtils.escapeHtml(bed.patientName)}${bed.patientCode ? ` <span class="muted">· ${UiUtils.escapeHtml(bed.patientCode)}</span>` : ""}`
-      : `<span class="muted">Giường trống</span>`;
+      : `<span class="muted">Empty bed</span>`;
 
     return `
       <tr data-bed-id="${UiUtils.escapeHtml(bed.bedId)}" class="profile-bed-row">
@@ -46,26 +46,25 @@ const ProfileTab = (() => {
     if (!host) return;
 
     if (error) {
-      host.innerHTML = `<div class="empty-state">Không tải được thông tin ca trực: ${UiUtils.escapeHtml(error)}</div>`;
+      host.innerHTML = `<div class="empty-state">Could not load your shift: ${UiUtils.escapeHtml(error)}</div>`;
       return;
     }
     if (!data) {
-      host.innerHTML = `<div class="empty-state">Đang tải…</div>`;
+      host.innerHTML = `<div class="empty-state">Loading…</div>`;
       return;
     }
 
     const u = data.user;
     const s = data.summary;
     const scope = [
-      ...data.rooms.map((r) => `<span class="chip active">Phòng ${UiUtils.escapeHtml(r)}</span>`),
+      ...data.rooms.map((r) => `<span class="chip active">Room ${UiUtils.escapeHtml(r)}</span>`),
       ...data.individualBeds.map((b) => `<span class="chip active">${UiUtils.escapeHtml(b)}</span>`)
     ].join(" ");
 
     /* An empty roster is a normal state (nobody has been assigned yet), not an
      * error - say so plainly and point at who can fix it, rather than showing
      * an empty table that reads like a bug. */
-    const scopeHtml = scope || `<span class="muted">Chưa được phân công phòng/giường nào —
-      quản trị viên gán trong tab Người dùng.</span>`;
+    const scopeHtml = scope || `<span class="muted">No rooms or beds assigned yet — an administrator assigns them on the Users tab.</span>`;
 
     host.innerHTML = `
       <div class="panel-card">
@@ -73,24 +72,24 @@ const ProfileTab = (() => {
           <h3>${UiUtils.escapeHtml(u.fullName || u.username)}</h3>
           <span class="chip active">${UiUtils.escapeHtml(Session.ROLE_LABEL[u.role] || u.role)}</span>
         </div>
-        <div class="kv"><span>Tài khoản</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
-        <div class="kv"><span>Đăng nhập lần cuối</span><b>${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "—"}</b></div>
-        <div class="kv"><span>Phạm vi phụ trách</span><div>${scopeHtml}</div></div>
-        <button type="button" class="btn" id="changePasswordBtn" style="margin-top:12px;">Đổi mật khẩu</button>
+        <div class="kv"><span>Account</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
+        <div class="kv"><span>Last sign-in</span><b>${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "—"}</b></div>
+        <div class="kv"><span>Responsible for</span><div>${scopeHtml}</div></div>
+        <button type="button" class="btn" id="changePasswordBtn" style="margin-top:12px;">Change password</button>
       </div>
 
       <div class="stat-row" style="margin-top:18px;">
-        <div class="stat-tile"><div class="value">${s.total}</div><div class="label">Giường phụ trách</div></div>
-        <div class="stat-tile"><div class="value">${s.occupied}</div><div class="label">Đang có bệnh nhân</div></div>
-        <div class="stat-tile critical"><div class="value">${s.critical}</div><div class="label">Nguy kịch</div></div>
-        <div class="stat-tile warning"><div class="value">${s.warning}</div><div class="label">Cảnh báo</div></div>
+        <div class="stat-tile"><div class="value">${s.total}</div><div class="label">Beds assigned</div></div>
+        <div class="stat-tile"><div class="value">${s.occupied}</div><div class="label">Occupied</div></div>
+        <div class="stat-tile critical"><div class="value">${s.critical}</div><div class="label">Critical</div></div>
+        <div class="stat-tile warning"><div class="value">${s.warning}</div><div class="label">Warning</div></div>
       </div>
 
-      <div class="section-title">Giường của tôi</div>
+      <div class="section-title">My beds</div>
       ${data.beds.length === 0
-        ? `<div class="empty-state">Chưa có giường nào trong phạm vi phụ trách.</div>`
+        ? `<div class="empty-state">No beds in your assigned scope yet.</div>`
         : `<table class="data-table">
-             <thead><tr><th>Giường</th><th>Bệnh nhân</th><th>Trạng thái</th><th>Cảnh báo</th><th>Cập nhật</th></tr></thead>
+             <thead><tr><th>Bed</th><th>Patient</th><th>Status</th><th>Warning</th><th>Updated</th></tr></thead>
              <tbody>${data.beds.map(bedRow).join("")}</tbody>
            </table>`}`;
 

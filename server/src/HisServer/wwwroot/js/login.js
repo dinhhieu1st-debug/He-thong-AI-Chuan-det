@@ -26,7 +26,7 @@
     e.preventDefault();
     errorBox.style.display = "none";
     button.disabled = true;
-    button.textContent = "Đang đăng nhập…";
+    button.textContent = "Signing in…";
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -41,7 +41,7 @@
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        showError(body.error || "Đăng nhập thất bại");
+        showError(body.error || "Sign-in failed");
         return;
       }
 
@@ -50,10 +50,10 @@
       // have chosen, so the console is not reachable until it is replaced.
       location.href = me.mustChangePassword ? "/?changePassword=1" : safeReturnUrl();
     } catch (err) {
-      showError("Không kết nối được tới máy chủ");
+      showError("Cannot reach the server");
     } finally {
       button.disabled = false;
-      button.textContent = "Đăng nhập";
+      button.textContent = "Sign in";
     }
   });
 })();

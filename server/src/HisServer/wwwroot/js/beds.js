@@ -301,28 +301,28 @@ const BedsTab = (() => {
    * editable with the patient.edit capability. */
   function patientCardHtml(bed) {
     const admitted = bed.admittedAt
-      ? `<div class="status-line status-line-muted">Nhập viện ${UiUtils.formatDateTime(bed.admittedAt)}</div>`
+      ? `<div class="status-line status-line-muted">Admitted ${UiUtils.formatDateTime(bed.admittedAt)}</div>`
       : "";
 
     const occupied = bed.patientName && bed.patientName.trim();
 
     return `
       <div class="bd-card">
-        <h4>Bệnh nhân</h4>
+        <h4>Patient</h4>
         ${occupied
           ? `<div class="bd-patient-name">${UiUtils.escapeHtml(bed.patientName)}</div>
-             ${bed.patientCode ? `<div class="status-line status-line-muted">Mã BN: ${UiUtils.escapeHtml(bed.patientCode)}</div>` : ""}
+             ${bed.patientCode ? `<div class="status-line status-line-muted">Patient ID: ${UiUtils.escapeHtml(bed.patientCode)}</div>` : ""}
              ${admitted}`
-          : `<div class="status-line status-line-muted">Giường trống</div>`}
+          : `<div class="status-line status-line-muted">Empty bed</div>`}
         <div data-cap="patient.edit">
           <form id="patientForm" class="bd-patient-form">
-            <input type="text" id="patientNameInput" placeholder="Họ tên bệnh nhân"
+            <input type="text" id="patientNameInput" placeholder="Patient name"
                    value="${UiUtils.escapeHtml(bed.patientName || "")}">
-            <input type="text" id="patientCodeInput" placeholder="Mã bệnh nhân"
+            <input type="text" id="patientCodeInput" placeholder="Patient ID"
                    value="${UiUtils.escapeHtml(bed.patientCode || "")}">
             <div class="bd-patient-actions">
-              <button type="submit" class="btn primary">${occupied ? "Cập nhật" : "Nhận bệnh nhân"}</button>
-              ${occupied ? `<button type="button" class="btn" id="dischargeBtn">Xuất viện</button>` : ""}
+              <button type="submit" class="btn primary">${occupied ? "Updated" : "Admit patient"}</button>
+              ${occupied ? `<button type="button" class="btn" id="dischargeBtn">Discharge</button>` : ""}
             </div>
           </form>
         </div>
@@ -836,7 +836,7 @@ const BedsTab = (() => {
       e.preventDefault();
       const patientName = document.getElementById("patientNameInput").value.trim();
       if (!patientName) {
-        UiUtils.toast("Nhập họ tên bệnh nhân, hoặc bấm Xuất viện để trả giường", true);
+        UiUtils.toast("Enter a patient name, or use Discharge to free the bed", true);
         return;
       }
       try {
@@ -844,19 +844,19 @@ const BedsTab = (() => {
           patientName,
           patientCode: document.getElementById("patientCodeInput").value.trim()
         });
-        UiUtils.toast(`${bed.bedId}: đã cập nhật bệnh nhân`);
+        UiUtils.toast(`${bed.bedId}: patient updated`);
       } catch (err) {
         UiUtils.toast(err.message, true);
       }
     });
 
     document.getElementById("dischargeBtn")?.addEventListener("click", async () => {
-      if (!confirm(`Xuất viện cho bệnh nhân ở ${bed.bedId}?`)) return;
+      if (!confirm(`Discharge the patient in ${bed.bedId}?`)) return;
       try {
         // Clearing the name is the discharge; the server clears code and
         // admission time with it so nothing is left to misread later.
         await Api.setPatient(bed.bedId, { patientName: null, patientCode: null });
-        UiUtils.toast(`${bed.bedId}: đã xuất viện`);
+        UiUtils.toast(`${bed.bedId}: patient discharged`);
       } catch (err) {
         UiUtils.toast(err.message, true);
       }

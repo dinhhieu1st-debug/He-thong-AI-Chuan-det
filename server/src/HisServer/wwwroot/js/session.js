@@ -23,9 +23,9 @@ const Session = (() => {
   };
 
   const ROLE_LABEL = {
-    NURSE: "Điều dưỡng",
-    TECHNICIAN: "Kỹ thuật viên",
-    ADMIN: "Quản trị viên"
+    NURSE: "Nurse",
+    TECHNICIAN: "Technician",
+    ADMIN: "Administrator"
   };
 
   async function load() {
@@ -80,20 +80,20 @@ const Session = (() => {
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML = `
       <form class="modal-card" id="pwForm">
-        <h3>${forced ? "Đặt mật khẩu mới" : "Đổi mật khẩu"}</h3>
+        <h3>${forced ? "Set a new password" : "Change password"}</h3>
         ${forced ? `<p class="muted" style="font-size:12.5px; margin:0 0 6px;">
-          Mật khẩu hiện tại do quản trị viên cấp. Hãy đặt mật khẩu riêng trước khi sử dụng hệ thống.
+          Your current password was issued by an administrator. Choose your own before using the console.
         </p>` : ""}
-        <label for="pwCurrent">Mật khẩu hiện tại</label>
+        <label for="pwCurrent">Current password</label>
         <input type="password" id="pwCurrent" autocomplete="current-password" required>
-        <label for="pwNew">Mật khẩu mới (tối thiểu 8 ký tự)</label>
+        <label for="pwNew">New password (at least 8 characters)</label>
         <input type="password" id="pwNew" autocomplete="new-password" minlength="8" required>
-        <label for="pwConfirm">Nhập lại mật khẩu mới</label>
+        <label for="pwConfirm">Confirm new password</label>
         <input type="password" id="pwConfirm" autocomplete="new-password" minlength="8" required>
         <div class="form-error" id="pwError"></div>
         <div class="modal-actions">
-          ${forced ? "" : `<button type="button" class="btn" id="pwCancel">Huỷ</button>`}
-          <button type="submit" class="btn primary">Lưu</button>
+          ${forced ? "" : `<button type="button" class="btn" id="pwCancel">Cancel</button>`}
+          <button type="submit" class="btn primary">Save</button>
         </div>
       </form>`;
     document.body.appendChild(backdrop);
@@ -105,7 +105,7 @@ const Session = (() => {
       e.preventDefault();
       const next = backdrop.querySelector("#pwNew").value;
       if (next !== backdrop.querySelector("#pwConfirm").value) {
-        errorBox.textContent = "Hai lần nhập mật khẩu mới không khớp";
+        errorBox.textContent = "The two new passwords do not match";
         errorBox.style.display = "block";
         return;
       }
@@ -113,7 +113,7 @@ const Session = (() => {
         await Api.changePassword(backdrop.querySelector("#pwCurrent").value, next);
         if (me) me.mustChangePassword = false;
         backdrop.remove();
-        UiUtils.toast("Đã đổi mật khẩu");
+        UiUtils.toast("Password changed");
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = "block";
