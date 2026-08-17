@@ -42,4 +42,7 @@ public sealed record BedReading(
     bool DropsForecastTrusted = true,
     /// <summary>Zigbee signal strength 0-255, or null from a gateway too old
     /// to send it. Equipment diagnostics only - never shown on a ward screen.</summary>
-    int? LinkQuality = null);
+    int? LinkQuality = null,
+    /// <summary>Which device sent this reading. Decides the bed the readings
+    /// belong to - see the routing note in BedTcpIngestionService.</summary>
+    string? DeviceId = null);

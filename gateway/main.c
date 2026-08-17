@@ -380,7 +380,8 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
                                int tare_just_completed, int hr_baseline_just_completed,
                                int hr_baseline_seconds_remaining, int hr_baseline_bpm,
                                int tare_event_count, int hr_baseline_event_count,
-                               int link_quality, const ts_forecast_t *ts)
+                               int link_quality, const char *device_id,
+                               const ts_forecast_t *ts)
 {
     char line[1400];
     char ts_line[420];
@@ -436,7 +437,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"tareInProgress\":%s,\"tareJustCompleted\":%s,"
              "\"hrBaselineJustCompleted\":%s,\"hrBaselineSecondsRemaining\":%d,"
              "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d,"
-             "\"linkQuality\":%d"
+             "\"linkQuality\":%d,\"deviceId\":\"%s\""
              "%s"
              ",\"hrForecast16s\":%s,\"spo2Forecast16s\":%s,\"dropsForecast16s\":%s}\n",
              his_bed_id, his_room, spo2, heart_rate, drop_rate, flow_rate,
@@ -450,6 +451,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              hr_baseline_seconds_remaining, hr_baseline_bpm,
              tare_event_count, hr_baseline_event_count,
              link_quality,
+             device_id != NULL ? device_id : "",
              ts_line,
              hr_forecast_text, spo2_forecast_text, drops_forecast_text);
 
@@ -775,6 +777,67 @@ static int handle_bridge_event(const char *payload)
 
 #define MAX_INVENTORY_DEVICES 32
 #define MAX_IEEE_LEN 32
+#define MAX_NAME_LEN 96
+
+/* friendly_name -> IEEE address, learned from zigbee2mqtt's retained
+ * inventory.
+ *
+ * Vitals arrive on zigbee2mqtt/<friendly_name> and carry no address, but the
+ * server needs to know WHICH DEVICE sent them - that is what decides the bed
+ * the readings belong to. Without this the bed came from the gateway's command
+ * line, so re-assigning a device in the console changed nothing about where
+ * its data landed. */
+static struct {
+    char name[MAX_NAME_LEN];
+    char ieee[MAX_IEEE_LEN];
+} g_device_names[MAX_INVENTORY_DEVICES];
+static int g_device_name_count = 0;
+
+static void remember_device_name(const char *name, const char *ieee)
+{
+    int i;
+
+    if (name == NULL || name[0] == '\0' || ieee == NULL || ieee[0] == '\0') {
+        return;
+    }
+
+    for (i = 0; i < g_device_name_count; i++) {
+        if (strcmp(g_device_names[i].name, name) == 0) {
+            snprintf(g_device_names[i].ieee, MAX_IEEE_LEN, "%s", ieee);
+            return;
+        }
+    }
+
+    if (g_device_name_count < MAX_INVENTORY_DEVICES) {
+        snprintf(g_device_names[g_device_name_count].name, MAX_NAME_LEN, "%s", name);
+        snprintf(g_device_names[g_device_name_count].ieee, MAX_IEEE_LEN, "%s", ieee);
+        g_device_name_count++;
+    }
+}
+
+/* The address of whoever publishes on this topic, or "" if not known yet. */
+static const char *device_id_for_topic(const char *topic)
+{
+    const char *slash;
+    int i;
+
+    if (topic == NULL) {
+        return "";
+    }
+
+    slash = strrchr(topic, '/');
+    if (slash == NULL) {
+        return "";
+    }
+    slash++;
+
+    for (i = 0; i < g_device_name_count; i++) {
+        if (strcmp(g_device_names[i].name, slash) == 0) {
+            return g_device_names[i].ieee;
+        }
+    }
+    return "";
+}
 
 /*
  * Reads the address at an "ieee_address" match. Returns the position just
@@ -798,6 +861,27 @@ static const char *inventory_read_address(const char *match, const char *key,
     memcpy(out, start, len);
     out[len] = '\0';
     return end;
+}
+
+/*
+ * The friendly_name closest BEFORE `limit`, i.e. the one in the same record.
+ */
+static int inventory_name_before(const char *payload, const char *limit,
+                                 char *out, size_t out_size)
+{
+    const char *key = "\"friendly_name\":\"";
+    const char *cursor = payload;
+    const char *best = NULL;
+
+    while ((cursor = strstr(cursor, key)) != NULL && cursor < limit) {
+        best = cursor;
+        cursor += strlen(key);
+    }
+
+    if (best == NULL) {
+        return 0;
+    }
+    return inventory_read_address(best, key, out, out_size) != NULL;
 }
 
 /*
@@ -888,10 +972,19 @@ static void handle_device_inventory(const char *payload)
         }
 
         if (!skip_this) {
+            char name[MAX_NAME_LEN];
+
             if (seen_count < MAX_INVENTORY_DEVICES) {
                 snprintf(seen[seen_count++], MAX_IEEE_LEN, "%s", ieee);
             }
-            his_announce_device(ieee, "");
+
+            /* friendly_name sorts before ieee_address, so the nearest one
+             * BEHIND this address belongs to the same record. */
+            if (inventory_name_before(payload, cursor, name, sizeof(name))) {
+                remember_device_name(name, ieee);
+            }
+
+            his_announce_device(ieee, name);
             announced++;
         }
 
@@ -1070,7 +1163,8 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
                       weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
                       tare_in_progress, tare_just_completed, hr_baseline_just_completed,
                       hr_baseline_seconds_remaining, hr_baseline_bpm,
-                      tare_event_count, hr_baseline_event_count, link_quality, &ts);
+                      tare_event_count, hr_baseline_event_count, link_quality,
+                      device_id_for_topic(msg->topic), &ts);
 
     free(payload);
 }

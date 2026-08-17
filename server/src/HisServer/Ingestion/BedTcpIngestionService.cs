@@ -150,7 +150,8 @@ public sealed class BedTcpIngestionService : BackgroundService
                             continue;
                         }
 
-                        var reading = BedDataParser.Parse(line);
+                        var reading = await RouteToAssignedBedAsync(
+                            BedDataParser.Parse(line), cancellationToken);
 
                         if (registeredBedId != reading.BedId)
                         {
@@ -267,6 +268,70 @@ public sealed class BedTcpIngestionService : BackgroundService
         }
     }
 
+    /* Which bed each device was last routed to, so a change of assignment is
+     * noticed once rather than looked up on every reading. */
+    private readonly Dictionary<string, string> deviceBedRoute =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Sends a reading to the bed its DEVICE is assigned to.
+    ///
+    /// The gateway puts a bed id on every reading, but that comes from its
+    /// command line - one fixed bed baked into a systemd unit on the Pi. So
+    /// moving a device to another bed in the console changed the equipment
+    /// record and nothing else: the readings kept arriving at the old bed, and
+    /// a nurse looking at BED-301 saw an empty bed while BED-101 showed
+    /// somebody else's patient. Assignment has to decide where data lands, or
+    /// it is not an assignment at all.
+    ///
+    /// The gateway's own bed id stays as the fallback for a device that is not
+    /// assigned yet, and for older gateways that send no device id - neither
+    /// should stop data arriving.
+    /// </summary>
+    private async Task<BedReading> RouteToAssignedBedAsync(BedReading reading,
+                                                          CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(reading.DeviceId))
+        {
+            return reading;
+        }
+
+        DeviceRecord? device;
+        try
+        {
+            device = await deviceRepository.GetAsync(reading.DeviceId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not resolve device {DeviceId}; using the bed the gateway sent",
+                reading.DeviceId);
+            return reading;
+        }
+
+        if (device?.AssignedBedId is not { Length: > 0 } assignedBed)
+        {
+            return reading;
+        }
+
+        if (!string.Equals(assignedBed, reading.BedId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!deviceBedRoute.TryGetValue(reading.DeviceId, out var previous)
+                || !string.Equals(previous, assignedBed, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation(
+                    "Device {DeviceId} is assigned to {AssignedBed}; routing its readings there " +
+                    "instead of {GatewayBed}", reading.DeviceId, assignedBed, reading.BedId);
+                deviceBedRoute[reading.DeviceId] = assignedBed;
+            }
+
+            var room = string.IsNullOrWhiteSpace(device.Room) ? reading.Room : device.Room;
+            return reading with { BedId = assignedBed, Room = room };
+        }
+
+        deviceBedRoute[reading.DeviceId] = assignedBed;
+        return reading;
+    }
+
     /* When the currently-lost set of channels first went quiet, per bed. A
      * single reading cannot tell a five-minute outage from a one-second one,
      * so the clock lives here rather than in the evaluator. Cleared as soon as
@@ -287,7 +352,12 @@ public sealed class BedTcpIngestionService : BackgroundService
         DeviceRecord? device;
         try
         {
-            device = await deviceRepository.GetByBedAsync(reading.BedId, cancellationToken);
+            /* Prefer the device that actually sent this reading. Looking it up
+             * by bed was a guess that went wrong once already, when a deleted
+             * device let a placeholder row collect live health. */
+            device = !string.IsNullOrWhiteSpace(reading.DeviceId)
+                ? await deviceRepository.GetAsync(reading.DeviceId, cancellationToken)
+                : await deviceRepository.GetByBedAsync(reading.BedId, cancellationToken);
         }
         catch (Exception ex)
         {
