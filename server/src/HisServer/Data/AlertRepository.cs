@@ -104,12 +104,19 @@ public sealed class AlertRepository
         return row is null ? null : MapRow(row);
     }
 
-    public async Task<DateTime?> AcknowledgeAsync(long alertId, CancellationToken cancellationToken = default)
+    /// <param name="acknowledgedBy">Username of whoever silenced it. COALESCE
+    /// keeps the FIRST acknowledgement: a second click, or another nurse
+    /// arriving moments later, must not overwrite who actually responded.</param>
+    public async Task<DateTime?> AcknowledgeAsync(long alertId, string? acknowledgedBy = null,
+                                                  CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
-            "UPDATE alerts SET acknowledged = TRUE, acknowledged_at = COALESCE(acknowledged_at, NOW()) WHERE alert_id = @alertId",
-            new { alertId });
+            "UPDATE alerts SET acknowledged = TRUE, " +
+            "acknowledged_at = COALESCE(acknowledged_at, NOW()), " +
+            "acknowledged_by = COALESCE(acknowledged_by, @acknowledgedBy) " +
+            "WHERE alert_id = @alertId",
+            new { alertId, acknowledgedBy });
 
         var acknowledgedAt = await connection.ExecuteScalarAsync<DateTime?>(
             "SELECT acknowledged_at FROM alerts WHERE alert_id = @alertId", new { alertId });

@@ -1,5 +1,6 @@
 using System.Text;
 using HisServer.Data;
+using HisServer.Domain;
 using HisServer.Models;
 
 namespace HisServer.Api;
@@ -27,7 +28,7 @@ public static class LogEndpoints
                 page = query.Page,
                 pageSize = query.PageSize
             });
-        });
+        }).RequireAuthorization(Capabilities.ViewLogs);
 
         app.MapGet("/api/logs/export", async (
             LogRepository repository,
@@ -55,7 +56,7 @@ public static class LogEndpoints
 
             var bytes = Encoding.UTF8.GetBytes(csv.ToString());
             return Results.File(bytes, "text/csv", $"system-log-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
-        });
+        }).RequireAuthorization(Capabilities.ViewLogs);
     }
 
     private static LogQuery BuildQuery(DateTime? from, DateTime? to, string? bedId, string? room, string? type, int? page, int? pageSize)

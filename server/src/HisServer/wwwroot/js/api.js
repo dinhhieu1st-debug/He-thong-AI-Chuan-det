@@ -8,6 +8,18 @@ const Api = (() => {
       body: body ? JSON.stringify(body) : undefined
     });
 
+    /* The session cookie lasts one shift. When it expires mid-use every call
+     * starts failing, and without this the UI would show a wall of parse
+     * errors instead of saying the obvious thing: you are signed out. */
+    if (response.status === 401) {
+      location.href = "/login.html";
+      throw new Error("Phiên đăng nhập đã hết hạn");
+    }
+
+    if (response.status === 403) {
+      throw new Error("Bạn không có quyền thực hiện thao tác này");
+    }
+
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       throw new Error(`${method} ${path} failed: ${response.status} ${text}`);
@@ -43,6 +55,28 @@ const Api = (() => {
     deleteDevice: (deviceId) => request("DELETE", `/api/devices/${encodeURIComponent(deviceId)}`),
 
     getLogs: (params) => request("GET", `/api/logs?${new URLSearchParams(params)}`),
+
+    // Session + roster
+    getMyAssignment: () => request("GET", "/api/me/assignment"),
+    changePassword: (currentPassword, newPassword) =>
+      request("POST", "/api/auth/change-password", { currentPassword, newPassword }),
+
+    // Patient in a bed (admit / discharge)
+    setPatient: (bedId, patient) =>
+      request("PUT", `/api/beds/${encodeURIComponent(bedId)}/patient`, patient),
+
+    // User administration
+    getUsers: () => request("GET", "/api/users"),
+    getUser: (userId) => request("GET", `/api/users/${userId}`),
+    createUser: (user) => request("POST", "/api/users", user),
+    updateUser: (userId, patch) => request("PUT", `/api/users/${userId}`, patch),
+    resetUserPassword: (userId, newPassword) =>
+      request("POST", `/api/users/${userId}/reset-password`, { newPassword }),
+    deleteUser: (userId) => request("DELETE", `/api/users/${userId}`),
+    addAssignment: (userId, scopeType, scopeValue) =>
+      request("POST", `/api/users/${userId}/assignments`, { scopeType, scopeValue }),
+    removeAssignment: (assignmentId) =>
+      request("DELETE", `/api/users/assignments/${assignmentId}`),
     exportLogsUrl: (params) => `/api/logs/export?${new URLSearchParams(params)}`
   };
 })();

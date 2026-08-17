@@ -1,4 +1,5 @@
 using HisServer.Data;
+using HisServer.Domain;
 using HisServer.Hubs;
 using HisServer.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -9,16 +10,18 @@ public static class DeviceEndpoints
 {
     public static void MapDeviceEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/devices");
+        var group = app.MapGroup("/api/devices")
+            .RequireAuthorization(Capabilities.ViewWard);
 
         group.MapGet("/", async (DeviceRepository repository) =>
-            Results.Ok((await repository.GetAllAsync()).Select(DeviceDto.From)));
+            Results.Ok((await repository.GetAllAsync()).Select(DeviceDto.From)))
+            .RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapGet("/{deviceId}", async (string deviceId, DeviceRepository repository) =>
         {
             var device = await repository.GetAsync(deviceId);
             return device is null ? Results.NotFound() : Results.Ok(DeviceDto.From(device));
-        });
+        }).RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapPost("/", async (
             UpsertDeviceRequest request,
@@ -39,7 +42,7 @@ public static class DeviceEndpoints
             await repository.UpsertAsync(device);
             await hub.Clients.All.DeviceUpdated(DeviceDto.From(device));
             return Results.Created($"/api/devices/{device.DeviceId}", DeviceDto.From(device));
-        });
+        }).RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapPut("/{deviceId}", async (
             string deviceId,
@@ -56,13 +59,13 @@ public static class DeviceEndpoints
             await repository.UpsertAsync(device);
             await hub.Clients.All.DeviceUpdated(DeviceDto.From(device));
             return Results.Ok(DeviceDto.From(device));
-        });
+        }).RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapDelete("/{deviceId}", async (string deviceId, DeviceRepository repository) =>
         {
             var deleted = await repository.DeleteAsync(deviceId);
             return deleted ? Results.NoContent() : Results.NotFound();
-        });
+        }).RequireAuthorization(Capabilities.ManageDevices);
     }
 
     private static DeviceRecord ToRecord(UpsertDeviceRequest request) => new()

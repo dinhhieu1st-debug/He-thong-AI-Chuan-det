@@ -10,7 +10,8 @@ public static class AlertEndpoints
 {
     public static void MapAlertEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/alerts");
+        var group = app.MapGroup("/api/alerts")
+            .RequireAuthorization(Capabilities.ViewWard);
 
         group.MapGet("/", async (
             AlertRepository repository,
@@ -52,7 +53,8 @@ public static class AlertEndpoints
         group.MapPost("/{id:long}/ack", async (
             long id,
             AlertRepository repository,
-            IHubContext<MonitoringHub, IMonitoringClient> hub) =>
+            IHubContext<MonitoringHub, IMonitoringClient> hub,
+            HttpContext http) =>
         {
             var alert = await repository.GetAsync(id);
             if (alert is null)
@@ -60,9 +62,11 @@ public static class AlertEndpoints
                 return Results.NotFound();
             }
 
-            var acknowledgedAt = await repository.AcknowledgeAsync(id);
+            // Taken from the signed-in session, never from the request body:
+            // a client-supplied name would make the audit trail worthless.
+            var acknowledgedAt = await repository.AcknowledgeAsync(id, http.User.Identity?.Name);
             await hub.Clients.All.AlertAcknowledged(id, acknowledgedAt);
             return Results.Ok(new { ok = true, acknowledgedAt });
-        });
+        }).RequireAuthorization(Capabilities.AckAlerts);
     }
 }

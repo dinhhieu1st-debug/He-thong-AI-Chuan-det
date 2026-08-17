@@ -86,4 +86,12 @@ public sealed class BedState
     public string? AlertMessage { get; set; }
     public string? DeviceId { get; set; }
     public DateTime? LastDataAt { get; set; }
+
+    /* Who is in the bed. Kept on the bed rather than in a patients table
+     * because a bed holds at most one patient at a time and nothing here needs
+     * a patient's history - the moment it does, this moves out. Set by a nurse
+     * on admission and cleared on discharge; null means the bed is empty. */
+    public string? PatientName { get; set; }
+    public string? PatientCode { get; set; }
+    public DateTime? AdmittedAt { get; set; }
 }

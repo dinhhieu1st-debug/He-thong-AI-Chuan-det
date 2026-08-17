@@ -4,7 +4,17 @@
     beds: "Beds & Rooms",
     alerts: "Alerts",
     devices: "Devices",
-    "system-log": "System Log"
+    "system-log": "System Log",
+    profile: "Ca trực của tôi",
+    users: "Người dùng"
+  };
+
+  /* Tabs that fetch on demand instead of riding the live SignalR feed. They
+   * are told when they become visible so they do not poll in the background
+   * for a screen nobody is looking at. */
+  const ON_DEMAND = {
+    profile: ProfileTab,
+    users: UsersTab
   };
 
   function switchTab(tab) {
@@ -15,6 +25,11 @@
       panel.classList.toggle("active", panel.id === `tab-${tab}`);
     });
     document.getElementById("pageTitle").textContent = titles[tab] || tab;
+
+    Object.entries(ON_DEMAND).forEach(([name, module]) => {
+      if (name === tab) module.activate();
+      else module.stop?.();
+    });
   }
 
   document.querySelectorAll(".nav-btn[data-tab]").forEach((btn) => {
@@ -27,6 +42,16 @@
     });
   });
 
+  /* Identity first: every module below asks Session.can() while rendering, so
+   * the answer has to exist before any of them draw anything. A failed load
+   * has already redirected to the login page. */
+  const me = await Session.load();
+  if (!me) return;
+
+  Session.renderIdentity();
+  Session.applyTo(document);
+  document.getElementById("logoutBtn")?.addEventListener("click", () => Session.logout());
+
   // Initial REST load, then open the live SignalR connection.
   try {
     const beds = await Api.getBeds();
@@ -38,10 +63,18 @@
   DashboardTab.init();
   BedsTab.init();
   AlertsTab.init();
-  DevicesTab.init();
-  SystemLogTab.init();
+  // These two tabs are removed entirely for roles without the capability, so
+  // their modules must not be initialised either - their DOM is gone.
+  if (Session.can(Session.CAP.manageDevices)) DevicesTab.init();
+  if (Session.can(Session.CAP.viewLogs)) SystemLogTab.init();
   // Last, so the tab modules exist by the time it can open a bed.
   CriticalAlarm.init();
 
   await MonitoringHub.start();
+
+  /* A password an administrator typed is not one the owner has chosen. The
+   * dialog has no cancel, so the console stays unusable until it is replaced. */
+  if (me.mustChangePassword) {
+    Session.promptChangePassword({ forced: true });
+  }
 })();

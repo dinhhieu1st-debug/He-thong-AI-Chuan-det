@@ -10,7 +10,8 @@ public static class BedEndpoints
 {
     public static void MapBedEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/beds");
+        var group = app.MapGroup("/api/beds")
+            .RequireAuthorization(Capabilities.ViewWard);
 
         group.MapGet("/", (BedStateStore store) =>
             Results.Ok(store.GetAll().OrderBy(b => b.BedId).Select(BedDto.From)));
@@ -88,7 +89,7 @@ public static class BedEndpoints
             await repository.UpsertAsync(bed);
             await hub.Clients.All.BedUpdated(BedDto.From(bed));
             return Results.Created($"/api/beds/{bed.BedId}", BedDto.From(bed));
-        });
+        }).RequireAuthorization(Capabilities.ManageBeds);
 
         group.MapPut("/{bedId}", async (
             string bedId,
@@ -118,7 +119,7 @@ public static class BedEndpoints
             await repository.UpsertAsync(bed);
             await hub.Clients.All.BedUpdated(BedDto.From(bed));
             return Results.Ok(BedDto.From(bed));
-        });
+        }).RequireAuthorization(Capabilities.ManageBeds);
 
         group.MapPut("/{bedId}/target-flow", async (
             string bedId,
@@ -139,7 +140,7 @@ public static class BedEndpoints
             var commandLine = $$"""{"cmd":"set_target_flow_ml_h","value":{{request.TargetFlowMlH}}}""";
             return await SendDeviceCommandAsync(bedId, commandLine, connectionRegistry,
                 new { bedId, targetFlowMlH = request.TargetFlowMlH });
-        });
+        }).RequireAuthorization(Capabilities.ControlBed);
 
         group.MapPut("/{bedId}/target-drops", async (
             string bedId,
@@ -160,7 +161,7 @@ public static class BedEndpoints
             var commandLine = $$"""{"cmd":"set_target_drops_per_min","value":{{request.TargetDropsPerMin}}}""";
             return await SendDeviceCommandAsync(bedId, commandLine, connectionRegistry,
                 new { bedId, targetDropsPerMin = request.TargetDropsPerMin });
-        });
+        }).RequireAuthorization(Capabilities.ControlBed);
 
         group.MapPost("/{bedId}/tare", async (
             string bedId,
@@ -174,7 +175,7 @@ public static class BedEndpoints
 
             return await SendDeviceCommandAsync(bedId, """{"cmd":"reset_tare"}""", connectionRegistry,
                 new { bedId, action = "reset_tare" });
-        });
+        }).RequireAuthorization(Capabilities.ControlBed);
 
         group.MapPost("/{bedId}/recalibrate-hr", async (
             string bedId,
@@ -188,7 +189,7 @@ public static class BedEndpoints
 
             return await SendDeviceCommandAsync(bedId, """{"cmd":"recalibrate_hr_baseline"}""", connectionRegistry,
                 new { bedId, action = "recalibrate_hr_baseline" });
-        });
+        }).RequireAuthorization(Capabilities.ControlBed);
     }
 
     /// <summary>

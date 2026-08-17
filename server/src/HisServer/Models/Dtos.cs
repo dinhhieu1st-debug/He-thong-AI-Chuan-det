@@ -63,7 +63,10 @@ public sealed record BedDto(
     bool DropsForecastTrusted,
     string? AlertMessage,
     string? DeviceId,
-    DateTime? LastUpdated)
+    DateTime? LastUpdated,
+    string? PatientName,
+    string? PatientCode,
+    DateTime? AdmittedAt)
 {
     public static BedDto From(BedState bed) => new(
         bed.BedId,
@@ -106,7 +109,10 @@ public sealed record BedDto(
         bed.DropsForecastTrusted,
         bed.AlertMessage,
         bed.DeviceId,
-        bed.LastDataAt);
+        bed.LastDataAt,
+        bed.PatientName,
+        bed.PatientCode,
+        bed.AdmittedAt);
 }
 
 public sealed record AlertDto(

@@ -3,7 +3,10 @@ using HisServer.Data;
 using HisServer.Domain;
 using HisServer.Hubs;
 using HisServer.Ingestion;
+using HisServer.Models;
 using HisServer.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +25,7 @@ builder.Services.AddSingleton<VitalSampleRepository>();
 builder.Services.AddSingleton<AlertRepository>();
 builder.Services.AddSingleton<FcmTokenRepository>();
 builder.Services.AddSingleton<LogRepository>();
+builder.Services.AddSingleton<UserRepository>();
 
 // Domain / services
 builder.Services.AddSingleton<BedStateStore>();
@@ -34,6 +38,64 @@ builder.Services.AddSignalR();
 builder.Services.AddHostedService<BedTcpIngestionService>();
 builder.Services.AddHostedService<OfflineScanService>();
 
+/* Cookie authentication rather than tokens: the browser gets the session for
+ * free on every request including the SignalR handshake, with no token to
+ * store in JS (and therefore none for a cross-site script to steal). */
+builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "his_session";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromHours(12);   // one shift
+        options.SlidingExpiration = true;
+        options.LoginPath = "/login.html";
+
+        /* An API call must fail with a status code, not a redirect to a login
+         * PAGE: fetch() follows redirects, so the default behaviour hands the
+         * caller a 200 with HTML in it, and the UI reports a JSON parse error
+         * instead of "you are signed out". */
+        options.Events.OnRedirectToLogin = ctx =>
+        {
+            if (ctx.Request.Path.StartsWithSegments("/api"))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            }
+            ctx.Response.Redirect(ctx.RedirectUri);
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = ctx =>
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
+    });
+
+/* One policy per capability, built from the single table in Capabilities.cs.
+ * Endpoints ask for a capability; which roles hold it is decided in exactly
+ * one place. */
+builder.Services.AddAuthorizationBuilder()
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build());
+
+builder.Services.AddAuthorization(options =>
+{
+    foreach (var capability in Capabilities.All)
+    {
+        var roles = Enum.GetValues<UserRole>()
+            .Where(r => Capabilities.Has(r, capability))
+            .Select(r => r.ToString())
+            .ToArray();
+
+        options.AddPolicy(capability, policy => policy
+            .RequireAuthenticatedUser()
+            .RequireRole(roles));
+    }
+});
+
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
     .AllowAnyHeader()
     .AllowAnyMethod()
@@ -43,6 +105,32 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
 var app = builder.Build();
 
 app.UseCors();
+app.UseAuthentication();
+
+/* Static files are served by middleware that runs before endpoint routing, so
+ * the authorization above does not cover them: without this, the whole console
+ * HTML/JS is readable while signed out. The page shell alone leaks no patient
+ * data, but it is confusing to land on a dashboard that then fails every API
+ * call, so unauthenticated navigation goes to the login page instead. */
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "/";
+    var isPublic = path.StartsWith("/login", StringComparison.OrdinalIgnoreCase)
+                   || path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
+                   || path.StartsWith("/js/login.js", StringComparison.OrdinalIgnoreCase)
+                   || path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
+                   || path.StartsWith("/healthz", StringComparison.OrdinalIgnoreCase)
+                   || path.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase);
+
+    if (!isPublic && context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.Redirect("/login.html");
+        return;
+    }
+
+    await next();
+});
+
 app.UseDefaultFiles();
 
 /* The UI is plain <script src="js/…"> files with no bundler, so there are no
@@ -62,9 +150,16 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 
-app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
-app.MapHub<MonitoringHub>("/hubs/monitoring");
+app.UseRouting();
+app.UseAuthorization();
 
+app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+app.MapHub<MonitoringHub>("/hubs/monitoring").RequireAuthorization(Capabilities.ViewWard);
+
+app.MapAuthEndpoints();
+app.MapProfileEndpoints();
+app.MapUserEndpoints();
+app.MapPatientEndpoints();
 app.MapBedEndpoints();
 app.MapAlertEndpoints();
 app.MapDeviceEndpoints();
@@ -89,6 +184,9 @@ using (var scope = app.Services.CreateScope())
             {
                 state.Room = bed.Room;
                 state.Status = bed.Status;
+                state.PatientName = bed.PatientName;
+                state.PatientCode = bed.PatientCode;
+                state.AdmittedAt = bed.AdmittedAt;
                 state.Spo2 = bed.Spo2;
                 state.HeartRate = bed.HeartRate;
                 state.Temperature = bed.Temperature;

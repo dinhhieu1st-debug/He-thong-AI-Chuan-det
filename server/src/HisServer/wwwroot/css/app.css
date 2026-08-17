@@ -709,3 +709,46 @@ body.no-scroll { overflow: hidden; }
   background: var(--accent-soft); color: var(--text-dim);
   font-size: 11.5px; line-height: 1.5;
 }
+
+
+/* ---- Session, profile and user-management additions ---------------------- */
+.panel-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px;
+}
+.panel-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.panel-card-head h3 { font-size: 15px; font-weight: 700; margin: 0; }
+.kv { display: flex; gap: 12px; align-items: baseline; padding: 5px 0; font-size: 13px; }
+.kv > span:first-child { min-width: 170px; color: var(--text-dim); font-size: 12.5px; }
+.muted { color: var(--text-dim); }
+.sidebar-footer { display: flex; align-items: center; gap: 9px; }
+.role-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 600; background: #e8eef7; color: #35507a;
+}
+.role-pill.admin { background: #efe4fb; color: #5b2ea6; }
+.role-pill.technician { background: #e2f2f4; color: #14666f; }
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(14, 27, 45, .55);
+  display: flex; align-items: center; justify-content: center; z-index: 900;
+}
+.modal-card {
+  background: #fff; border-radius: 11px; padding: 22px; width: 100%;
+  max-width: 380px; box-shadow: 0 16px 40px rgba(10, 25, 45, .28);
+}
+.modal-card h3 { margin: 0 0 14px; font-size: 15.5px; }
+.modal-card label { display: block; font-size: 12px; font-weight: 600; color: #43566f; margin: 10px 0 4px; }
+.modal-card input, .modal-card select {
+  width: 100%; padding: 8px 10px; font-size: 13.5px;
+  border: 1px solid #cfd9e5; border-radius: 7px;
+}
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.form-error { color: #b3261e; font-size: 12.5px; margin-top: 10px; display: none; }
+.bd-patient-name { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.bd-patient-form { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.bd-patient-form input {
+  width: 100%; padding: 6px 9px; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.bd-patient-actions { display: flex; gap: 6px; }
+.bd-patient-actions .btn { flex: 1; justify-content: center; }

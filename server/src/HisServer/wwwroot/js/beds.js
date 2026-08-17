@@ -259,7 +259,8 @@ const BedsTab = (() => {
         </div>
       </div>
       ${alertCardHtml(bed)}
-      <div class="bd-card">
+      ${patientCardHtml(bed)}
+      <div class="bd-card" data-cap="beds.manage">
         <h4>Bed</h4>
         <form id="editBedForm" class="bd-room-form">
           <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}" placeholder="Room">
@@ -292,6 +293,39 @@ const BedsTab = (() => {
       <div class="bd-channel">
         <span class="bd-channel-name">${UiUtils.escapeHtml(label)}</span>
         <span class="bd-channel-state ${ok ? "is-ok" : "is-lost"}">${ok ? okText : lostText}</span>
+      </div>`;
+  }
+
+  /* Who is in the bed. Shown to everyone who can see the ward - knowing which
+   * patient a reading belongs to is the whole point of a bed number - but only
+   * editable with the patient.edit capability. */
+  function patientCardHtml(bed) {
+    const admitted = bed.admittedAt
+      ? `<div class="status-line status-line-muted">Nhập viện ${UiUtils.formatDateTime(bed.admittedAt)}</div>`
+      : "";
+
+    const occupied = bed.patientName && bed.patientName.trim();
+
+    return `
+      <div class="bd-card">
+        <h4>Bệnh nhân</h4>
+        ${occupied
+          ? `<div class="bd-patient-name">${UiUtils.escapeHtml(bed.patientName)}</div>
+             ${bed.patientCode ? `<div class="status-line status-line-muted">Mã BN: ${UiUtils.escapeHtml(bed.patientCode)}</div>` : ""}
+             ${admitted}`
+          : `<div class="status-line status-line-muted">Giường trống</div>`}
+        <div data-cap="patient.edit">
+          <form id="patientForm" class="bd-patient-form">
+            <input type="text" id="patientNameInput" placeholder="Họ tên bệnh nhân"
+                   value="${UiUtils.escapeHtml(bed.patientName || "")}">
+            <input type="text" id="patientCodeInput" placeholder="Mã bệnh nhân"
+                   value="${UiUtils.escapeHtml(bed.patientCode || "")}">
+            <div class="bd-patient-actions">
+              <button type="submit" class="btn primary">${occupied ? "Cập nhật" : "Nhận bệnh nhân"}</button>
+              ${occupied ? `<button type="button" class="btn" id="dischargeBtn">Xuất viện</button>` : ""}
+            </div>
+          </form>
+        </div>
       </div>`;
   }
 
@@ -758,7 +792,7 @@ const BedsTab = (() => {
             <h4>AI forecast (on-chip)</h4>
             ${forecastSectionHtml(bed)}
           </div>
-          <div class="bd-card">
+          <div class="bd-card" data-cap="bed.control">
             <h4>Doctor-configurable settings</h4>
             ${settingsSectionHtml(bed)}
           </div>
@@ -786,6 +820,47 @@ const BedsTab = (() => {
     });
 
     bindSettingsHandlers(bed);
+    bindPatientHandlers(bed);
+
+    /* renderDetail() rebuilds this panel from scratch about once a second, so
+     * the capability gating has to be re-applied to the new DOM each time -
+     * doing it once at startup would only survive until the next reading. */
+    Session.applyTo(panel);
+  }
+
+  function bindPatientHandlers(bed) {
+    const form = document.getElementById("patientForm");
+    if (!form) return;   // removed for roles without patient.edit
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const patientName = document.getElementById("patientNameInput").value.trim();
+      if (!patientName) {
+        UiUtils.toast("Nhập họ tên bệnh nhân, hoặc bấm Xuất viện để trả giường", true);
+        return;
+      }
+      try {
+        await Api.setPatient(bed.bedId, {
+          patientName,
+          patientCode: document.getElementById("patientCodeInput").value.trim()
+        });
+        UiUtils.toast(`${bed.bedId}: đã cập nhật bệnh nhân`);
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+      }
+    });
+
+    document.getElementById("dischargeBtn")?.addEventListener("click", async () => {
+      if (!confirm(`Xuất viện cho bệnh nhân ở ${bed.bedId}?`)) return;
+      try {
+        // Clearing the name is the discharge; the server clears code and
+        // admission time with it so nothing is left to misread later.
+        await Api.setPatient(bed.bedId, { patientName: null, patientCode: null });
+        UiUtils.toast(`${bed.bedId}: đã xuất viện`);
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+      }
+    });
   }
 
   function render() {
@@ -837,7 +912,8 @@ const BedsTab = (() => {
       if (status) { selectedStatus = status; render(); }
     });
 
-    document.getElementById("addBedBtn").addEventListener("click", () => {
+    // Removed from the DOM for roles without beds.manage, so bind defensively.
+    document.getElementById("addBedBtn")?.addEventListener("click", () => {
       document.getElementById("addBedModal").classList.remove("hidden");
     });
 

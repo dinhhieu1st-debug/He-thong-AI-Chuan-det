@@ -23,7 +23,8 @@ public sealed class BedRepository
             "tare_just_completed, hr_baseline_just_completed, hr_baseline_seconds_remaining, " +
             "hr_baseline_bpm, hr_baseline_captured_at, last_tare_completed_at, " +
             "last_seen_tare_event_count, last_seen_hr_baseline_event_count, " +
-            "alert_message, device_id, last_data_at " +
+            "alert_message, device_id, last_data_at, " +
+            "patient_name, patient_code, admitted_at " +
             "FROM beds");
 
         return rows.Select(row => new BedState
@@ -57,8 +58,36 @@ public sealed class BedRepository
             LastSeenHrBaselineEventCount = row.last_seen_hr_baseline_event_count,
             AlertMessage = row.alert_message,
             DeviceId = row.device_id,
-            LastDataAt = row.last_data_at
+            LastDataAt = row.last_data_at,
+            PatientName = row.patient_name,
+            PatientCode = row.patient_code,
+            AdmittedAt = row.admitted_at
         }).ToList();
+    }
+
+    /// <summary>
+    /// Writes ONLY the patient columns.
+    ///
+    /// Deliberately not part of UpsertAsync: that runs on every reading from
+    /// the device - once a second per bed - and knows nothing about patients,
+    /// so folding these columns into it would blank the patient's name on the
+    /// next packet. The same shape of bug has already happened here once, with
+    /// the signal flags being reset on restart, and it is invisible until
+    /// someone notices the name is gone.
+    /// </summary>
+    public async Task UpdatePatientAsync(string bedId, string? patientName, string? patientCode,
+                                         DateTime? admittedAt, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(
+            """
+            UPDATE beds
+               SET patient_name = @patientName,
+                   patient_code = @patientCode,
+                   admitted_at  = @admittedAt
+             WHERE bed_id = @bedId
+            """,
+            new { bedId, patientName, patientCode, admittedAt });
     }
 
     public async Task UpsertAsync(BedState bed, CancellationToken cancellationToken = default)
