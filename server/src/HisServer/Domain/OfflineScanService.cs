@@ -68,7 +68,7 @@ public sealed class OfflineScanService : BackgroundService
                         logger.LogWarning(ex, "Failed to persist offline transition for bed {BedId}.", bed.BedId);
                     }
 
-                    await hub.Clients.All.BedUpdated(BedDto.From(updated));
+                    await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(updated));
                 }
             }
 

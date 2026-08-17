@@ -39,4 +39,7 @@ public sealed record BedReading(
     int? DropsTrendDpmPerMin = null,
     int? DropsForecast16s = null,
     bool HrForecastTrusted = true,
-    bool DropsForecastTrusted = true);
+    bool DropsForecastTrusted = true,
+    /// <summary>Zigbee signal strength 0-255, or null from a gateway too old
+    /// to send it. Equipment diagnostics only - never shown on a ward screen.</summary>
+    int? LinkQuality = null);

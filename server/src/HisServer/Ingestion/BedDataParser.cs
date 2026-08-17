@@ -73,6 +73,9 @@ public static class BedDataParser
         // keo dai thi con so no dua ra la "muc binh thuong dang le phai co",
         // KHONG phai du bao. Hai co nay cho giao dien biet de doi nhan.
         var hrForecastTrusted = ReadBool(root, true, "hrForecastTrusted", "hr_forecast_trusted");
+        // -1 is the gateway's "not present in the MQTT payload" marker.
+        var linkQuality = ReadNullableInt(root, "linkQuality", "linkquality", "link_quality");
+        if (linkQuality is < 0) linkQuality = null;
         var dropsForecastTrusted = ReadBool(root, true, "dropsForecastTrusted", "drops_forecast_trusted");
 
         return new BedReading(
@@ -84,7 +87,7 @@ public static class BedDataParser
             tsReady, tsAnomaly, tsEarlyWarning, tsTrend, hrForecast16s,
             spo2Forecast16s, hrTrendBpmPerMin, tsAnomalyScoreX100,
             dropsTrend, dropsTrendDpmPerMin, dropsForecast16s,
-            hrForecastTrusted, dropsForecastTrusted);
+            hrForecastTrusted, dropsForecastTrusted, linkQuality);
     }
 
     private static string? ReadString(JsonElement root, params string[] names)

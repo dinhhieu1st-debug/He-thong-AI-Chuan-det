@@ -153,7 +153,10 @@ public sealed record DeviceDto(
     int? BatteryPercent,
     int? Rssi,
     string? Eui64,
-    DateTime? LastSeenAt)
+    DateTime? LastSeenAt,
+    int? LinkQuality,
+    string? ChannelsLost,
+    DateTime? LastDataAt)
 {
     public static DeviceDto From(DeviceRecord device) => new(
         device.DeviceId,
@@ -164,7 +167,37 @@ public sealed record DeviceDto(
         device.BatteryPercent,
         device.Rssi,
         device.Eui64,
-        device.LastSeenAt);
+        device.LastSeenAt,
+        device.LinkQuality,
+        device.ChannelsLost,
+        device.LastDataAt);
+}
+
+public sealed record DeviceEventDto(long EventId, string DeviceId, string? BedId,
+                                    string EventType, string? Detail, DateTime OccurredAt)
+{
+    public static DeviceEventDto From(DeviceEvent e) => new(
+        e.EventId, e.DeviceId, e.BedId,
+        e.EventType.ToString().ToUpperInvariant(), e.Detail, e.OccurredAt);
+}
+
+public sealed record FaultReportDto(long ReportId, string BedId, string? DeviceId,
+                                    string Channel, string Note, string ReportedBy,
+                                    DateTime ReportedAt, string Status,
+                                    string? HandledBy, DateTime? HandledAt,
+                                    string? ResolutionNote)
+{
+    public static FaultReportDto From(FaultReport r) => new(
+        r.ReportId, r.BedId, r.DeviceId,
+        r.Channel.ToString().ToUpperInvariant(), r.Note, r.ReportedBy, r.ReportedAt,
+        // IN_PROGRESS, not InProgress: the browser compares against these names.
+        r.Status switch
+        {
+            FaultStatus.InProgress => "IN_PROGRESS",
+            FaultStatus.Resolved => "RESOLVED",
+            _ => "OPEN"
+        },
+        r.HandledBy, r.HandledAt, r.ResolutionNote);
 }
 
 public sealed record LogEntryDto(string BedId, string? Room, string Category, string Level, string Message, DateTime OccurredAt)

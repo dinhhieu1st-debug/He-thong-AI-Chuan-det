@@ -61,6 +61,26 @@ Hai cơ chế OR với nhau: thà báo thừa còn hơn bỏ sót.
 
 ---
 
+## Ba vai trò sử dụng
+
+Mỗi vai trò chỉ thấy dữ liệu của việc mình làm — không ai có màn hình "biết
+tuốt". Lập luận đầy đủ kèm 7 tình huống thực tế ở
+[`docs/PHAN_QUYEN_VA_VAI_TRO.md`](docs/PHAN_QUYEN_VA_VAI_TRO.md).
+
+| | Điều dưỡng | Kỹ thuật viên | Quản trị viên |
+|---|---|---|---|
+| Dashboard, chỉ số, cảnh báo lâm sàng | ✅ | ❌ | ❌ |
+| Đặt ngưỡng, tare cân, nhận/xuất bệnh nhân | ✅ | ❌ | ❌ |
+| Báo hỏng thiết bị | ✅ tạo | ✅ xử lý | ❌ |
+| Tình trạng thiết bị + gán giường | ❌ | ✅ | ❌ |
+| Danh mục giường, System Log, tài khoản | ❌ | ❌ | ✅ |
+
+Chặn ở **cả hai lớp**: giao diện xoá hẳn phần tử không thuộc quyền, và API trả
+403 — kể cả kênh realtime SignalR cũng chia nhóm theo năng lực, nên máy của kỹ
+thuật viên không nhận được gói dữ liệu bệnh nhân nào.
+
+---
+
 ## Cấu trúc thư mục
 
 Repo xếp theo **trạm xử lý**: mã của trạm nào nằm trong thư mục của trạm đó.

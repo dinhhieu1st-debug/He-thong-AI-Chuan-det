@@ -43,6 +43,22 @@ public static class Capabilities
     /// <summary>Accounts and duty rosters.</summary>
     public const string ManageUsers = "users.manage";
 
+    /// <summary>Raise a "this equipment is broken" report from the bedside.</summary>
+    public const string ReportFaults = "faults.report";
+
+    /// <summary>Pick up and close those reports.</summary>
+    public const string HandleFaults = "faults.handle";
+
+    /// <summary>
+    /// Read the bed DIRECTORY - identifiers and rooms, no vitals and no patient.
+    ///
+    /// Split out from ViewWard because a technician assigning a device to a bed
+    /// needs the list of bed numbers, and an administrator building the ward
+    /// needs it too, but neither has any business seeing what the patient in
+    /// that bed reads.
+    /// </summary>
+    public const string ViewBedDirectory = "beds.directory";
+
     private static readonly IReadOnlyDictionary<UserRole, string[]> ByRole =
         new Dictionary<UserRole, string[]>
         {
@@ -54,22 +70,35 @@ public static class Capabilities
              * having roles at all. */
             [UserRole.Nurse] = new[]
             {
-                ViewWard, AckAlerts, ControlBed, EditPatient
+                ViewWard, AckAlerts, ControlBed, EditPatient, ReportFaults, ViewBedDirectory
             },
 
-            /* Technicians keep the hardware alive; they have no business
-             * silencing a clinical alarm or naming a patient. System Log is
-             * theirs because diagnosing "why did this bed go offline" is
-             * exactly their job. */
+            /* Technicians keep the hardware alive and see NOTHING clinical.
+             *
+             * They lost ViewWard and ViewLogs on purpose. A technician does not
+             * need a patient's SpO2 to decide whether to replace a cable, and
+             * the System Log embeds SpO2/HR in every row. What replaced them is
+             * better for the job anyway: device health derived from the live
+             * stream, a device-only event log, and the fault queue - all of
+             * which say which box is broken without saying anything about who
+             * is lying in the bed.
+             *
+             * ViewBedDirectory is bed numbers and rooms only: needed to assign
+             * a device to a bed, useless for learning anything about a patient. */
             [UserRole.Technician] = new[]
             {
-                ViewWard, ManageDevices, ViewLogs
+                ManageDevices, HandleFaults, ViewBedDirectory
             },
 
+            /* Administration is accounts, rosters and the ward's structure -
+             * not patient monitoring. An administrator who can also read every
+             * bed is the "knows everything" account: the one an attacker aims
+             * at, and the one an audit asks awkward questions about. They keep
+             * System Log because reconciling an incident is their job, and that
+             * is the single place they meet clinical data. */
             [UserRole.Admin] = new[]
             {
-                ViewWard, AckAlerts, ControlBed, EditPatient,
-                ManageDevices, ViewLogs, ManageBeds, ManageUsers
+                ViewBedDirectory, ManageBeds, ViewLogs, ManageUsers
             }
         };
 
@@ -84,6 +113,7 @@ public static class Capabilities
     public static readonly string[] All =
     {
         ViewWard, AckAlerts, ControlBed, EditPatient,
-        ManageDevices, ViewLogs, ManageBeds, ManageUsers
+        ManageDevices, ViewLogs, ManageBeds, ManageUsers,
+        ReportFaults, HandleFaults, ViewBedDirectory
     };
 }

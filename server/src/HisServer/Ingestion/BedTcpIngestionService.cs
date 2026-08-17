@@ -35,6 +35,8 @@ public sealed class BedTcpIngestionService : BackgroundService
     private readonly DeviceRepository deviceRepository;
     private readonly IHubContext<MonitoringHub, IMonitoringClient> hub;
     private readonly IOptionsMonitor<TcpOptions> options;
+    private readonly IOptionsMonitor<OfflineOptions> offlineOptions;
+    private readonly IOptionsMonitor<DeviceHealthOptions> deviceHealthOptions;
     private readonly ILogger<BedTcpIngestionService> logger;
 
     public BedTcpIngestionService(
@@ -48,6 +50,8 @@ public sealed class BedTcpIngestionService : BackgroundService
         DeviceRepository deviceRepository,
         IHubContext<MonitoringHub, IMonitoringClient> hub,
         IOptionsMonitor<TcpOptions> options,
+        IOptionsMonitor<OfflineOptions> offlineOptions,
+        IOptionsMonitor<DeviceHealthOptions> deviceHealthOptions,
         ILogger<BedTcpIngestionService> logger)
     {
         this.bedStateStore = bedStateStore;
@@ -60,6 +64,8 @@ public sealed class BedTcpIngestionService : BackgroundService
         this.deviceRepository = deviceRepository;
         this.hub = hub;
         this.options = options;
+        this.offlineOptions = offlineOptions;
+        this.deviceHealthOptions = deviceHealthOptions;
         this.logger = logger;
     }
 
@@ -158,6 +164,7 @@ public sealed class BedTcpIngestionService : BackgroundService
                         }
 
                         await ProcessReadingAsync(reading, cancellationToken);
+                        await UpdateDeviceHealthAsync(reading, cancellationToken);
                     }
                     catch (Exception ex)
                     {
@@ -252,11 +259,118 @@ public sealed class BedTcpIngestionService : BackgroundService
             }
 
             await deviceRepository.UpsertAsync(device);
-            await hub.Clients.All.DeviceDiscovered(DeviceDto.From(device));
+            await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceDiscovered(DeviceDto.From(device));
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not record announced device {DeviceId}", deviceId);
+        }
+    }
+
+    /* When the currently-lost set of channels first went quiet, per bed. A
+     * single reading cannot tell a five-minute outage from a one-second one,
+     * so the clock lives here rather than in the evaluator. Cleared as soon as
+     * every channel reports again. */
+    private readonly Dictionary<string, (string Channels, DateTime Since)> channelLossSince =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Attaches live health to the device assigned to this bed.
+    ///
+    /// Runs on every reading - once a second per bed - so it writes to the
+    /// database only when something a technician would notice actually changed.
+    /// Writing each packet would be 86,400 identical rows a day per bed, and
+    /// would bury the handful of state changes that matter.
+    /// </summary>
+    private async Task UpdateDeviceHealthAsync(BedReading reading, CancellationToken cancellationToken)
+    {
+        DeviceRecord? device;
+        try
+        {
+            device = await deviceRepository.GetByBedAsync(reading.BedId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not load the device for bed {BedId}", reading.BedId);
+            return;
+        }
+
+        if (device is null)
+        {
+            return;   // no device assigned to this bed yet - nothing to update
+        }
+
+        var now = DateTime.UtcNow;
+        var lost = DeviceHealthEvaluator.LostChannels(reading);
+
+        if (lost is null)
+        {
+            channelLossSince.Remove(reading.BedId);
+        }
+        else if (!channelLossSince.TryGetValue(reading.BedId, out var tracked) || tracked.Channels != lost)
+        {
+            // A DIFFERENT set of channels is now quiet - restart the clock, so
+            // "SpO2 lost, then Flow lost too" does not inherit SpO2's age.
+            channelLossSince[reading.BedId] = (lost, now);
+        }
+
+        var lostSince = channelLossSince.TryGetValue(reading.BedId, out var entry)
+            ? entry.Since : (DateTime?)null;
+
+        var status = DeviceHealthEvaluator.Evaluate(reading, lostSince, now, deviceHealthOptions.CurrentValue);
+
+        var statusChanged = device.Status != status;
+        var channelsChanged = device.ChannelsLost != lost;
+
+        // Link quality wanders by a few points constantly; only a real move is
+        // worth a write.
+        var linkChanged = reading.LinkQuality is not null
+                          && (device.LinkQuality is null
+                              || Math.Abs(device.LinkQuality.Value - reading.LinkQuality.Value) >= 10);
+
+        // Even with nothing else changed, refresh "last data" occasionally so
+        // the technician can see the device is alive without waiting for it to
+        // break.
+        var staleTimestamp = device.LastDataAt is null
+                             || (now - device.LastDataAt.Value).TotalSeconds >= 30;
+
+        if (!statusChanged && !channelsChanged && !linkChanged && !staleTimestamp)
+        {
+            return;
+        }
+
+        try
+        {
+            await deviceRepository.UpdateHealthAsync(
+                device.DeviceId, status,
+                reading.LinkQuality ?? device.LinkQuality,
+                lost, now, cancellationToken);
+
+            if (statusChanged)
+            {
+                var type = status switch
+                {
+                    DeviceStatus.SensorFault => DeviceEventType.SensorFault,
+                    DeviceStatus.Offline => DeviceEventType.Offline,
+                    _ => DeviceEventType.Online
+                };
+                var detail = status == DeviceStatus.SensorFault
+                    ? $"No signal from: {lost}"
+                    : null;
+                await deviceRepository.AddEventAsync(device.DeviceId, device.AssignedBedId,
+                                                     type, detail, cancellationToken);
+            }
+
+            device.Status = status;
+            device.ChannelsLost = lost;
+            device.LinkQuality = reading.LinkQuality ?? device.LinkQuality;
+            device.LastDataAt = now;
+            device.LastSeenAt = now;
+            await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not update health for device {DeviceId}", device.DeviceId);
         }
     }
 
@@ -344,7 +458,7 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.LastDataAt = reading.ReceivedAt;
         });
 
-        await hub.Clients.All.BedUpdated(BedDto.From(bed));
+        await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
 
         // The `beds` row is the durable "current state" record (used for restart
         // recovery), so it is always kept fresh — only the `vital_samples` history
@@ -376,7 +490,7 @@ public sealed class BedTcpIngestionService : BackgroundService
             var alert = await alertRepository.GetAsync(alertId, cancellationToken);
             if (alert is not null)
             {
-                await hub.Clients.All.AlertCreated(AlertDto.From(alert));
+                await hub.Clients.Group(MonitoringHub.WardGroup).AlertCreated(AlertDto.From(alert));
                 await fcmPushService.SendAlertAsync(alert, cancellationToken);
             }
         }

@@ -65,7 +65,7 @@ public static class AlertEndpoints
             // Taken from the signed-in session, never from the request body:
             // a client-supplied name would make the audit trail worthless.
             var acknowledgedAt = await repository.AcknowledgeAsync(id, http.User.Identity?.Name);
-            await hub.Clients.All.AlertAcknowledged(id, acknowledgedAt);
+            await hub.Clients.Group(MonitoringHub.WardGroup).AlertAcknowledged(id, acknowledgedAt);
             return Results.Ok(new { ok = true, acknowledgedAt });
         }).RequireAuthorization(Capabilities.AckAlerts);
     }

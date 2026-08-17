@@ -373,7 +373,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
                                int tare_just_completed, int hr_baseline_just_completed,
                                int hr_baseline_seconds_remaining, int hr_baseline_bpm,
                                int tare_event_count, int hr_baseline_event_count,
-                               const ts_forecast_t *ts)
+                               int link_quality, const ts_forecast_t *ts)
 {
     char line[1400];
     char ts_line[420];
@@ -428,7 +428,8 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"dropsPerMin\":%d,\"targetFlowMlH\":%d,\"targetDropsPerMin\":%d,"
              "\"tareInProgress\":%s,\"tareJustCompleted\":%s,"
              "\"hrBaselineJustCompleted\":%s,\"hrBaselineSecondsRemaining\":%d,"
-             "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d"
+             "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d,"
+             "\"linkQuality\":%d"
              "%s"
              ",\"hrForecast16s\":%s,\"spo2Forecast16s\":%s,\"dropsForecast16s\":%s}\n",
              his_bed_id, his_room, spo2, heart_rate, drop_rate, flow_rate,
@@ -441,6 +442,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              hr_baseline_just_completed ? "true" : "false",
              hr_baseline_seconds_remaining, hr_baseline_bpm,
              tare_event_count, hr_baseline_event_count,
+             link_quality,
              ts_line,
              hr_forecast_text, spo2_forecast_text, drops_forecast_text);
 
@@ -758,6 +760,10 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     int tare_in_progress = 0, tare_just_completed = 0, hr_baseline_just_completed = 0;
     int hr_baseline_seconds_remaining = 0, hr_baseline_bpm = 0;
     int tare_event_count = 0, hr_baseline_event_count = 0;
+    /* Zigbee signal strength, 0-255. zigbee2mqtt adds it to every payload and
+     * the gateway used to drop it. It is the one number that tells a
+     * technician whether a flaky bed needs a repeater or a new sensor. */
+    int link_quality = -1;
     ts_forecast_t ts;
 
     memset(&ts, 0, sizeof(ts));
@@ -855,6 +861,9 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     get_int_from_json(payload, "hr_baseline_bpm", &hr_baseline_bpm);
     get_int_from_json(payload, "tare_event_count", &tare_event_count);
     get_int_from_json(payload, "hr_baseline_event_count", &hr_baseline_event_count);
+    if (get_int_from_json(payload, "linkquality", &link_quality)) {
+        printf("Link quality    : %d/255\n", link_quality);
+    }
 
     get_bool_from_json(payload, "ts_ready", &ts.ready);
     get_bool_from_json(payload, "ts_anomaly", &ts.anomaly);
@@ -892,7 +901,7 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
                       weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
                       tare_in_progress, tare_just_completed, hr_baseline_just_completed,
                       hr_baseline_seconds_remaining, hr_baseline_bpm,
-                      tare_event_count, hr_baseline_event_count, &ts);
+                      tare_event_count, hr_baseline_event_count, link_quality, &ts);
 
     free(payload);
 }

@@ -19,7 +19,10 @@ const Session = (() => {
     manageDevices: "devices.manage",
     viewLogs: "logs.view",
     manageBeds: "beds.manage",
-    manageUsers: "users.manage"
+    manageUsers: "users.manage",
+    reportFaults: "faults.report",
+    handleFaults: "faults.handle",
+    viewBedDirectory: "beds.directory"
   };
 
   const ROLE_LABEL = {

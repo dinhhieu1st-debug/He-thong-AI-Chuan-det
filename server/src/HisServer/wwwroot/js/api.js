@@ -56,6 +56,22 @@ const Api = (() => {
 
     getLogs: (params) => request("GET", `/api/logs?${new URLSearchParams(params)}`),
 
+    // Bed directory: identifiers and rooms only, no vitals - see
+    // Capabilities.ViewBedDirectory for why this is a separate endpoint.
+    getBedDirectory: () => request("GET", "/api/beds/directory"),
+
+    // Equipment fault reports
+    reportFault: (bedId, channel, note) =>
+      request("POST", `/api/beds/${encodeURIComponent(bedId)}/fault-reports`, { channel, note }),
+    getBedFaultReports: (bedId) =>
+      request("GET", `/api/beds/${encodeURIComponent(bedId)}/fault-reports`),
+    getFaultReports: (openOnly) => request("GET", `/api/fault-reports?openOnly=${openOnly !== false}`),
+    claimFaultReport: (id) => request("POST", `/api/fault-reports/${id}/claim`),
+    resolveFaultReport: (id, resolutionNote) =>
+      request("POST", `/api/fault-reports/${id}/resolve`, { resolutionNote }),
+    getDeviceEvents: (deviceId) =>
+      request("GET", `/api/devices/${encodeURIComponent(deviceId)}/events`),
+
     // Session + roster
     getMyAssignment: () => request("GET", "/api/me/assignment"),
     changePassword: (currentPassword, newPassword) =>

@@ -10,17 +10,54 @@ public static class BedEndpoints
 {
     public static void MapBedEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/beds")
-            .RequireAuthorization(Capabilities.ViewWard);
+        /* No group-wide policy on purpose. This group mixes three audiences:
+         * the ward view (nurses), the bed DIRECTORY (technicians assigning a
+         * device, administrators building the ward), and bed administration.
+         * A single group policy would either lock out two of them or hand the
+         * other two more than they need. */
+        var group = app.MapGroup("/api/beds");
 
         group.MapGet("/", (BedStateStore store) =>
-            Results.Ok(store.GetAll().OrderBy(b => b.BedId).Select(BedDto.From)));
+            Results.Ok(store.GetAll().OrderBy(b => b.BedId).Select(BedDto.From)))
+            .RequireAuthorization(Capabilities.ViewWard);
+
+        /* The bed DIRECTORY: which beds exist, in which room, with which
+         * device, and whether someone is in them. No vitals, no patient name.
+         *
+         * This is what a technician sees when choosing a bed for a device they
+         * are assigning, and what an administrator sees when laying out the
+         * ward. Both need bed numbers; neither needs a heart rate, so this is
+         * a separate endpoint rather than a filtered view of the one above -
+         * a filter is something you can forget to apply. */
+        group.MapGet("/directory", async (BedStateStore store, DeviceRepository devices) =>
+        {
+            /* Which device serves a bed is owned by the devices table
+             * (assigned_bed_id), set when a technician assigns it. The beds
+             * table has its own device_id column left over from the seed data
+             * that nothing maintains - reading that instead is why this page
+             * first showed "no device assigned" for a bed whose device was
+             * plainly online. One direction of the link, one source of truth. */
+            var byBed = (await devices.GetAllAsync())
+                .Where(d => !string.IsNullOrWhiteSpace(d.AssignedBedId))
+                .GroupBy(d => d.AssignedBedId!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().DeviceId, StringComparer.OrdinalIgnoreCase);
+
+            return Results.Ok(store.GetAll()
+                .OrderBy(b => b.BedId, StringComparer.OrdinalIgnoreCase)
+                .Select(b => new
+                {
+                    bedId = b.BedId,
+                    room = b.Room,
+                    hasPatient = !string.IsNullOrWhiteSpace(b.PatientName),
+                    deviceId = byBed.GetValueOrDefault(b.BedId)
+                }));
+        }).RequireAuthorization(Capabilities.ViewBedDirectory);
 
         group.MapGet("/{bedId}", (string bedId, BedStateStore store) =>
         {
             var bed = store.Get(bedId);
             return bed is null ? Results.NotFound() : Results.Ok(BedDto.From(bed));
-        });
+        }).RequireAuthorization(Capabilities.ViewWard);
 
         /* Charted history for one bed, used by the per-metric time-series
          * plots in the bed detail view.
@@ -62,7 +99,7 @@ public static class BedEndpoints
                 windowMinutes,
                 samples
             });
-        });
+        }).RequireAuthorization(Capabilities.ViewWard);
 
         group.MapPost("/", async (
             CreateBedRequest request,
@@ -87,7 +124,7 @@ public static class BedEndpoints
             });
 
             await repository.UpsertAsync(bed);
-            await hub.Clients.All.BedUpdated(BedDto.From(bed));
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
             return Results.Created($"/api/beds/{bed.BedId}", BedDto.From(bed));
         }).RequireAuthorization(Capabilities.ManageBeds);
 
@@ -117,7 +154,7 @@ public static class BedEndpoints
             });
 
             await repository.UpsertAsync(bed);
-            await hub.Clients.All.BedUpdated(BedDto.From(bed));
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
             return Results.Ok(BedDto.From(bed));
         }).RequireAuthorization(Capabilities.ManageBeds);
 

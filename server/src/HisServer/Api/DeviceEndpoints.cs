@@ -10,8 +10,9 @@ public static class DeviceEndpoints
 {
     public static void MapDeviceEndpoints(this IEndpointRouteBuilder app)
     {
+        // Everything here is equipment work, so one policy covers the group.
         var group = app.MapGroup("/api/devices")
-            .RequireAuthorization(Capabilities.ViewWard);
+            .RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapGet("/", async (DeviceRepository repository) =>
             Results.Ok((await repository.GetAllAsync()).Select(DeviceDto.From)))
@@ -40,7 +41,7 @@ public static class DeviceEndpoints
 
             var device = ToRecord(request);
             await repository.UpsertAsync(device);
-            await hub.Clients.All.DeviceUpdated(DeviceDto.From(device));
+            await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
             return Results.Created($"/api/devices/{device.DeviceId}", DeviceDto.From(device));
         }).RequireAuthorization(Capabilities.ManageDevices);
 
@@ -57,9 +58,15 @@ public static class DeviceEndpoints
 
             var device = ToRecord(request with { DeviceId = deviceId });
             await repository.UpsertAsync(device);
-            await hub.Clients.All.DeviceUpdated(DeviceDto.From(device));
+            await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
             return Results.Ok(DeviceDto.From(device));
         }).RequireAuthorization(Capabilities.ManageDevices);
+
+        /* The technician's log for one device: joined, went offline, a channel
+         * died, a fault was reported. Deliberately NOT the System Log, which
+         * carries SpO2 and heart rate in every row. */
+        group.MapGet("/{deviceId}/events", async (string deviceId, DeviceRepository repository) =>
+            Results.Ok((await repository.GetEventsAsync(deviceId)).Select(DeviceEventDto.From)));
 
         group.MapDelete("/{deviceId}", async (string deviceId, DeviceRepository repository) =>
         {

@@ -3,12 +3,38 @@ const DevicesTab = (() => {
   let typeFilter = "all";
   let selectedDeviceId = null;
 
+  /* SENSOR_FAULT sits between healthy and dead on purpose, and gets its own
+   * colour: the unit is alive and talking, but a probe or a cable is gone.
+   * That is a different van-load of spare parts from a device that has stopped
+   * answering entirely. */
   const DEVICE_STATUS_COLOR = {
     ONLINE: "#1ea050",
+    SENSORFAULT: "#e08b00",
     PENDING: "#e69119",
     WARNING: "#e69119",
     OFFLINE: "#8a97a8"
   };
+
+  const DEVICE_STATUS_LABEL = {
+    ONLINE: "ONLINE",
+    SENSORFAULT: "SENSOR FAULT",
+    PENDING: "PENDING",
+    WARNING: "WARNING",
+    OFFLINE: "OFFLINE"
+  };
+
+  function statusKey(device) {
+    return (device.status || "").toUpperCase().replace("_", "");
+  }
+
+  /* Signal strength means nothing to most readers as a raw 0-255, and the
+   * decision it drives is coarse: is this bed's radio link fine, marginal, or
+   * the reason it keeps dropping out. */
+  function linkLabel(linkQuality) {
+    if (linkQuality == null) return "--";
+    const quality = linkQuality >= 120 ? "good" : linkQuality >= 60 ? "fair" : "weak";
+    return `${linkQuality}/255 (${quality})`;
+  }
 
   function matchesFilters(device) {
     if (typeFilter !== "all" && device.deviceType.toLowerCase() !== typeFilter) return false;
@@ -20,21 +46,25 @@ const DevicesTab = (() => {
   }
 
   function deviceCardHtml(device) {
-    const color = DEVICE_STATUS_COLOR[(device.status || "").toUpperCase()] || "#8a97a8";
+    const key = statusKey(device);
+    const color = DEVICE_STATUS_COLOR[key] || "#8a97a8";
     return `
       <div class="device-card" data-device-id="${UiUtils.escapeHtml(device.deviceId)}">
         <div class="row-top">
           <div><div class="device-id">${UiUtils.escapeHtml(device.deviceId)}</div><div class="device-type">${UiUtils.escapeHtml(device.deviceType.toUpperCase())}</div></div>
-          <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((device.status || "").toUpperCase())}</span>
+          <span class="status-chip" style="background:${color};">${DEVICE_STATUS_LABEL[key] || key}</span>
         </div>
         <div class="meta-row">
           <span>Bed: ${UiUtils.escapeHtml(device.assignedBedId || "--")}</span>
           <span>Room: ${UiUtils.escapeHtml(device.room || "--")}</span>
         </div>
         <div class="meta-row">
-          <span>Battery: ${UiUtils.formatMetric(device.batteryPercent, "%")}</span>
-          <span>RSSI: ${UiUtils.formatMetric(device.rssi, " dBm")}</span>
+          <span>Signal: ${linkLabel(device.linkQuality)}</span>
+          <span>Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}</span>
         </div>
+        ${device.channelsLost
+          ? `<div class="meta-row device-fault-line">No signal from: ${UiUtils.escapeHtml(device.channelsLost)}</div>`
+          : ""}
       </div>`;
   }
 
@@ -56,6 +86,13 @@ const DevicesTab = (() => {
       </div>
       <div class="bed-updated">EUI-64: ${UiUtils.escapeHtml(device.eui64 || "--")}</div>
       <div class="bed-updated">Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}</div>
+      <div class="bed-updated">Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}</div>
+      <div class="bed-updated">Signal: ${linkLabel(device.linkQuality)}</div>
+      ${device.channelsLost
+        ? `<div class="bed-updated device-fault-line">No signal from: ${UiUtils.escapeHtml(device.channelsLost)}</div>`
+        : ""}
+      <div class="section-title" style="margin-top:14px;">Device log</div>
+      <div id="deviceEvents"><span class="muted">Loading…</span></div>
       <form id="editDeviceForm">
         <label>Assigned Bed</label>
         <input type="text" id="editDeviceBedId" value="${UiUtils.escapeHtml(device.assignedBedId || "")}">
@@ -69,6 +106,8 @@ const DevicesTab = (() => {
         <button type="submit" class="btn primary">Save</button>
         <button type="button" class="btn" id="deleteDeviceBtn">Delete Device</button>
       </form>`;
+
+    loadDeviceEvents(device.deviceId);
 
     document.getElementById("editDeviceForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -163,6 +202,27 @@ const DevicesTab = (() => {
       State.setDevices(await Api.getDevices());
     } catch (err) {
       UiUtils.toast(err.message, true);
+    }
+  }
+
+  /* The technician's log. Deliberately not the System Log, which carries SpO2
+   * and heart rate in every row - this one records what happened to the
+   * equipment and nothing about the patient. */
+  async function loadDeviceEvents(deviceId) {
+    const host = document.getElementById("deviceEvents");
+    if (!host) return;
+    try {
+      const events = await Api.getDeviceEvents(deviceId);
+      host.innerHTML = events.length === 0
+        ? `<span class="muted">No events recorded yet.</span>`
+        : events.map((e) => `
+            <div class="device-event">
+              <span class="device-event-type">${UiUtils.escapeHtml(e.eventType.replace("_", " "))}</span>
+              <span class="muted">${UiUtils.formatDateTime(e.occurredAt)}</span>
+              ${e.detail ? `<div class="muted">${UiUtils.escapeHtml(e.detail)}</div>` : ""}
+            </div>`).join("");
+    } catch (err) {
+      host.innerHTML = `<span class="muted">Could not load the device log.</span>`;
     }
   }
 

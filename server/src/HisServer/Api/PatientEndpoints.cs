@@ -61,7 +61,7 @@ public static class PatientEndpoints
             });
 
             await repository.UpdatePatientAsync(bedId, name, code, admittedAt);
-            await hub.Clients.All.BedUpdated(BedDto.From(bed));
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
 
             return Results.Ok(BedDto.From(bed));
         });

@@ -260,6 +260,7 @@ const BedsTab = (() => {
       </div>
       ${alertCardHtml(bed)}
       ${patientCardHtml(bed)}
+      ${faultCardHtml(bed)}
       <div class="bd-card" data-cap="beds.manage">
         <h4>Bed</h4>
         <form id="editBedForm" class="bd-room-form">
@@ -327,6 +328,100 @@ const BedsTab = (() => {
           </form>
         </div>
       </div>`;
+  }
+
+  /* Equipment fault reporting, from the bedside.
+   *
+   * The nurse describes the SYMPTOM and picks the part; the technician records
+   * the diagnosis. Letting a nurse mark equipment "broken" or "fixed" would
+   * fill the device list with guesses made by whoever happened to be standing
+   * there.
+   *
+   * The open reports for this bed are shown right below the button on purpose:
+   * a nurse who reports a fault and never learns whether anyone picked it up
+   * goes back to the telephone, and the queue dies in its first week. */
+  let bedFaultReports = [];
+
+  function faultCardHtml(bed) {
+    const open = bedFaultReports.filter((r) => r.status !== "RESOLVED");
+    const recent = bedFaultReports.slice(0, 3);
+
+    const list = recent.map((r) => {
+      const label = r.status === "OPEN" ? "waiting for technician"
+                  : r.status === "IN_PROGRESS" ? `with ${UiUtils.escapeHtml(r.handledBy || "technician")}`
+                  : `fixed by ${UiUtils.escapeHtml(r.handledBy || "technician")}`;
+      return `<div class="status-line ${r.status === "RESOLVED" ? "status-line-done" : "status-line-active"}">
+                ${UiUtils.escapeHtml(r.channel)} · ${label}
+              </div>`;
+    }).join("");
+
+    return `
+      <div class="bd-card" data-cap="faults.report">
+        <h4>Equipment</h4>
+        ${open.length > 0
+          ? `<div class="status-line status-line-active">${open.length} open report(s)</div>`
+          : `<div class="status-line status-line-muted">No open reports</div>`}
+        ${list}
+        <button type="button" class="btn" id="reportFaultBtn" style="margin-top:8px;">
+          Report device problem
+        </button>
+      </div>`;
+  }
+
+  function bindFaultHandlers(bed) {
+    document.getElementById("reportFaultBtn")?.addEventListener("click", () => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML = `
+        <form class="modal-card" id="faultForm">
+          <h3>Report a device problem · ${UiUtils.escapeHtml(bed.bedId)}</h3>
+          <label for="faultChannel">Which part looks wrong?</label>
+          <select id="faultChannel">
+            <option value="SPO2">SpO2 sensor</option>
+            <option value="HR">Heart rate sensor</option>
+            <option value="FLOW">Load cell / scale</option>
+            <option value="DROPS">Drop sensor</option>
+            <option value="OTHER">Something else</option>
+          </select>
+          <label for="faultNote">What did you see?</label>
+          <input type="text" id="faultNote" maxlength="500"
+                 placeholder="e.g. re-seated the clip twice, still reads nothing">
+          <div class="form-error" id="faultError"></div>
+          <div class="modal-actions">
+            <button type="button" class="btn" id="faultCancel">Cancel</button>
+            <button type="submit" class="btn primary">Send to technician</button>
+          </div>
+        </form>`;
+      document.body.appendChild(backdrop);
+
+      backdrop.querySelector("#faultCancel").addEventListener("click", () => backdrop.remove());
+      backdrop.querySelector("#faultForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          await Api.reportFault(bed.bedId,
+                                backdrop.querySelector("#faultChannel").value,
+                                backdrop.querySelector("#faultNote").value.trim());
+          backdrop.remove();
+          UiUtils.toast("Sent to the technician");
+          await loadBedFaultReports(bed.bedId);
+        } catch (err) {
+          const box = backdrop.querySelector("#faultError");
+          box.textContent = err.message;
+          box.style.display = "block";
+        }
+      });
+    });
+  }
+
+  async function loadBedFaultReports(bedId) {
+    if (!Session.can(Session.CAP.reportFaults)) return;
+    try {
+      bedFaultReports = await Api.getBedFaultReports(bedId);
+      renderDetail();
+    } catch (err) {
+      // A failure here must not take the vitals panel down with it.
+      console.error("Could not load fault reports:", err);
+    }
   }
 
   function settingsSectionHtml(bed) {
@@ -821,6 +916,7 @@ const BedsTab = (() => {
 
     bindSettingsHandlers(bed);
     bindPatientHandlers(bed);
+    bindFaultHandlers(bed);
 
     /* renderDetail() rebuilds this panel from scratch about once a second, so
      * the capability gating has to be re-applied to the new DOM each time -
@@ -940,8 +1036,10 @@ const BedsTab = (() => {
       trendError = null;
     }
     selectedBedId = bedId;
+    bedFaultReports = [];
     renderDetail();
     loadTrends();
+    loadBedFaultReports(bedId);
     startTrendRefresh();
   }
 

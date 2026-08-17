@@ -31,10 +31,16 @@ public static class ProfileEndpoints
             var bedIds = assignments.Where(a => a.ScopeType == AssignmentScope.Bed)
                                     .Select(a => a.ScopeValue).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            /* The roster's bed list carries patient names, so it is built only
+             * for roles that may see the ward at all. A technician opening
+             * their own profile page gets their account details and an empty
+             * list - not a directory of who is in which bed. */
+            var canSeeWard = Capabilities.Has(user.Role, Capabilities.ViewWard);
+
             /* A bed counts as mine if the whole room is mine, or the bed itself
              * was assigned individually - a patient moved mid-shift should not
              * need the roster rewritten to show up here. */
-            var myBeds = beds.GetAll()
+            var myBeds = !canSeeWard ? new() : beds.GetAll()
                 .Where(b => rooms.Contains(b.Room) || bedIds.Contains(b.BedId))
                 .OrderBy(b => b.BedId, StringComparer.OrdinalIgnoreCase)
                 .Select(b => new
@@ -73,6 +79,6 @@ public static class ProfileEndpoints
                     occupied = myBeds.Count(b => !string.IsNullOrWhiteSpace(b.patientName as string))
                 }
             });
-        }).RequireAuthorization(Capabilities.ViewWard);
+        }).RequireAuthorization();   // any signed-in user has a profile
     }
 }

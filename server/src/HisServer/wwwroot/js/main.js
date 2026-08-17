@@ -6,15 +6,30 @@
     devices: "Devices",
     "system-log": "System Log",
     profile: "My shift",
-    users: "Users"
+    users: "Users",
+    faults: "Fault reports",
+    directory: "Bed directory"
   };
+
+  /* Where each role lands. Everyone used to arrive at the Dashboard; for a
+   * technician or an administrator that tab no longer exists, so without this
+   * they would open the console to a blank page. Ordered by capability, not by
+   * role name, so a new role inherits a sensible landing tab for free. */
+  const LANDING = [
+    ["ward.view", "dashboard"],
+    ["devices.manage", "devices"],
+    ["users.manage", "users"],
+    ["logs.view", "system-log"]
+  ];
 
   /* Tabs that fetch on demand instead of riding the live SignalR feed. They
    * are told when they become visible so they do not poll in the background
    * for a screen nobody is looking at. */
   const ON_DEMAND = {
     profile: ProfileTab,
-    users: UsersTab
+    users: UsersTab,
+    faults: FaultsTab,
+    directory: DirectoryTab
   };
 
   function switchTab(tab) {
@@ -52,23 +67,41 @@
   Session.applyTo(document);
   document.getElementById("logoutBtn")?.addEventListener("click", () => Session.logout());
 
-  // Initial REST load, then open the live SignalR connection.
+  /* Bed data comes from one of two endpoints depending on the role: the full
+   * one with vitals for the ward, or the directory (identifiers and rooms
+   * only) for the technician assigning devices. Asking for the wrong one is a
+   * 403, not a silent empty screen. */
   try {
-    const beds = await Api.getBeds();
-    State.setBeds(beds);
+    if (Session.can(Session.CAP.viewWard)) {
+      State.setBeds(await Api.getBeds());
+    } else if (Session.can(Session.CAP.viewBedDirectory)) {
+      const directory = await Api.getBedDirectory();
+      State.setBeds(directory.map((b) => ({ bedId: b.bedId, room: b.room, status: "Unknown" })));
+    }
   } catch (err) {
     console.error("Failed to load initial bed data:", err);
   }
 
-  DashboardTab.init();
-  BedsTab.init();
-  AlertsTab.init();
+  /* Ward modules only exist for roles that can see the ward - their DOM is
+   * removed for everyone else, and initialising them would throw on the first
+   * missing element. */
+  if (Session.can(Session.CAP.viewWard)) {
+    DashboardTab.init();
+    BedsTab.init();
+    AlertsTab.init();
+  }
+  if (Session.can(Session.CAP.handleFaults)) FaultsTab.init();
   // These two tabs are removed entirely for roles without the capability, so
   // their modules must not be initialised either - their DOM is gone.
   if (Session.can(Session.CAP.manageDevices)) DevicesTab.init();
   if (Session.can(Session.CAP.viewLogs)) SystemLogTab.init();
-  // Last, so the tab modules exist by the time it can open a bed.
-  CriticalAlarm.init();
+  // Last, so the tab modules exist by the time it can open a bed. Clinical
+  // alarms are for clinical roles: a technician has no way to act on one.
+  if (Session.can(Session.CAP.viewWard)) CriticalAlarm.init();
+
+  // Land on the first tab this role can actually use.
+  const landing = LANDING.find(([cap]) => Session.can(cap));
+  if (landing) switchTab(landing[1]);
 
   await MonitoringHub.start();
 

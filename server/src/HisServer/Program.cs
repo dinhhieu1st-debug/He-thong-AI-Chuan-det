@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<TcpOptions>(builder.Configuration.GetSection("Tcp"));
 builder.Services.Configure<OfflineOptions>(builder.Configuration.GetSection("Offline"));
 builder.Services.Configure<VitalsSaveOptions>(builder.Configuration.GetSection("VitalsSave"));
+builder.Services.Configure<DeviceHealthOptions>(builder.Configuration.GetSection("DeviceHealth"));
 builder.Services.Configure<FirebaseOptions>(builder.Configuration.GetSection("Firebase"));
 
 // Data access
@@ -26,6 +27,7 @@ builder.Services.AddSingleton<AlertRepository>();
 builder.Services.AddSingleton<FcmTokenRepository>();
 builder.Services.AddSingleton<LogRepository>();
 builder.Services.AddSingleton<UserRepository>();
+builder.Services.AddSingleton<FaultReportRepository>();
 
 // Domain / services
 builder.Services.AddSingleton<BedStateStore>();
@@ -154,12 +156,17 @@ app.UseRouting();
 app.UseAuthorization();
 
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
-app.MapHub<MonitoringHub>("/hubs/monitoring").RequireAuthorization(Capabilities.ViewWard);
+/* Any signed-in user may connect; WHAT they receive is decided by the
+ * capability groups the hub puts them in (see MonitoringHub). Requiring
+ * ward.view here would have cut technicians off from device and fault events
+ * entirely. */
+app.MapHub<MonitoringHub>("/hubs/monitoring").RequireAuthorization();
 
 app.MapAuthEndpoints();
 app.MapProfileEndpoints();
 app.MapUserEndpoints();
 app.MapPatientEndpoints();
+app.MapFaultReportEndpoints();
 app.MapBedEndpoints();
 app.MapAlertEndpoints();
 app.MapDeviceEndpoints();

@@ -15,6 +15,7 @@ const MonitoringHub = (() => {
   /* A device that just joined the Zigbee network. Same payload as
    * DeviceUpdated, separate event so the Devices tab can say so out loud
    * instead of quietly adding a row nobody notices. */
+  connection.on("FaultReported", (report) => State.emit("fault-reported", report));
   connection.on("DeviceDiscovered", (device) => {
     State.upsertDevice(device);
     State.emit("device-discovered", device);
