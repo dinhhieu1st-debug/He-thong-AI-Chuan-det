@@ -358,7 +358,18 @@ static void zb_report_ts_result(const fusion_result_t *f)
                                * converter only gains decode lines. */
                               | (((uint16_t)f->level & 0x3u) << 9)
                               | (f->line_branch    ? 0x0800u : 0u)
-                              | (f->patient_branch ? 0x1000u : 0u));
+                              | (f->patient_branch ? 0x1000u : 0u)
+                              /* bits 13-15: phán quyết của loadcell.
+                               *
+                               * Gửi state+1 chứ không phải state, để giá trị 0
+                               * mang nghĩa "chưa kết luận được" - cửa sổ trọng
+                               * lượng 60 giây chưa đầy. Nếu gửi thẳng state thì
+                               * "chưa biết" và "mọi thứ ổn" trùng nhau, và bảng
+                               * điều khiển sẽ hiện màu xanh mà nó chưa xứng
+                               * đáng có. */
+                              | (f->line.valid
+                                 ? (uint16_t)(((f->line.state + 1) & 0x7u) << 13)
+                                 : 0u));
 
   uint16_t hr_forecast = (usable && f->vitals_ready)
                          ? (uint16_t)(f->hr_forecast_16s + 0.5f) : TS_FORECAST_INVALID;

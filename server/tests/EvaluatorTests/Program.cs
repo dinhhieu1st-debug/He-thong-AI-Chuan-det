@@ -68,12 +68,32 @@ Console.WriteLine("   Re-reading LineBlocked here would undo the whole point of 
           status == BedStatus.Stable, status.ToString());
 }
 
-Console.WriteLine("\n== But a v1 device's LineBlocked is still taken seriously ==");
+Console.WriteLine("\n== A line fault is NEVER Critical, whatever reports it ==");
+Console.WriteLine("   Critical is reserved for the patient being in danger. Giving a kinked");
+Console.WriteLine("   line the same colour and siren is how a ward stops reacting to red.");
 {
-    var r = Normal() with { AlertLevel = null, LineBlocked = true };
-    var status = VitalsStatusEvaluator.Evaluate(r);
-    Check("no AlertLevel -> LineBlocked still means Critical",
-          status == BedStatus.Critical, status.ToString());
+    var v1 = Normal() with { AlertLevel = null, LineBlocked = true };
+    Check("v1 device, LineBlocked -> Warning, not Critical",
+          VitalsStatusEvaluator.Evaluate(v1) == BedStatus.Warning,
+          VitalsStatusEvaluator.Evaluate(v1).ToString());
+
+    var v2 = Normal() with { AlertLevel = 1, LineBranch = true, LineState = 2, LineBlocked = true };
+    Check("v2 device, occluded line -> Warning",
+          VitalsStatusEvaluator.Evaluate(v2) == BedStatus.Warning,
+          VitalsStatusEvaluator.Evaluate(v2).ToString());
+
+    // The one case a line fault still reaches Critical: the patient is failing
+    // too. That is level 3, and it is the patient half that earns the red.
+    var both = Normal() with { AlertLevel = 3, LineBranch = true, PatientBranch = true };
+    Check("line AND patient together is still Critical",
+          VitalsStatusEvaluator.Evaluate(both) == BedStatus.Critical,
+          VitalsStatusEvaluator.Evaluate(both).ToString());
+
+    // And a line fault must not mask a real desaturation happening at once.
+    var masked = Normal() with { AlertLevel = 1, LineBlocked = true, Spo2 = 84, Spo2Signal = true };
+    Check("a line fault never hides a critical SpO2",
+          VitalsStatusEvaluator.Evaluate(masked) == BedStatus.Critical,
+          VitalsStatusEvaluator.Evaluate(masked).ToString());
 }
 
 Console.WriteLine("\n== A patient problem IS Critical ==");

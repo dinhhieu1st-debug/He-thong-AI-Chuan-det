@@ -590,6 +590,49 @@ cấp 2 → Critical kèm câu "đường truyền vẫn bình thường"; cấp
 dịch; thiết bị v1 (không gửi `AlertLevel`) vẫn chạy đúng như cũ; `lineState = -1`
 thành `null` chứ không phải `0` — *"chưa biết"* khác *"bình thường"*.
 
+#### Bố trí bit của `tsFlags` (attribute ZCL 0x000F)
+
+Toàn bộ thông tin v2 đi qua Zigbee bằng **phần bit còn trống** của một attribute
+gateway đã đọc sẵn — không phải đổi schema ZCL.
+
+| Bit | Ý nghĩa |
+|---|---|
+| 0–2 | forecaster sẵn sàng / bất thường đã qua K=11 / cảnh báo sớm |
+| 3–6 | xu hướng nhịp tim, xu hướng số giọt |
+| 7–8 | dự báo HR / dự báo giọt có đáng tin không |
+| **9–10** | **cấp cảnh báo 0–3** |
+| **11–12** | **nhánh đường truyền / nhánh bệnh nhân** |
+| **13–15** | **phán quyết loadcell, gửi dưới dạng `state+1`** |
+
+`state+1` chứ không phải `state`: giá trị 0 mang nghĩa *"chưa kết luận được"* (cửa
+sổ trọng lượng 60 giây chưa đầy). Gửi thẳng `state` thì "chưa biết" và "mọi thứ
+ổn" trùng nhau, và bảng điều khiển sẽ hiện màu xanh mà nó chưa xứng đáng có.
+
+#### Ba lỗi tìm ra khi chạy thật với đường Zigbee
+
+1. **Đường Zigbee vẫn chạy code cũ.** `gateway/main.c` và converter đã sửa trong
+   repo nhưng **chưa build lại và chưa triển khai xuống Pi**. Nên `alertLevel`
+   không tới được server, server coi board là thiết bị đời cũ, và **mọi sự cố
+   đường truyền bị đẩy lên mức đỏ**. Sửa `gateway/` trong repo là chưa xong việc
+   — phải copy sang Pi, `gcc`, `systemctl restart`.
+2. **Converter chia 100 thừa.** Firmware gửi **phần trăm** (`ratio × 100`),
+   converter lại chia thêm 100 thành phân số, rồi `get_int_from_json` cắt `1.04`
+   thành `0`. Hậu quả: ca truyền **đúng y lệnh** (52/50 dpm) hiện ra **0%** và bị
+   tô đỏ. Đường serial không có lỗi này nên nó ẩn suốt.
+3. **Biểu đồ coi số 0 là số đo thật.** Bỏ tay khỏi cảm biến → firmware gửi 0 →
+   `0 < critBelow(45)` → thẻ đỏ nhấp nháy cho một giường chưa ai kẹp cảm biến.
+   Nguyên tắc *"chưa có dữ liệu không phải là nguy kịch"* repo đã ghi từ trước,
+   nhưng biểu đồ chưa áp dụng. Nay các kênh mà 0 là bất khả thi về sinh lý được
+   đánh dấu `zeroMeansNoSignal`.
+
+#### Thang màu sau khi chỉnh
+
+**Đỏ dành riêng cho bệnh nhân đang nguy hiểm.** Sự cố đường truyền — tắc, chảy
+tự do, lệch y lệnh — **chỉ tới mức vàng**, dù nguồn báo là thiết bị v1 hay v2.
+Cho nó cùng màu cùng còi với tụt oxy là cách nhanh nhất khiến cả khoa thôi phản
+ứng với màu đỏ. Ngoại lệ duy nhất: **cấp 3** — đường truyền *và* bệnh nhân cùng
+bất thường; phần đỏ đó là do nửa bệnh nhân.
+
 ### Giai đoạn 4 — Tài liệu
 
 Viết lại `AI_HOAT_DONG_THE_NAO.md`, `AI_TIME_SERIES_TAT_TAN_TAT.md`,

@@ -98,6 +98,24 @@ const TS_HR_TREND_SHIFT       = 3;     // 2 bits: 0 steady, 1 rising, 2 falling
 const TS_DROPS_TREND_SHIFT    = 5;     // 2 bits, same encoding
 const TS_BIT_HR_TRUSTED       = 0x080;
 const TS_BIT_DROPS_TRUSTED    = 0x100;
+
+/* AI v2. Ba model chay doc lap tren chip, va thiet bi tra loi duoc cau hoi ma
+ * y ta hoi dau tien: HONG O DAY TRUYEN HAY HONG O BENH NHAN? Hai su co nay xu
+ * tri hoan toan khac nhau.
+ *
+ * Cac bit nay nam trong phan CON TRONG cua mot attribute gateway da doc san,
+ * nen khong phai doi schema ZCL - chi them vai dong giai ma o day.
+ *
+ * Thieu chung thi server coi thiet bi la doi cu va tu suy dien lay, va moi su
+ * co duong truyen se bi day len muc do. */
+const TS_ALERT_LEVEL_SHIFT    = 9;      /* 2 bit: 0 binh thuong .. 3 nguy kich */
+const TS_BIT_LINE_BRANCH      = 0x0800;
+const TS_BIT_PATIENT_BRANCH   = 0x1000;
+
+/* 3 bit cuoi: phan quyet cua loadcell, gui duoi dang state+1 nen 0 = chua ket
+ * luan duoc (cua so trong luong 60 giay chua day). "Chua biet" khac "moi thu
+ * on", va gop chung se cho ra mau xanh chua xung dang. */
+const TS_LINE_STATE_SHIFT     = 13;
 // Sent instead of a number when the model cannot vouch for that channel's
 // forecast (TS_FORECAST_INVALID in app.c) - shown as null, never as a figure
 // the dashboard would label "forecast".
@@ -117,10 +135,14 @@ const fzSmartIv = {
                 result.spo2 = msg.data.spo2 === SPO2_INVALID ? null : msg.data.spo2;
             }
             if (msg.data.flowRatio !== undefined) {
-                result.flow = msg.data.flowRatio / 100;
+                /* Firmware gui PHAN TRAM (ti so x100). Truoc day cho nay chia
+                 * them 100 nua, bien no thanh phan so - roi gateway doc bang
+                 * get_int_from_json va cat "1.04" thanh 0. Ket qua: mot ca
+                 * truyen dung y lenh hien ra 0% va bi to do. */
+                result.flow = msg.data.flowRatio;
             }
             if (msg.data.dropRatio !== undefined) {
-                result.drop_rate = msg.data.dropRatio / 100;
+                result.drop_rate = msg.data.dropRatio;   /* phan tram - xem ghi chu tren */
             }
             if (msg.data.alarmBitmap !== undefined) {
                 const bitmap = msg.data.alarmBitmap;
@@ -171,6 +193,13 @@ const fzSmartIv = {
                 result.drops_trend = (ts >> TS_DROPS_TREND_SHIFT) & 0x3;
                 result.hr_forecast_trusted = (ts & TS_BIT_HR_TRUSTED) !== 0;
                 result.drops_forecast_trusted = (ts & TS_BIT_DROPS_TRUSTED) !== 0;
+
+                result.alert_level = (ts >> TS_ALERT_LEVEL_SHIFT) & 0x3;
+                result.line_branch = (ts & TS_BIT_LINE_BRANCH) !== 0;
+                result.patient_branch = (ts & TS_BIT_PATIENT_BRANCH) !== 0;
+
+                const lineState = (ts >> TS_LINE_STATE_SHIFT) & 0x7;
+                result.line_state = lineState === 0 ? null : lineState - 1;
             }
             if (msg.data.hrForecast16s !== undefined) {
                 result.hr_forecast_16s = msg.data.hrForecast16s === TS_FORECAST_INVALID
@@ -384,6 +413,10 @@ const definition = {
         e.binary('ts_ready', ea.STATE, true, false).withDescription('Forecaster has collected its first 64s window'),
         e.binary('ts_anomaly', ea.STATE, true, false).withDescription('Persistence-confirmed forecast anomaly'),
         e.binary('ts_early_warning', ea.STATE, true, false).withDescription('Forecast crosses a clinical limit within 16s'),
+        e.numeric('alert_level', ea.STATE).withDescription('0 normal, 1 infusion line, 2 patient vitals, 3 both'),
+        e.binary('line_branch', ea.STATE, true, false).withDescription('The infusion line is at fault'),
+        e.binary('patient_branch', ea.STATE, true, false).withDescription('The patient is at fault'),
+        e.numeric('line_state', ea.STATE).withDescription('Load cell verdict: 0 ok, 1 running low, 2 occlusion, 3 free flow, 4 drop-sensor fault, 5 empty'),
         e.numeric('ts_trend', ea.STATE).withDescription('Heart-rate trend: 0 steady, 1 rising, 2 falling'),
         e.numeric('drops_trend', ea.STATE).withDescription('Drop-rate trend: 0 steady, 1 rising, 2 falling'),
         e.numeric('hr_forecast_16s', ea.STATE).withUnit('bpm').withDescription('Forecast heart rate 16s ahead'),

@@ -32,7 +32,6 @@ const BedsTab = (() => {
           <div class="vitals">
             <div class="vital">SpO2<b>${UiUtils.formatMetric(bed.spo2, "%")}</b></div>
             <div class="vital">Heart Rate<b>${UiUtils.formatMetric(bed.heartRate, "")}</b></div>
-            <div class="vital">Flow<b>${UiUtils.formatMetric(bed.flowRate, "%")}</b></div>
             <div class="vital">Drip<b>${UiUtils.formatMetric(bed.dripRate, "%")}</b></div>
           </div>
           ${UiUtils.signalRowHtml(bed)}
@@ -306,7 +305,6 @@ const BedsTab = (() => {
         <div class="bd-vitals">
           ${tile("spo2", "%", "SpO2", bed.spo2Signal)}
           ${tile("heartRate", " bpm", "Heart rate", bed.heartRateSignal)}
-          ${tile("flowRate", "%", "Flow vs target", bed.flowSignal)}
           ${tile("dripRate", "%", "Drip vs target", bed.dripRateSignal)}
           ${tile("dropsPerMin", " dpm", "Drops per min", bed.dripRateSignal)}
           ${tile("weightG", " g", "IV bag weight", bed.flowSignal)}
@@ -510,16 +508,6 @@ const BedsTab = (() => {
         </div>
 
         <div class="settings-block">
-          <label>Infusion rate (AI alert target)
-            <b class="current-target">${UiUtils.formatMetric(bed.targetFlowMlH, " ml/h")}</b>
-          </label>
-          <form id="targetFlowForm" class="inline-form">
-            <input type="number" min="1" id="targetFlowInput" placeholder="New target" value="">
-            <button type="submit" class="btn primary">Set</button>
-          </form>
-        </div>
-
-        <div class="settings-block">
           <label>Drop rate (AI alert target)
             <b class="current-target">${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
             <span class="measured">measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</span>
@@ -533,20 +521,6 @@ const BedsTab = (() => {
   }
 
   function bindSettingsHandlers(bed) {
-    document.getElementById("targetFlowForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const input = document.getElementById("targetFlowInput");
-      const value = parseInt(input.value, 10);
-      if (!value || value <= 0) return;
-      try {
-        await Api.setTargetFlow(bed.bedId, value);
-        UiUtils.toast(`${bed.bedId}: target flow rate set to ${value} ml/h`);
-        input.value = "";
-      } catch (err) {
-        UiUtils.toast(`${bed.bedId}: could not set target flow rate (${err.message})`, true);
-      }
-    });
-
     document.getElementById("targetDropsForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const input = document.getElementById("targetDropsInput");
@@ -614,13 +588,19 @@ const BedsTab = (() => {
     // the numeric readout and the "max" figure below the chart still show the
     // true value, so nothing is hidden.
     { key: "heartRate",   label: "Heart rate",     unit: " bpm", color: "#1ea050", yRange: [1, 150],
+      zeroMeansNoSignal: true,
       limits: { warnBelow: 60, warnAbove: 110, critBelow: 45, critAbove: 130 } },
     { key: "spo2",        label: "SpO2",           unit: "%",    color: "#2470c8", minSpan: 8,
+      zeroMeansNoSignal: true,
       limits: { warnBelow: 95, critBelow: 90 } },
-    { key: "flowRate",    label: "Flow vs target", unit: "%",    color: "#0d8f96", minSpan: 40,
-      limits: { warnBelow: 70, warnAbove: 130, critBelow: 40, critAbove: 160 } },
+    /* Nhỏ giọt lệch y lệnh là việc của người đi kiểm tra dây, không phải việc
+     * chạy tới giường. Nên nó chỉ tới mức vàng - đỏ để dành cho bệnh nhân.
+     * Ngoại lệ duy nhất: nhỏ giọt bất thường CÙNG LÚC sinh hiệu bất thường,
+     * và cái đó do bộ hợp nhất trên chip quyết (cấp 3), không phải do ngưỡng
+     * của một biểu đồ. */
     { key: "dripRate",    label: "Drip vs target", unit: "%",    color: "#7a5bd0", minSpan: 40,
-      limits: { warnBelow: 70, warnAbove: 130, critBelow: 40, critAbove: 160 } },
+      zeroMeansNoSignal: true,
+      limits: { warnBelow: 70, warnAbove: 130 } },
     { key: "dropsPerMin", label: "Drops per min",  unit: " dpm", color: "#4f46e5", minSpan: 10 },
     { key: "weightG",     label: "IV bag weight",  unit: " g",   color: "#64748b", minSpan: 50 }
   ];
@@ -633,6 +613,7 @@ const BedsTab = (() => {
   function severityOfValue(key, value) {
     const metric = METRIC_BY_KEY[key];
     if (!metric || !metric.limits || value == null || !Number.isFinite(value)) return "ok";
+    if (metric.zeroMeansNoSignal && value === 0) return "ok";   // xem severityOf()
     const l = metric.limits;
     if ((l.critBelow != null && value < l.critBelow)
      || (l.critAbove != null && value > l.critAbove)) return "critical";
@@ -648,12 +629,24 @@ const BedsTab = (() => {
   function severityOf(metric, samples) {
     if (!metric.limits) return "ok";
 
+    /* Bỏ qua số 0 trên những kênh mà 0 là bất khả thi về mặt sinh lý.
+     *
+     * Cảm biến chưa cắm, hoặc bệnh nhân bỏ tay ra, thì firmware đọc 0. Coi số 0
+     * đó là số đo thật nghĩa là 0 < critBelow(45) → thẻ đỏ nhấp nháy cho một
+     * giường mà đơn giản là chưa có ai kẹp cảm biến. Việc mất tín hiệu đã được
+     * báo ở dải cảnh báo và ở hàng trạng thái từng kênh; nó không cần thêm một
+     * cái thẻ đỏ nói sai sự thật.
+     *
+     * Nguyên tắc này repo đã ghi từ trước: "chưa có dữ liệu" không phải là "ổn
+     * định", cũng không phải là "nguy kịch". Biểu đồ trước đây chưa áp dụng. */
     let latest = null;
     for (let i = samples.length - 1; i >= 0; i--) {
       const v = samples[i][metric.key];
-      if (v != null && Number.isFinite(v)) { latest = v; break; }
+      if (v == null || !Number.isFinite(v)) continue;
+      if (metric.zeroMeansNoSignal && v === 0) continue;
+      latest = v; break;
     }
-    if (latest == null) return "ok";   // no signal is reported by the alert banner, not by a red chart
+    if (latest == null) return "ok";   // mất tín hiệu -> dải cảnh báo lo, không phải thẻ đỏ
 
     const l = metric.limits;
     if ((l.critBelow != null && latest < l.critBelow)
@@ -907,6 +900,47 @@ const BedsTab = (() => {
     }
   }
 
+  /* Chụp lại trạng thái người dùng đang thao tác, trước khi innerHTML bị thay.
+   *
+   * renderDetail() dựng lại toàn bộ panel mỗi khi có dữ liệu mới - tức là mỗi
+   * giây. Hai thứ bị mất mỗi lần:
+   *
+   *   - Vị trí cuộn của cột phải. Y tá cuộn xuống ô "Drop rate", một gói dữ
+   *     liệu tới, panel dựng lại, cuộn nhảy về đầu. Cuộn xuống nữa, lại nhảy.
+   *     Trên thực tế là không thao tác nổi.
+   *   - Nội dung đang gõ dở trong ô nhập, cùng vị trí con trỏ.
+   *
+   * Cách đúng về lâu dài là chỉ cập nhật những nút text thay đổi thay vì dựng
+   * lại cả cây DOM. Cho tới lúc đó, chụp và khôi phục là cách sửa nhỏ mà giải
+   * quyết đúng triệu chứng. */
+  function captureInteractionState() {
+    const scrolls = Array.from(document.querySelectorAll("#bedDetailPanel .bd-col"))
+      .map((el, i) => ({ i, top: el.scrollTop }));
+
+    const active = document.activeElement;
+    const focus = (active && active.id && active.closest("#bedDetailPanel"))
+      ? { id: active.id, value: active.value,
+          start: active.selectionStart, end: active.selectionEnd }
+      : null;
+
+    return { scrolls, focus };
+  }
+
+  function restoreInteractionState(state) {
+    if (!state) return;
+    const cols = document.querySelectorAll("#bedDetailPanel .bd-col");
+    state.scrolls.forEach(({ i, top }) => { if (cols[i]) cols[i].scrollTop = top; });
+
+    if (!state.focus) return;
+    const el = document.getElementById(state.focus.id);
+    if (!el) return;
+    if (state.focus.value !== undefined) el.value = state.focus.value;
+    el.focus();
+    if (state.focus.start != null && el.setSelectionRange) {
+      try { el.setSelectionRange(state.focus.start, state.focus.end); } catch { /* not a text input */ }
+    }
+  }
+
   function renderDetail() {
     const panel = document.getElementById("bedDetailPanel");
     const bed = selectedBedId ? State.beds.get(selectedBedId) : null;
@@ -927,6 +961,10 @@ const BedsTab = (() => {
     // 3-column workspace size to its content instead of to the viewport.
     panel.style.display = "";
     document.body.classList.add("no-scroll");
+
+    /* Phải chụp TRƯỚC khi gán innerHTML - sau đó các phần tử cũ đã biến mất. */
+    const interaction = captureInteractionState();
+
     const statusColor = UiUtils.statusColor(bed.status);
     panel.innerHTML = `
       <div class="bd-header" style="--bd-status:${statusColor};">
@@ -961,6 +999,8 @@ const BedsTab = (() => {
           </div>
         </div>
       </div>`;
+
+    restoreInteractionState(interaction);
 
     document.getElementById("closeBedDetailBtn").addEventListener("click", closeDetail);
 

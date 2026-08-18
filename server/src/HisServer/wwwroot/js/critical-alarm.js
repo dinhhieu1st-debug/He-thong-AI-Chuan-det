@@ -57,7 +57,6 @@ const CriticalAlarm = (() => {
         <div class="ca-vitals">
           <span><b>${UiUtils.formatMetric(bed.spo2, "%")}</b> SpO2</span>
           <span><b>${UiUtils.formatMetric(bed.heartRate, "")}</b> bpm</span>
-          <span><b>${UiUtils.formatMetric(bed.flowRate, "%")}</b> flow</span>
           <span><b>${UiUtils.formatMetric(bed.dripRate, "%")}</b> drip</span>
         </div>
         <div class="ca-actions">

@@ -18,7 +18,6 @@ const DashboardTab = (() => {
           <div class="vitals">
             <div class="vital">SpO2<b>${UiUtils.formatMetric(bed.spo2, "%")}</b></div>
             <div class="vital">Heart Rate<b>${UiUtils.formatMetric(bed.heartRate, "")}</b></div>
-            <div class="vital">Flow<b>${UiUtils.formatMetric(bed.flowRate, "%")}</b></div>
             <div class="vital">Drip<b>${UiUtils.formatMetric(bed.dripRate, "%")}</b></div>
           </div>
           ${UiUtils.signalRowHtml(bed)}

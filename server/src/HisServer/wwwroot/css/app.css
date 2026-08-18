@@ -817,3 +817,43 @@ body.no-scroll { overflow: hidden; }
   display: flex; flex-direction: column; gap: 2px;
 }
 .ls-remaining b { font-size: 17px; }
+
+/* ============================================================================
+ *  Giữ bố cục ĐỨNG YÊN khi số liệu thay đổi
+ *
+ *  Cột phải của trang chi tiết giường cập nhật mỗi giây. Nếu mỗi lần cập nhật
+ *  làm các thẻ đổi kích thước thì mọi thứ bên dưới trượt lên trượt xuống, và
+ *  người dùng không cuộn nổi xuống ô "Drop rate" để đặt lại y lệnh — kéo được
+ *  nửa đường thì nó đã nhảy đi chỗ khác.
+ *
+ *  Hai nguyên nhân, hai cách chữa:
+ *
+ *  1. Chữ số có bề rộng khác nhau. "111" hẹp hơn "100" trong hầu hết font tỉ
+ *     lệ, nên một con số nhảy từ 98 lên 100 cũng đủ đẩy cả dòng. tabular-nums
+ *     bắt mọi chữ số rộng bằng nhau.
+ *
+ *  2. Chữ chú thích dài ngắn khác nhau, ví dụ "within deadband" so với
+ *     "+12 bpm/min", hay "no sensor signal" — khi xuống dòng thì thẻ cao thêm
+ *     một dòng. Đặt chiều cao tối thiểu để chỗ đó luôn được giữ sẵn.
+ * ========================================================================== */
+.fc-card b,
+.fc-sub,
+.ls-remaining b,
+.current-target,
+.measured,
+.vital b {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Chừa sẵn chỗ cho dòng chú thích dài nhất, để thẻ không cao lên thấp xuống. */
+.bd-col-side .fc-card { min-height: 66px; }
+.fc-card .fc-sub { display: block; min-height: 2.6em; }
+
+/* Dải cờ bên dưới xuất hiện/biến mất theo trạng thái; giữ chỗ cho nó luôn. */
+.bed-forecast .fc-flags,
+.line-status .fc-flags { min-height: 24px; }
+
+/* Câu verdict của load cell dài ngắn khác nhau (từ "Flow and weight agree" tới
+   "LINE BLOCKED - drops slowed and the bag is not getting lighter"). */
+.ls-verdict { min-height: 3.2em; display: flex; align-items: center; }

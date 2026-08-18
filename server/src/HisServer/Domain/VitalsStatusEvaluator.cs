@@ -72,9 +72,17 @@ public static class VitalsStatusEvaluator
             return BedStatus.Critical;
         }
 
-        var deviceJudgedTheLine = reading.AlertLevel is not null;
-
-        if (IsCriticalSpo2(reading) || (reading.LineBlocked && !deviceJudgedTheLine))
+        // Critical is reserved for the PATIENT being in danger. A blocked or
+        // free-flowing line is a real problem and someone has to walk over and
+        // fix it, but it is not the same class of event as a desaturation, and
+        // giving it the same colour and the same siren is how a ward stops
+        // reacting to the colour at all.
+        //
+        // Note LineBlocked is absent here. It used to promote any drip-rate
+        // deviation straight to Critical, which meant every bag that ran low,
+        // every kinked line and every miscounted drop looked exactly like a
+        // patient in trouble.
+        if (IsCriticalSpo2(reading))
         {
             return BedStatus.Critical;
         }
@@ -86,7 +94,12 @@ public static class VitalsStatusEvaluator
         // because the load cell shows the fluid still going in. Re-reading that
         // flag here would resurrect exactly the false alarm the load cell was
         // added to remove.
+        var deviceJudgedTheLine = reading.AlertLevel is not null;
+
         if (deviceStatus == BedStatus.Warning
+            // A line fault from a device too old to classify it itself. Warning,
+            // not Critical - see above.
+            || (reading.LineBlocked && !deviceJudgedTheLine)
             || IsWarningSpo2(reading)
             || IsAbnormalHeartRate(reading)
             || reading.AeAlarm
