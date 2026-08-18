@@ -74,7 +74,7 @@ giây.
 Nay dùng **máy trạng thái bốn bước** (`firmware/drop_filter.c`):
 
 ```
-CHỜ ──tia bị chắn──► XÁC NHẬN ──giữ đủ 12 ms──► ĐẾM MỘT GIỌT
+CHỜ ──tia bị chắn──► XÁC NHẬN ──giữ đủ 600 µs──► ĐẾM MỘT GIỌT
  ▲                      │
  │                 thông lại ngay = nhiễu, bỏ
  │
@@ -82,33 +82,60 @@ XÁC NHẬN THÔNG ◄──tia thông── CHỜ THÔNG
  └── thông đủ 25 ms ──► sẵn sàng nhận giọt kế
 ```
 
+### Ba con số này ĐO ra, không phải chép về
+
+Lần đầu nhóm chép thẳng ngưỡng từ mạch ESP8266 tham khảo (xác nhận 12 ms) và
+kết quả là **đếm được đúng 0 giọt** trong khi dịch vẫn chảy. Phải cho chip in ra
+xem chân cảm biến thật sự làm gì mới biết. Đo 95 xung:
+
+| Đo được | Con số |
+|---|---|
+| Bề rộng một xung | **1–6 ms** (module này **không** kéo dài xung như mạch tham khảo) |
+| **Một giọt sinh ra HAI xung** | cách nhau **16–17 ms** — giọt thắt lại rồi mới rơi |
+| Khoảng cách giữa hai giọt | ~578 ms → chu kỳ ~595 ms → **~100 giọt/phút** |
+| Tốc độ vòng lặp đọc chân | ~5500 lần/giây → xung 1 ms vẫn được lấy mẫu vài lần |
+
+Chuỗi khoảng cách đo được nói rõ mọi thứ: `16, 578, 16, 583, 16, 583, …`
+
 | Tham số | Giá trị | Lý do |
 |---|---|---|
-| Thời gian xác nhận | 12 ms | giọt thật che tia vài ms; xung nhiễu điện chỉ vài µs |
-| Thời gian thông tia | 25 ms | một giọt bám rồi mới rơi tạo hai bóng liền nhau — vẫn phải là **một** giọt |
-| Khoảng cách tối thiểu | 250 ms | = 240 giọt/phút. Không y lệnh nào nhanh vậy, nên gần hơn thế là đếm trùng |
+| Xác nhận | **600 µs** | xung thật chỉ 1–6 ms nên đồng hồ mili giây làm tròn xuống 0 — phải đo bằng **micro giây**. Đủ dài để loại xung điện dưới 100 µs |
+| Thông tia | 25 ms | **gộp cặp hai xung cách 16 ms thành MỘT giọt** — phải trên 17 ms và dưới 578 ms |
+| Khoảng cách tối thiểu | 250 ms | = 240 giọt/phút, không y lệnh nào nhanh vậy → gần hơn là đếm trùng |
 
-Ba điểm tinh tế, mỗi điểm đều có bài kiểm thử riêng:
+**Nói thẳng một giới hạn:** vì xung giọt thật rộng 1–6 ms, một xung nhiễu điện
+rộng vài mili giây sẽ **không phân biệt được** với giọt bằng bề rộng — không
+ngưỡng nào làm được. Thứ đứng sau chặn nó là luật khoảng cách 250 ms. Trên rig
+này, 95 xung đo được đều nằm gọn trong dạng "hai xung một giọt", không thấy
+nhiễu cỡ mili giây, nên hiện tại như vậy là đủ.
+
+Bốn điểm tinh tế, mỗi điểm một bài kiểm thử:
 
 - **Giọt được đánh dấu thời gian lúc tia BẮT ĐẦU bị chắn**, không phải lúc xác
-  nhận xong — nếu không, 12 ms kia sẽ lẫn vào khoảng cách đo được.
+  nhận xong — nếu không, thời gian xác nhận lẫn vào khoảng cách đo được.
 - **Xung bị loại KHÔNG được đặt lại đồng hồ.** Nếu cho phép, khoảng cách thật
-  đang đo bị cắt đôi và tốc độ báo về **gấp đôi** — tức là báo nhiễu thành truyền
-  nhanh.
+  bị cắt đôi và tốc độ báo về **gấp đôi** — báo nhiễu thành truyền nhanh.
 - **Tốc độ hiển thị lấy TRUNG VỊ 5 khoảng gần nhất**, không phải trung bình. Một
   giọt trễ kéo trung bình đi 20%, kéo trung vị đi **0**.
+- **Mới một giọt thì chưa có tốc độ.** Chip từng in ra 652 giọt/phút một giây
+  sau khi khởi động: một giọt cho biết *có* giọt, chứ không cho biết *tốc độ*.
+  Nay trả về "chưa biết".
 
-Trạng thái nền của tia (thông = mức cao hay mức thấp) được **đo lúc khởi động**
-chứ không đoán, vì nó phụ thuộc cách đấu module quang; đoán sai là biến máy đếm
-giọt thành máy đếm **khoảng trống giữa các giọt**.
+Trạng thái nền của tia (thông = mức cao hay thấp) được **đo lúc khởi động** chứ
+không đoán, vì nó phụ thuộc cách đấu module; đoán sai là biến máy đếm giọt thành
+máy đếm **khoảng trống giữa các giọt**.
 
 Luật *"im lặng là bằng chứng"* giữ nguyên: không có giọt nào thì tốc độ **tụt dần
 về 0**, chứ không đứng ở con số cũ. Việc làm mượt tuyệt đối không được che luật
 này — có bài kiểm thử riêng cho đúng điều đó.
 
+**Kết quả trên phần cứng thật:** trước khi sửa, một ca truyền đều báo về
+193 → 100 → 51 → 32 giọt/phút; sau khi sửa, cùng ca đó báo **97–100 giọt/phút**
+suốt 45 giây, khớp với chu kỳ 595 ms đo được.
+
 ```bash
 cc -I firmware -o /tmp/drop_filter_test tools/drop_filter_test.c \
-   firmware/drop_filter.c -lm && /tmp/drop_filter_test     # 13 phép thử
+   firmware/drop_filter.c -lm && /tmp/drop_filter_test     # 16 phép thử
 ```
 
 Ba model:

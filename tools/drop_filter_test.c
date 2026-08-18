@@ -31,12 +31,23 @@ static void check(const char *what, bool ok, const char *detail)
 
 /* Holds one level for a number of milliseconds, one sample per ms - the same
  * rate the main loop polls at, near enough. */
+/* Steps in 100 us increments, so pulses shorter than a millisecond - the ones
+ * the real sensor produces, and the ones a spike-rejection threshold has to
+ * discriminate - can be expressed at all. */
+static uint32_t clock_us = 0;
+
+static void hold_us(drop_filter_t *f, int level, uint32_t us)
+{
+  for (uint32_t i = 0; i < us; i += 100) {
+    drop_filter_step(f, level, clock_us / 1000U, clock_us);
+    clock_us += 100;
+  }
+  clock_ms = clock_us / 1000U;
+}
+
 static void hold(drop_filter_t *f, int level, uint32_t ms)
 {
-  for (uint32_t i = 0; i < ms; i++) {
-    drop_filter_step(f, level, clock_ms);
-    clock_ms++;
-  }
+  hold_us(f, level, ms * 1000U);
 }
 
 /* One drop: beam broken for shadow_ms, then clear for the rest of gap_ms. */
@@ -50,6 +61,7 @@ static void begin(drop_filter_t *f)
 {
   drop_filter_init(f, IDLE);
   clock_ms = 0;
+  clock_us = 0;
 }
 
 int main(void)
@@ -76,22 +88,53 @@ int main(void)
   snprintf(msg, sizeof msg, "%u giọt (bản cũ đếm 20)", f.total_drops);
   check("giọt có bóng dài 250 ms vẫn chỉ là MỘT giọt", f.total_drops == 10, msg);
 
+  /* --- THE REAL SENSOR ---------------------------------------------------
+   *
+   * Taken from 95 pulses measured on the bench, not invented. Each drop shows
+   * up as TWO short pulses 16 ms apart - the droplet necks, then detaches -
+   * followed by ~578 ms of clear beam. This is the case the first version of
+   * this filter failed completely: with a 12 ms confirm, a 3 ms pulse never
+   * qualifies, and the device counted zero drops while dripping steadily. */
+  begin(&f);
+  hold(&f, IDLE, 50);
+  for (int i = 0; i < 15; i++) {
+    hold(&f, BROKEN, 3);           /* droplet necks   */
+    hold(&f, IDLE, 16);
+    hold(&f, BROKEN, 3);           /* droplet detaches */
+    hold(&f, IDLE, 578);
+  }
+  snprintf(msg, sizeof msg, "%u giọt (bản 12 ms đếm 0)", f.total_drops);
+  check("dạng sóng THẬT: mỗi giọt hai xung 3 ms cách 16 ms -> 15 giọt",
+        f.total_drops == 15, msg);
+
+  dpm = drop_filter_rate_dpm(&f, clock_ms);
+  snprintf(msg, sizeof msg, "%.1f dpm (chu kỳ 600 ms)", dpm);
+  check("...và ra đúng ~100 dpm", fabsf(dpm - 100.0f) < 5.0f, msg);
+
   printf("\n== Chống nhiễu ==\n");
 
   /* --- short spikes are not drops --------------------------------------- */
   begin(&f);
-  for (int i = 0; i < 50; i++) { hold(&f, BROKEN, 2); hold(&f, IDLE, 18); }
+  for (int i = 0; i < 50; i++) { hold_us(&f, BROKEN, 200); hold(&f, IDLE, 18); }
   snprintf(msg, sizeof msg, "%u giọt, %u xung bị loại", f.total_drops, f.rejected_spikes);
-  check("50 xung nhiễu 2 ms -> không giọt nào", f.total_drops == 0, msg);
+  check("50 xung nhiễu 200 us -> không giọt nào", f.total_drops == 0, msg);
 
-  /* --- noise between real drops must not corrupt the rate ---------------- */
+  /* --- noise between real drops must not corrupt the rate ----------------
+   *
+   * The spikes here are 200 us, which is what electrical noise on this rig
+   * actually looks like. They were 3 ms in an earlier version of this test,
+   * written before anyone had measured the sensor - and 3 ms turned out to be
+   * the width of a REAL drop pulse. Width cannot separate those, and no
+   * threshold could: a 3 ms interference pulse on this hardware is a drop as
+   * far as any detector can tell. MIN_GAP_MS is what stands behind this, and
+   * the two cases below test it. */
   begin(&f);
   for (int i = 0; i < 10; i++) {
     hold(&f, BROKEN, 30);          /* real drop */
     hold(&f, IDLE, 200);
-    hold(&f, BROKEN, 3);           /* spike */
+    hold_us(&f, BROKEN, 200);      /* spike */
     hold(&f, IDLE, 200);
-    hold(&f, BROKEN, 3);           /* spike */
+    hold_us(&f, BROKEN, 200);      /* spike */
     hold(&f, IDLE, 564);
   }
   dpm = drop_filter_rate_dpm(&f, clock_ms);
@@ -135,6 +178,17 @@ int main(void)
   check("xung bị loại KHÔNG làm ngắn khoảng cách đo được",
         f.last_interval >= 950 && f.last_interval <= 1050, msg);
 
+  /* --- one drop is not a rate -------------------------------------------
+   * Measured on the board: a 652 dpm reading one second after boot, from a
+   * single drop and a very short gap. */
+  begin(&f);
+  hold(&f, IDLE, 50);
+  hold(&f, BROKEN, 3); hold(&f, IDLE, 40);
+  dpm = drop_filter_rate_dpm(&f, clock_ms);
+  snprintf(msg, sizeof msg, "%u giọt -> %.1f dpm", f.total_drops, dpm);
+  check("mới một giọt thì KHÔNG bịa ra tốc độ",
+        f.total_drops == 1 && dpm == 0.0f, msg);
+
   printf("\n== Làm mượt bằng trung vị ==\n");
 
   /* --- one odd interval must not move the reported rate ------------------ */
@@ -173,6 +227,7 @@ int main(void)
   /* --- an inverted sensor must work identically once idle is known ------- */
   drop_filter_init(&f, 0);         /* clear beam reads LOW on this rig */
   clock_ms = 0;
+  clock_us = 0;
   for (int i = 0; i < 10; i++) {
     hold(&f, 1, 30);               /* broken = HIGH here */
     hold(&f, 0, 970);

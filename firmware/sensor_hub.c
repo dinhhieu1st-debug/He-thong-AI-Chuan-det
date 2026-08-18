@@ -52,6 +52,28 @@ static uint32_t now_ms(void)
   return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
 }
 
+#if DROPS_ENABLED
+/* Microseconds, for the drop detector's sub-millisecond confirm window only.
+ *
+ * The drop pulses measured on this sensor are 1-6 ms wide, and a millisecond
+ * clock quantises the short ones to zero - which is exactly how the first
+ * version of this filter came to count nothing at all. The sleeptimer runs at
+ * 32768 Hz here, so one tick is ~30 us: coarse, but twenty times finer than
+ * what it replaces, and far finer than the 600 us being measured.
+ *
+ * Wraps every ~71 minutes. That is fine because this value is only ever used
+ * for differences within a single pulse; everything that can span minutes
+ * keeps using now_ms(). */
+static uint32_t now_us(void)
+{
+  static uint32_t hz = 0;
+  if (hz == 0) hz = sl_sleeptimer_get_timer_frequency();
+
+  uint64_t ticks = (uint64_t)sl_sleeptimer_get_tick_count();
+  return (uint32_t)((ticks * 1000000ULL) / (uint64_t)hz);
+}
+#endif
+
 /* ============================================================================
  *  HX711 (load cell) — FLOW channel
  *  The HX711's dedicated 2-wire protocol (not standard SPI): DOUT signals
@@ -1108,7 +1130,28 @@ void sensor_hub_poll(void)
 #if DROPS_ENABLED
   drop_filter_step(&drop_filter,
                    GPIO_PinInGet(SENSOR_PORT, SENSOR_PIN),
-                   now_ms());
+                   now_ms(), now_us());
+
+  /* Every 30 s, one line saying what the pin is really doing.
+   *
+   * Kept, at a rate that costs nothing, because this print is what turned
+   * "the filter is broken" into "the pulses are 1-6 ms and my threshold was
+   * 12 ms" in a single reading. Without it, a detector counting nothing and a
+   * detector wired to a dead pin look exactly the same. */
+  {
+    static uint32_t drop_diag_ms = 0;
+    uint32_t now = now_ms();
+    if (now - drop_diag_ms >= 30000U) {
+      drop_diag_ms = now;
+      printf("[Drop] counted=%lu pulses=%lu width=%lu..%lu ms idle=%d\r\n",
+             (unsigned long)drop_filter.total_drops,
+             (unsigned long)drop_filter.pulses_seen,
+             (unsigned long)(drop_filter.pulse_min_ms == 0xFFFFFFFFU
+                             ? 0U : drop_filter.pulse_min_ms),
+             (unsigned long)drop_filter.pulse_max_ms,
+             drop_filter.idle_level);
+    }
+  }
 #endif
 #if FLOW_ENABLED
   tare_button_poll();
