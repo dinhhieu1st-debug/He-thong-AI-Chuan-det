@@ -221,3 +221,20 @@ public sealed record LogEntryDto(string BedId, string? Room, string Category, st
     public static LogEntryDto From(LogEntry entry) => new(
         entry.BedId, entry.Room, entry.Category.ToString(), entry.Level, entry.Message, entry.OccurredAt);
 }
+
+
+/// <summary>What the technician page needs to show a firmware update.</summary>
+public sealed record OtaStatusDto(
+    string DeviceId,
+    string State,
+    int? Progress,
+    int? RemainingSeconds,
+    string? Message,
+    bool InFlight,
+    DateTime UpdatedAt)
+{
+    public static OtaStatusDto From(OtaStatus s) => new(
+        s.DeviceId, s.State.ToString(), s.Progress, s.RemainingSeconds,
+        string.IsNullOrWhiteSpace(s.Message) ? null : s.Message,
+        s.InFlight, s.UpdatedAt);
+}

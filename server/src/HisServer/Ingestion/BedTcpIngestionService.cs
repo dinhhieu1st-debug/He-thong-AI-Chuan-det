@@ -33,6 +33,7 @@ public sealed class BedTcpIngestionService : BackgroundService
     private readonly FcmPushService fcmPushService;
     private readonly BedConnectionRegistry connectionRegistry;
     private readonly DeviceRepository deviceRepository;
+    private readonly OtaStatusRegistry otaRegistry;
     private readonly IHubContext<MonitoringHub, IMonitoringClient> hub;
     private readonly IOptionsMonitor<TcpOptions> options;
     private readonly IOptionsMonitor<OfflineOptions> offlineOptions;
@@ -48,6 +49,7 @@ public sealed class BedTcpIngestionService : BackgroundService
         FcmPushService fcmPushService,
         BedConnectionRegistry connectionRegistry,
         DeviceRepository deviceRepository,
+        OtaStatusRegistry otaRegistry,
         IHubContext<MonitoringHub, IMonitoringClient> hub,
         IOptionsMonitor<TcpOptions> options,
         IOptionsMonitor<OfflineOptions> offlineOptions,
@@ -62,6 +64,7 @@ public sealed class BedTcpIngestionService : BackgroundService
         this.fcmPushService = fcmPushService;
         this.connectionRegistry = connectionRegistry;
         this.deviceRepository = deviceRepository;
+        this.otaRegistry = otaRegistry;
         this.hub = hub;
         this.options = options;
         this.offlineOptions = offlineOptions;
@@ -205,6 +208,35 @@ public sealed class BedTcpIngestionService : BackgroundService
             }
 
             var type = typeElement.GetString();
+
+            if (string.Equals(type, "ota_status", StringComparison.OrdinalIgnoreCase))
+            {
+                var otaRoot = document.RootElement;
+                var otaDeviceId = ReadString(otaRoot, "deviceId") ?? ReadString(otaRoot, "device_id");
+                if (string.IsNullOrWhiteSpace(otaDeviceId))
+                {
+                    return false;
+                }
+
+                /* The gateway sends -1 for "not known", never 0 - see the note
+                 * on OtaStatus.Progress. Translate that back to null here so
+                 * nothing downstream has to remember the convention. */
+                var progress = ReadInt(otaRoot, "progress");
+                var remaining = ReadInt(otaRoot, "remainingSeconds");
+
+                var status = otaRegistry.Update(
+                    otaDeviceId!,
+                    ReadString(otaRoot, "state"),
+                    progress is >= 0 ? progress : null,
+                    remaining is >= 0 ? remaining : null,
+                    ReadString(otaRoot, "message"));
+
+                _ = Task.Run(() => hub.Clients.Group(MonitoringHub.DeviceGroup)
+                                      .OtaStatusChanged(OtaStatusDto.From(status)));
+                handled = true;
+                return true;
+            }
+
             if (!string.Equals(type, "device_announce", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -233,6 +265,12 @@ public sealed class BedTcpIngestionService : BackgroundService
         root.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String
             ? element.GetString()
             : null;
+
+    /// <summary>Reads an integer property, or null when absent or not a number.</summary>
+    private static int? ReadInt(System.Text.Json.JsonElement root, string name) =>
+        root.TryGetProperty(name, out var el)
+        && el.ValueKind == System.Text.Json.JsonValueKind.Number
+        && el.TryGetInt32(out var v) ? v : null;
 
     private async Task AnnounceDeviceAsync(string deviceId, string? friendlyName)
     {

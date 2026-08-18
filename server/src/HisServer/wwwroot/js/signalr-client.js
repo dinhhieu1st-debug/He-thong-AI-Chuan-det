@@ -12,6 +12,11 @@ const MonitoringHub = (() => {
   connection.on("AlertAcknowledged", (alertId, acknowledgedAt) =>
     State.emit("alert-acknowledged", { alertId, acknowledgedAt }));
   connection.on("DeviceUpdated", (device) => State.upsertDevice(device));
+
+  /* Tiến độ nạp firmware. Sự kiện riêng chứ không gắn vào DeviceUpdated: trong
+   * lúc nạp nó về vài giây một lần suốt vài phút, và đẩy cả bản ghi thiết bị
+   * với nhịp đó sẽ vẽ lại trang Devices liên tục. */
+  connection.on("OtaStatusChanged", (status) => State.emit("ota-status", status));
   /* A device that just joined the Zigbee network. Same payload as
    * DeviceUpdated, separate event so the Devices tab can say so out loud
    * instead of quietly adding a row nobody notices. */

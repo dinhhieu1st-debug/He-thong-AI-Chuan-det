@@ -446,6 +446,18 @@ const definition = {
         e.binary('drops_forecast_trusted', ea.STATE, true, false)
             .withDescription('False = the figure is "the normal level there should be", not a forecast'),
     ],
+
+    /* Cho phep zigbee2mqtt chao ban cap nhat firmware cho thiet bi nay.
+     *
+     * Khong co dong nay thi z2m khong bao gio chao gi ca - da kiem tra tren
+     * bridge that: ca hai thiet bi deu bao ota=None.
+     *
+     * Anh nao duoc chao thi do file index quyet dinh (xem
+     * gateway/ota/README.md), va index CHI liet ke anh dung tu chinh firmware
+     * cua du an. Ma nha san xuat cua thiet bi nay la 0x1049, TRUNG voi may anh
+     * thu nghiem co san tren nhanh cu - de mot trong so do lot vao index la ghi
+     * de firmware AI cua giuong benh. */
+    ota: true,
     configure: async (device, coordinatorEndpoint, logger) => {
         // The firmware already configures its own reporting (interval/threshold)
         // locally as soon as it joins the network (see zb_configure_reporting()

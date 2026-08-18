@@ -14,6 +14,13 @@ public interface IMonitoringClient
     Task AlertAcknowledged(long alertId, DateTime? acknowledgedAt);
     Task DeviceUpdated(DeviceDto device);
 
+    /// <summary>Firmware update progress for one device.
+    ///
+    /// Its own event rather than a field on DeviceUpdated: an update sends a
+    /// message every few seconds for minutes, and pushing the whole device
+    /// record that often would repaint the Devices tab continuously.</summary>
+    Task OtaStatusChanged(OtaStatusDto status);
+
     /// <summary>A Zigbee device announced itself to a gateway. Distinct from
     /// DeviceUpdated so the Devices tab can highlight something that just
     /// appeared and needs a technician to assign it a bed.</summary>

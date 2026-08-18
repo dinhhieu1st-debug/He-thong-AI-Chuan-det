@@ -70,6 +70,13 @@ const Api = (() => {
     resolveFaultReport: (id, resolutionNote) =>
       request("POST", `/api/fault-reports/${id}/resolve`, { resolutionNote }),
     rescanDevices: () => request("POST", "/api/devices/rescan"),
+    otaCheck: (deviceId) =>
+      request("POST", `/api/devices/${encodeURIComponent(deviceId)}/ota/check`),
+    otaUpdate: (deviceId) =>
+      request("POST", `/api/devices/${encodeURIComponent(deviceId)}/ota/update`),
+    otaStatus: (deviceId) =>
+      request("GET", `/api/devices/${encodeURIComponent(deviceId)}/ota`),
+    otaStatuses: () => request("GET", "/api/devices/ota"),
     getDeviceEvents: (deviceId) =>
       request("GET", `/api/devices/${encodeURIComponent(deviceId)}/events`),
 

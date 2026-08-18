@@ -857,3 +857,46 @@ body.no-scroll { overflow: hidden; }
 /* Câu verdict của load cell dài ngắn khác nhau (từ "Flow and weight agree" tới
    "LINE BLOCKED - drops slowed and the bag is not getting lighter"). */
 .ls-verdict { min-height: 3.2em; display: flex; align-items: center; }
+
+/* ============================================================================
+ *  Cập nhật firmware qua sóng (OTA) — chỉ hiện ở trang kỹ thuật viên
+ *
+ *  Một lượt nạp mất vài phút, không dừng giữa chừng được, và nếu hỏng thì
+ *  giường đó ngừng theo dõi. Nên phần này ưu tiên nói rõ ràng hơn là gọn đẹp:
+ *  trạng thái viết thành chữ chứ không chỉ là màu, và trong lúc nạp có một
+ *  dòng nhắc đừng rút nguồn.
+ * ========================================================================== */
+.ota-block {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.ota-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ota-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.ota-state { font-size: 12px; font-weight: 600; }
+.ota-idle  { color: var(--text-dim); }
+.ota-ok    { color: var(--stable); }
+.ota-avail { color: var(--accent); }
+.ota-busy  { color: var(--warning); }
+.ota-fail  { color: var(--critical); }
+
+.ota-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 4px; }
+
+.ota-bar {
+  margin-top: 8px; height: 6px; border-radius: 999px;
+  background: var(--accent-soft); overflow: hidden;
+}
+.ota-bar-fill {
+  height: 100%; background: var(--warning);
+  /* Chuyển động mượt để phần trăm nhích lên trông liên tục thay vì giật cục.
+     Nhưng KHÔNG có animation lặp: một thanh tiến độ tự chạy khi không có dữ
+     liệu mới sẽ khiến người ta tưởng vẫn đang nạp trong khi nó đã treo. */
+  transition: width .4s ease;
+}
+
+.ota-warn {
+  margin-top: 6px; padding: 6px 8px; border-radius: 6px;
+  background: #fdf1de; color: var(--warning);
+  font-size: 11.5px; font-weight: 600;
+}
+
+.ota-actions { margin-top: 8px; gap: 6px; }

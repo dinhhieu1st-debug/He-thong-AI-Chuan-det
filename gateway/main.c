@@ -72,6 +72,27 @@ typedef int his_socket_t;
  * Zigbee network just to be seen again. */
 #define BRIDGE_DEVICES_TOPIC "zigbee2mqtt/bridge/devices"
 
+/* OTA. zigbee2mqtt lo toan bo viec truyen anh firmware; gateway chi lam hai
+ * viec: chuyen lenh cua ky thuat vien xuong, va chuyen tien do nguoc len.
+ *
+ * Tien do di theo HAI duong khac nhau, va can ca hai:
+ *   - bridge/response/... : ket qua cua mot lenh (co ban moi khong, xong chua,
+ *                           loi gi). Den mot lan cho moi lenh.
+ *   - trang thai thiet bi : truong "update" trong ban tin cua chinh thiet bi,
+ *                           mang phan tram va con lai bao nhieu. Cap nhat lien
+ *                           tuc trong luc nap.
+ * Chi nghe duong dau thi thanh tien do dung im suot vai phut nap firmware. */
+#define BRIDGE_OTA_CHECK_REQ  "zigbee2mqtt/bridge/request/device/ota_update/check"
+#define BRIDGE_OTA_UPDATE_REQ "zigbee2mqtt/bridge/request/device/ota_update/update"
+#define BRIDGE_OTA_RESP_WILD  "zigbee2mqtt/bridge/response/device/ota_update/#"
+
+/* Khai bao truoc: xu ly lenh cua HIS Server nam truoc dinh nghia cua ba ham
+ * nay trong file, va tat ca deu dung chung mot bo helper doc JSON. */
+int  get_string_from_json(const char *json, const char *key, char *out, size_t out_size);
+static void publish_ota_request(const char *topic, const char *device_id);
+static void his_send_ota_status(const char *device_id, const char *state,
+                                int progress, int remaining_s, const char *message);
+
 #define BUFFER_SIZE 256
 
 #define AUTO_START_SERVICES 1
@@ -584,6 +605,20 @@ static void check_his_commands(void)
                 publish_mqtt_set("loadcell tare reset", "reset_tare", "true");
             } else if (strstr(his_cmd_buf, "recalibrate_hr_baseline") != NULL) {
                 publish_mqtt_set("HR baseline recalibration", "recalibrate_hr_baseline", "true");
+            } else if (strstr(his_cmd_buf, "ota_check") != NULL) {
+                char dev[64];
+                if (get_string_from_json(his_cmd_buf, "deviceId", dev, sizeof(dev))) {
+                    publish_ota_request(BRIDGE_OTA_CHECK_REQ, dev);
+                }
+            } else if (strstr(his_cmd_buf, "ota_update") != NULL) {
+                char dev[64];
+                if (get_string_from_json(his_cmd_buf, "deviceId", dev, sizeof(dev))) {
+                    /* Bao ngay la da nhan lenh. Neu doi z2m tra loi thi nut bam
+                     * ben ky thuat vien im lang vai giay, va nguoi ta se bam
+                     * lai - dieu cuoi cung ta muon voi mot lenh nap firmware. */
+                    his_send_ota_status(dev, "starting", -1, -1, "Update requested");
+                    publish_ota_request(BRIDGE_OTA_UPDATE_REQ, dev);
+                }
             } else if (strstr(his_cmd_buf, "rescan_devices") != NULL) {
                 /* Re-subscribing makes the broker redeliver the RETAINED
                  * inventory, which is then announced device by device.
@@ -639,6 +674,12 @@ void on_connect(struct mosquitto *mosq, void *userdata, int rc)
                    BRIDGE_EVENT_TOPIC, mosquitto_strerror(sub_rc));
         } else {
             printf("Listening for new devices on: %s\n", BRIDGE_EVENT_TOPIC);
+        }
+
+        sub_rc = mosquitto_subscribe(mosq, NULL, BRIDGE_OTA_RESP_WILD, 0);
+        if (sub_rc != MOSQ_ERR_SUCCESS) {
+            printf("Could not subscribe to %s - OTA results will not be reported\n",
+                   BRIDGE_OTA_RESP_WILD);
         }
 
         sub_rc = mosquitto_subscribe(mosq, NULL, BRIDGE_DEVICES_TOPIC, 0);
@@ -733,6 +774,74 @@ int get_string_from_json(const char *json, const char *key, char *out, size_t ou
  * apart, and no second port, protocol or credential is introduced for what is
  * one message per device per join.
  */
+/* Chuyen trang thai OTA len HIS Server.
+ *
+ * Gateway KHONG dien giai gi o day - no khong quyet dinh "dang cap nhat" nghia
+ * la gi, khong tinh phan tram, khong doan thanh cong hay that bai. Nguyen tac
+ * cua he thong nay la trang thai giuong chi duoc quyet o mot noi tren server;
+ * OTA theo dung nguyen tac do. */
+static void his_send_ota_status(const char *device_id, const char *state,
+                                int progress, int remaining_s, const char *message)
+{
+    char line[600];
+    size_t len;
+
+    if (his_host == NULL || device_id == NULL || device_id[0] == '\0') {
+        return;
+    }
+    if (his_socket == HIS_INVALID_SOCKET) {
+        his_socket = his_connect(his_host, his_port);
+        if (his_socket == HIS_INVALID_SOCKET) {
+            return;
+        }
+    }
+
+    /* progress va remaining gui -1 khi chua biet, khong gui 0. "Chua bat dau"
+     * va "dang o 0%%" la hai chuyen khac nhau, va gop chung se lam thanh tien
+     * do nhay ve dau moi lan z2m gui mot ban tin khong kem phan tram. */
+    snprintf(line, sizeof(line),
+             "{\"type\":\"ota_status\",\"deviceId\":\"%s\",\"state\":\"%s\""
+             ",\"progress\":%d,\"remainingSeconds\":%d,\"message\":\"%s\"}\n",
+             device_id, state ? state : "unknown", progress, remaining_s,
+             message ? message : "");
+
+    len = strlen(line);
+    if (send(his_socket, line, (int)len, 0) < 0) {
+        his_close(his_socket);
+        his_socket = HIS_INVALID_SOCKET;
+    } else {
+        printf("OTA %s: %s (%d%%)\n", device_id, state ? state : "unknown", progress);
+    }
+}
+
+/* Thiet bi cua lenh OTA gan nhat.
+ *
+ * Can vi khi that bai, zigbee2mqtt tra ve {"data":{},"error":...,"status":...}
+ * - KHONG kem "id". Khong nho lai thi gateway khong biet phan hoi do cua thiet
+ * bi nao va bo qua, va ben ky thuat vien se thay nut Kiem tra khong phan ung gi
+ * ca. Chinh loi nay lam lan thu dau tien im lang.
+ *
+ * Mot bien la du: server tu choi lenh OTA thu hai khi mot lenh dang chay, nen
+ * tai mot thoi diem chi co mot thiet bi dang cap nhat. */
+static char g_ota_pending_device[64] = "";
+
+/* Phat mot lenh OTA xuong zigbee2mqtt. */
+static void publish_ota_request(const char *topic, const char *device_id)
+{
+    if (g_mosq == NULL || device_id == NULL || device_id[0] == '\0') {
+        return;
+    }
+    snprintf(g_ota_pending_device, sizeof(g_ota_pending_device), "%s", device_id);
+    char payload[128];
+    snprintf(payload, sizeof(payload), "{\"id\":\"%s\"}", device_id);
+    if (mosquitto_publish(g_mosq, NULL, topic, (int)strlen(payload), payload, 0, false)
+        == MOSQ_ERR_SUCCESS) {
+        printf("OTA request -> %s for %s\n", topic, device_id);
+    } else {
+        printf("OTA request FAILED -> %s for %s\n", topic, device_id);
+    }
+}
+
 static void his_announce_device(const char *device_id, const char *friendly_name)
 {
     char line[400];
@@ -1082,6 +1191,38 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
         return;
     }
 
+    /* Ket qua cua mot lenh OTA. Den mot lan cho moi lenh. */
+    if (msg->topic != NULL
+        && strstr(msg->topic, "bridge/response/device/ota_update/") != NULL) {
+        char dev[64] = "";
+        char status[32] = "";
+        char err[240] = "";
+        int available = 0;
+
+        get_string_from_json(payload, "id", dev, sizeof(dev));
+        get_string_from_json(payload, "status", status, sizeof(status));
+        get_string_from_json(payload, "error", err, sizeof(err));
+
+        /* Phan hoi loi khong kem "id" - dung thiet bi cua lenh vua gui. */
+        if (dev[0] == '\0') {
+            snprintf(dev, sizeof(dev), "%s", g_ota_pending_device);
+        }
+
+        if (dev[0] != '\0') {
+            if (strcmp(status, "error") == 0) {
+                his_send_ota_status(dev, "failed", -1, -1, err);
+            } else if (strstr(msg->topic, "/check") != NULL) {
+                get_bool_from_json(payload, "updateAvailable", &available);
+                his_send_ota_status(dev, available ? "available" : "upToDate",
+                                    -1, -1, "");
+            } else if (strstr(msg->topic, "/update") != NULL) {
+                his_send_ota_status(dev, "done", 100, 0, "Update finished");
+            }
+        }
+        free(payload);
+        return;
+    }
+
     printf("\nMQTT message received\n");
     printf("Topic: %s\n", msg->topic);
     printf("Payload: %s\n", payload);
@@ -1163,6 +1304,24 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     get_signed_int_from_json(payload, "hr_trend_bpm_per_min", &ts.hr_trend_bpm_per_min);
     get_signed_int_from_json(payload, "drops_trend_dpm_per_min", &ts.drops_trend_dpm_per_min);
     get_int_from_json(payload, "ts_anomaly_score", &ts.anomaly_score_x100);
+    /* Tien do OTA di kem ban tin cua chinh thiet bi, trong doi tuong "update".
+     * Day la duong DUY NHAT mang phan tram - bridge/response chi bao dau/cuoi.
+     * Khong co doan nay thi thanh tien do dung im suot vai phut nap firmware. */
+    {
+        const char *upd = strstr(payload, "\"update\"");
+        if (upd != NULL) {
+            char state[32] = "";
+            int progress = -1, remaining = -1;
+            get_string_from_json(upd, "state", state, sizeof(state));
+            get_int_from_json(upd, "progress", &progress);
+            get_int_from_json(upd, "remaining", &remaining);
+            if (state[0] != '\0') {
+                his_send_ota_status(device_id_for_topic(msg->topic), state,
+                                    progress, remaining, "");
+            }
+        }
+    }
+
     get_bool_from_json(payload, "hr_forecast_trusted", &ts.hr_forecast_trusted);
     get_bool_from_json(payload, "drops_forecast_trusted", &ts.drops_forecast_trusted);
 

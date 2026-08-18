@@ -199,6 +199,54 @@ Console.WriteLine("\n== A real line captured from the board parses end to end ==
     }
 }
 
+// ---------------------------------------------------------------- OTA ----
+Console.WriteLine("\n== Firmware update state ==");
+{
+    var ota = new HisServer.Services.OtaStatusRegistry();
+    const string dev = "0x64028ffffe641802";
+
+    Check("an unknown device is Unknown, not UpToDate",
+          ota.Get(dev).State == OtaState.Unknown, ota.Get(dev).State.ToString());
+
+    ota.Update(dev, "available", null, null, null);
+    Check("a check reporting an image maps to Available",
+          ota.Get(dev).State == OtaState.Available, ota.Get(dev).State.ToString());
+    Check("Available does not count as in flight",
+          !ota.Get(dev).InFlight, "InFlight=false");
+
+    ota.Update(dev, "updating", 47, 120, null);
+    var mid = ota.Get(dev);
+    Check("progress is carried", mid.Progress == 47, $"{mid.Progress}%");
+    Check("Updating counts as in flight", mid.InFlight, "InFlight=true");
+
+    // zigbee2mqtt sends plenty of messages during a transfer that carry the
+    // state but no percentage. Writing null over a real 47 makes the bar
+    // collapse to empty and jump back - which reads as a stalled or restarted
+    // update, the most alarming thing a progress bar can do mid-flash.
+    ota.Update(dev, "updating", null, null, null);
+    Check("a message with no percentage keeps the last one",
+          ota.Get(dev).Progress == 47, $"{ota.Get(dev).Progress}%");
+
+    ota.Update(dev, "done", 100, 0, "Update finished");
+    Check("finishing clears in flight", !ota.Get(dev).InFlight, "InFlight=false");
+
+    ota.Update(dev, "error", null, null, "No OTA cluster");
+    Check("an error maps to Failed and keeps the reason",
+          ota.Get(dev).State == OtaState.Failed
+          && ota.Get(dev).Message == "No OTA cluster", ota.Get(dev).Message ?? "");
+
+    // A device removed and re-added must not inherit its previous life.
+    ota.Forget(dev);
+    Check("forgetting a device resets it",
+          ota.Get(dev).State == OtaState.Unknown, ota.Get(dev).State.ToString());
+
+    // The gateway sends -1 for "not known"; the ingestion layer turns that into
+    // null before it reaches here. Guard the shape the registry actually gets.
+    ota.Update("other", "starting", null, null, "Update requested");
+    Check("Starting counts as in flight, so the button hides immediately",
+          ota.Get("other").InFlight, "InFlight=true");
+}
+
 Console.WriteLine(failures == 0
     ? "\nALL CHECKS PASSED  (0 failures)\n"
     : $"\nSOME CHECKS FAILED  ({failures} failures)\n");

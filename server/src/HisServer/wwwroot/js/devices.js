@@ -45,6 +45,71 @@ const DevicesTab = (() => {
     return true;
   }
 
+  /* Trạng thái cập nhật firmware của từng thiết bị, đến qua SignalR.
+   * Giữ ngoài State.devices vì nó cập nhật vài giây một lần trong lúc nạp, còn
+   * bản ghi thiết bị thì gần như không đổi. */
+  const otaByDevice = new Map();
+
+  State.on("ota-status", (status) => {
+    if (!status || !status.deviceId) return;
+    otaByDevice.set(status.deviceId, status);
+    render();
+  });
+
+  const OTA_LABEL = {
+    Unknown:  { text: "Chưa kiểm tra",        cls: "ota-idle" },
+    UpToDate: { text: "Đang ở bản mới nhất",  cls: "ota-ok" },
+    Available:{ text: "Có bản cập nhật",      cls: "ota-avail" },
+    Starting: { text: "Đang bắt đầu…",        cls: "ota-busy" },
+    Updating: { text: "Đang nạp firmware",    cls: "ota-busy" },
+    Done:     { text: "Đã cập nhật xong",     cls: "ota-ok" },
+    Failed:   { text: "Cập nhật thất bại",    cls: "ota-fail" },
+  };
+
+  function otaSectionHtml(device) {
+    const ota = otaByDevice.get(device.deviceId);
+    const state = ota?.state || "Unknown";
+    const spec = OTA_LABEL[state] || OTA_LABEL.Unknown;
+    const id = UiUtils.escapeHtml(device.deviceId);
+
+    /* Trong lúc nạp thì KHÔNG hiện nút Cập nhật.
+     *
+     * Bấm lần thứ hai sẽ khởi động một lượt truyền ảnh chồng lên lượt đang
+     * chạy - đó là cách duy nhất tính năng này có thể để lại một thiết bị đầu
+     * giường với nửa cái firmware. Server cũng từ chối, nhưng nút không nên
+     * mời người ta bấm ngay từ đầu. */
+    const busy = ota?.inFlight === true;
+
+    const bar = busy
+      ? `<div class="ota-bar"><div class="ota-bar-fill" style="width:${
+           ota.progress != null ? ota.progress : 0}%;"></div></div>
+         <div class="ota-sub">${
+           ota.progress != null ? ota.progress + "%" : "đang chuẩn bị…"}${
+           ota.remainingSeconds != null && ota.remainingSeconds > 0
+             ? " · còn khoảng " + Math.round(ota.remainingSeconds / 60) + " phút" : ""}</div>
+         <div class="ota-warn">Đang nạp firmware — đừng rút nguồn thiết bị.</div>`
+      : "";
+
+    const buttons = busy ? "" : `
+      <div class="inline-form ota-actions">
+        <button type="button" class="btn" data-ota-check="${id}">Kiểm tra bản mới</button>
+        ${state === "Available"
+          ? `<button type="button" class="btn primary" data-ota-update="${id}">Cập nhật</button>`
+          : ""}
+      </div>`;
+
+    return `
+      <div class="ota-block">
+        <div class="ota-head">
+          <span class="ota-label">Firmware</span>
+          <span class="ota-state ${spec.cls}">${spec.text}</span>
+        </div>
+        ${ota?.message ? `<div class="ota-sub">${UiUtils.escapeHtml(ota.message)}</div>` : ""}
+        ${bar}
+        ${buttons}
+      </div>`;
+  }
+
   function deviceCardHtml(device) {
     const key = statusKey(device);
     const color = DEVICE_STATUS_COLOR[key] || "#8a97a8";
@@ -65,6 +130,7 @@ const DevicesTab = (() => {
         ${device.channelsLost
           ? `<div class="meta-row device-fault-line">No signal from: ${UiUtils.escapeHtml(device.channelsLost)}</div>`
           : ""}
+        ${otaSectionHtml(device)}
       </div>`;
   }
 
@@ -267,6 +333,43 @@ const DevicesTab = (() => {
       ? `<div class="empty-state">No devices match the current filters.</div>`
       : devices.map(deviceCardHtml).join("");
 
+    document.querySelectorAll("[data-ota-check]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-ota-check");
+        btn.disabled = true;
+        try {
+          await Api.otaCheck(id);
+          UiUtils.toast(`${id}: đã gửi lệnh kiểm tra bản mới`);
+        } catch (err) {
+          UiUtils.toast(`Không kiểm tra được: ${err.message}`);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-ota-update]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-ota-update");
+        /* Nạp firmware mất vài phút và không huỷ giữa chừng được, nên hỏi lại
+         * một lần. Đây là thao tác duy nhất ở trang này có thể làm một giường
+         * ngừng theo dõi. */
+        if (!window.confirm(
+              `Cập nhật firmware cho ${id}?\n\n` +
+              `Quá trình mất vài phút và không dừng giữa chừng được. ` +
+              `Đừng rút nguồn thiết bị trong lúc đó.`)) {
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await Api.otaUpdate(id);
+          UiUtils.toast(`${id}: đã bắt đầu cập nhật`);
+        } catch (err) {
+          UiUtils.toast(`Không bắt đầu được: ${err.message}`);
+          btn.disabled = false;
+        }
+      });
+    });
+
     document.querySelectorAll("[data-assign-device]").forEach((btn) => {
       btn.addEventListener("click", () => assignDevice(btn.getAttribute("data-assign-device")));
     });
@@ -283,6 +386,18 @@ const DevicesTab = (() => {
 
   async function loadInitial() {
     const devices = await Api.getDevices();
+
+    /* Firmware state before the first render: progress only arrives over
+     * SignalR, so a page opened while a device is being flashed would show it
+     * as never checked - and offer the Update button - until the next push. */
+    try {
+      for (const status of await Api.otaStatuses()) {
+        if (status?.deviceId) otaByDevice.set(status.deviceId, status);
+      }
+    } catch (err) {
+      console.warn("Không lấy được trạng thái firmware ban đầu", err);
+    }
+
     State.setDevices(devices);
   }
 
