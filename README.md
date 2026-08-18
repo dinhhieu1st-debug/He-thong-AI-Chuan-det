@@ -61,12 +61,23 @@ Tách rời cho ba tín hiệu **quy được về đúng nguồn**, nên hệ t
 cảnh báo** phân biệt *lỗi đường truyền* với *lỗi bệnh nhân*, và cấp cao nhất là
 khi **cả hai cùng xảy ra** — nghi ngờ quá tải dịch, xử trí đầu tiên là khoá dây.
 
+**Màu đỏ dành riêng cho bệnh nhân đang nguy hiểm.** Sự cố đường truyền — tắc,
+chảy tự do, lệch y lệnh — chỉ tới mức **vàng**. Tắc dây là vấn đề thật và phải có
+người đi xử lý, nhưng cho nó cùng màu cùng tiếng còi với tụt oxy là cách nhanh
+nhất khiến cả khoa thôi phản ứng với màu đỏ. Ngoại lệ duy nhất là cấp 3, và ở đó
+phần đỏ đến từ nửa bệnh nhân.
+
 **Cái cân không dùng AI.** Bình đầy chảy nhanh, bình gần hết chảy chậm — chảy
 chậm lúc gần hết là **bình thường**. Nhìn từ số giọt thì tắc dây và hết dịch
 giống hệt nhau; **trọng lượng bình phân định dứt khoát**: cân vẫn nhẹ dần nghĩa
 là dịch vẫn vào (im lặng, chỉ nhắc "còn ~28 phút"), cân đứng yên nghĩa là tắc
 (báo động). Đây là luật số học tường minh, giải thích được cho y tá, không phải
 trọng số mạng.
+
+Cân cũng cho con số y tá dùng nhiều nhất trong ca: **còn bao nhiêu mL, còn bao
+nhiêu phút**. Khi chưa tính được, thiết bị nói *"chưa biết"* chứ không nói *"còn
+0 phút"* — báo một con số sai một cách tự tin là thứ khiến người ta thôi tin cái
+máy.
 
 Ba file `.tflite` đang chạy nằm trong [`ml/models/`](ml/models/) — mở bằng
 [Netron](https://netron.app) là xem được từng lớp, không phải hộp đen. Tham số
@@ -156,6 +167,7 @@ rồi chạy lại `slc generate`.
 | [`docs/AI_TIME_SERIES_TAT_TAN_TAT.md`](docs/AI_TIME_SERIES_TAT_TAN_TAT.md) | Tất tần tật phần AI: kiến trúc, huấn luyện, đánh giá, bộ hợp nhất, nhúng vào firmware |
 | [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset, cách chia tập, và **những gì nhóm không chứng minh được** |
 | [`docs/MLTK_AUTOGEN.md`](docs/MLTK_AUTOGEN.md) | Luồng `.tflite` → tool MLTK của Silicon Labs → chip, kèm hai cái bẫy |
+| [`docs/TRIEN_KHAI_PI.md`](docs/TRIEN_KHAI_PI.md) | **Đọc trước khi sửa `gateway/`.** Hai file đó chạy trên Pi chứ không phải máy bạn — kèm ba kiểu hỏng đã gặp thật và cách cứu hộ |
 | [`docs/AI_V2_PLAN.md`](docs/AI_V2_PLAN.md) | Lý do đằng sau từng quyết định của bản AI v2, **kèm cả những lần đi sai** |
 | [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI (bản cũ, giữ để tham chiếu) |
 | [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |

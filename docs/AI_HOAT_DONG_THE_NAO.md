@@ -99,8 +99,17 @@ giọt đi. Cái cân phân định dứt khoát:
 Dòng cuối quan trọng ngang các dòng trên: báo một lỗi cảm biến thành cảnh báo
 lâm sàng sẽ khiến y tá chạy tới nhầm chỗ.
 
-Ngoài ra cân còn cho **"còn khoảng bao nhiêu mL, còn bao nhiêu phút"** — phép
-chia đơn giản, và thực tế đây là thông tin y tá dùng nhiều nhất trong ngày.
+### "Còn khoảng bao nhiêu mL, còn bao nhiêu phút"
+
+Ngoài việc phân định tắc dây với hết dịch, cân còn cho con số mà **thực tế y tá
+dùng nhiều nhất trong ca**: bao giờ phải đi lấy chai mới. Chỉ là phép chia từ
+trọng lượng còn lại và tốc độ sụt cân.
+
+Chi tiết nhỏ nhưng quan trọng: khi thiết bị **chưa tính được**, nó nói *"chưa
+biết"* chứ không nói *"còn 0 phút"*. Cân cần đủ 60 giây mới có xu hướng, và dịch
+chảy quá chậm thì không chia ra thời gian được. Báo *"còn khoảng 0 phút"* cho một
+bình còn chưa treo là loại số liệu **sai một cách tự tin** — và đó là thứ khiến
+người ta thôi tin cái máy.
 
 ---
 
@@ -124,6 +133,24 @@ nhánh BỆNH NHÂN    = Model 2 báo bất thường  HOẶC  Model 3 báo bấ
 Cấp 3 không phải "cấp 2 nhưng to hơn". Dịch chảy ồ ạt *cùng lúc* sinh hiệu sụp
 là hình ảnh của **quá tải dịch hoặc phản vệ** — và xử trí đầu tiên là **khoá dây
 truyền**, khác hẳn cấp 2. Vì vậy nó có mã riêng, màu riêng, nhịp còi riêng.
+
+### Màu đỏ dành riêng cho bệnh nhân
+
+Đây là nguyên tắc, không phải chi tiết thẩm mỹ:
+
+> **Sự cố đường truyền — tắc, chảy tự do, lệch y lệnh — chỉ tới mức VÀNG.**
+> Dù thiết bị đời cũ hay đời mới báo, dù nặng tới đâu.
+
+Tắc dây là vấn đề thật và phải có người đi xử lý. Nhưng nó **không cùng hạng**
+với tụt oxy: một cái là đi lấy bộ dây mới, một cái là chạy tới giường. Cho hai
+thứ đó cùng màu đỏ và cùng tiếng còi là cách nhanh nhất khiến cả khoa **thôi
+phản ứng với màu đỏ** — và khi đó cái đỏ thật sự quan trọng cũng bị bỏ qua.
+
+Ngoại lệ duy nhất là **cấp 3**. Ở đó phần đỏ đến từ **nửa bệnh nhân**, không phải
+từ dây truyền.
+
+Một hệ quả cụ thể: bảng điều khiển **không** tô đỏ biểu đồ *"Drip vs target"* nữa,
+chỉ tô vàng. Sinh hiệu vượt ngưỡng lâm sàng mới đỏ.
 
 Bảng điều khiển ở trạm điều dưỡng hiển thị thêm một **huy hiệu quy trách nhiệm**:
 `IV LINE` / `PATIENT` / `LINE + PATIENT`.
@@ -170,6 +197,13 @@ dụng cho một ca tụt oxy.
 đó là thật thì giường trống cũng kêu "SpO2 0% — nguy kịch". Kênh chưa cắm hiện
 `--`, còn kênh **đã cắm rồi mất tín hiệu** thì đẩy sang cảnh báo — vì cảm biến
 chết **không phải** là bệnh nhân khoẻ.
+
+Nguyên tắc này đúng cho cả **biểu đồ xu hướng**, và đó là chỗ trước đây bị sót:
+bỏ tay khỏi cảm biến thì firmware gửi 0, mà 0 nằm dưới ngưỡng nhịp chậm, nên thẻ
+nhịp tim **nhấp nháy đỏ cho một giường chưa ai kẹp cảm biến**. Nay các kênh mà số
+0 là bất khả thi về sinh lý (nhịp tim, SpO2, tỉ số giọt) bỏ qua hẳn giá trị 0 khi
+tô màu. Việc mất tín hiệu đã có dải cảnh báo và hàng trạng thái từng kênh lo —
+nó không cần thêm một cái thẻ đỏ nói sai sự thật.
 
 **Chưa kẹp cảm biến thì KHÔNG chốt nền nhịp tim.** Nền phải là số **đo được** từ
 chính bệnh nhân đó. Nếu hết 60 giây mà chưa thu đủ 20 mẫu thật, thiết bị **khởi

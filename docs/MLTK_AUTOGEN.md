@@ -142,9 +142,14 @@ tools/slc_generate.sh
 ```
 
 Script tự tìm đường dẫn SDK và extension aiml (mã băm khác nhau trên từng máy),
-**xoá bản cache cũ của XML**, sinh code, rồi **kiểm tra lại đủ 7/7 attribute** và
+**xoá bản cache cũ của XML**, sinh code, rồi **kiểm tra lại đủ 9/9 attribute** và
 dừng ngay với thông báo rõ ràng nếu thiếu — thay vì để lỗi lộ ra ở bước biên
 dịch.
+
+Script đã được thử với một attribute **thật sự mới** (`RemainingMl` 0x16 và
+`RemainingMin` 0x17, thêm vào ngày 18/08): sinh code chạy thẳng, không phải
+`git checkout` lần nào. Thêm attribute mới thì nhớ bổ sung tên nó vào danh sách
+kiểm tra trong script, nếu không lần sinh sau mất nó mà không ai biết.
 
 Nếu vẫn thiếu, xoá thẳng cache (ZAP tự dựng lại):
 
