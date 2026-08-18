@@ -45,4 +45,35 @@ public sealed record BedReading(
     int? LinkQuality = null,
     /// <summary>Which device sent this reading. Decides the bed the readings
     /// belong to - see the routing note in BedTcpIngestionService.</summary>
-    string? DeviceId = null);
+    string? DeviceId = null,
+
+    // ---- AI v2 -----------------------------------------------------------
+    // The device now runs three independent models and reports a four-level
+    // alert plus WHICH SIDE is at fault. That distinction is the one a nurse
+    // acts on first: a blocked line and a deteriorating patient need completely
+    // different responses, and v1 gave them the same alarm.
+    //
+    // All nullable/defaulted, because a device still on v1 firmware sends none
+    // of them and must keep working.
+
+    /// <summary>0 normal, 1 infusion line, 2 patient vitals, 3 both at once.
+    /// Null from a device too old to report it.</summary>
+    int? AlertLevel = null,
+    /// <summary>The infusion line is at fault: drip model anomaly, or the
+    /// load-cell cross-check concluded occlusion / free flow.</summary>
+    bool LineBranch = false,
+    /// <summary>The patient is at fault: vitals model anomaly, vitals
+    /// autoencoder anomaly, or a hard clinical limit breached.</summary>
+    bool PatientBranch = false,
+    /// <summary>Model 1 (drip forecaster), confirmed through the K=11 filter.</summary>
+    bool DripAnomaly = false,
+    /// <summary>Model 2 (vitals forecaster), confirmed through the K=11 filter.</summary>
+    bool VitalsAnomaly = false,
+    /// <summary>Load-cell verdict: 0 ok, 1 running low, 2 occlusion, 3 free
+    /// flow, 4 drop-sensor fault, 5 empty. Null while the 60 s weight trend is
+    /// still filling, which is NOT the same as "everything fine".</summary>
+    int? LineState = null,
+    /// <summary>Estimated fluid left, and how long at the current rate. Null
+    /// when the load cell cannot estimate it.</summary>
+    int? RemainingMl = null,
+    int? RemainingMin = null);

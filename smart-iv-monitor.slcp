@@ -22,21 +22,30 @@ source:
 - path: firmware/app.c
 - path: firmware/sensor_hub.c
 - path: firmware/oled_display.c
-- path: firmware/ai_monitor.c
-- path: firmware/model_runner.cpp
-- path: firmware/ts_forecaster.cpp
-- path: firmware/ts_monitor.c
+- path: firmware/ai_fusion.c
+- path: firmware/ai_engine.cpp
+- path: firmware/line_rules.c
+- path: firmware/models/model_drip.c
+- path: firmware/models/model_vitals.c
+- path: firmware/models/model_ae.c
 include:
 - path: firmware
   file_list:
   - path: app.h
   - path: sensor_hub.h
   - path: oled_display.h
-  - path: ai_monitor.h
-  - path: model_data.h
-  - path: model_data_ts.h
-  - path: ts_forecaster.h
-  - path: ts_monitor.h
+  - path: ai_fusion.h
+  - path: ai_engine.h
+  - path: line_rules.h
+  - path: clinical_limits.h
+- path: firmware/models
+  file_list:
+  - path: model_drip.h
+  - path: model_drip_opcodes.h
+  - path: model_vitals.h
+  - path: model_vitals_opcodes.h
+  - path: model_ae.h
+  - path: model_ae_opcodes.h
 sdk:
   vendor: silabs
   id: simplicity_sdk

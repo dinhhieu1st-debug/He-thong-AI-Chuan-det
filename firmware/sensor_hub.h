@@ -59,13 +59,33 @@ typedef enum { CH_DISABLED = 0, CH_OK = 1, CH_LOST = 2 } ch_state_t;
  * NPN transistor if it draws more than a few mA (GPIO limit).
  * All four outputs are ACTIVE HIGH (set ALERT_ACTIVE_HIGH to 0 in
  * sensor_hub.c if your modules are the active-low kind). */
-typedef enum { ALERT_GREEN = 0, ALERT_YELLOW = 1, ALERT_RED = 2 } alert_level_t;
+/* Four levels, because the two RED conditions need different responses from
+ * the nurse and used to be indistinguishable:
+ *
+ *   LINE_WARNING  the infusion line is in trouble, the PATIENT is fine.
+ *                 Check the tubing. Not an emergency.
+ *   VITALS_ALERT  the patient is in trouble. Go to the bedside.
+ *   CRITICAL      BOTH at once - fluid pouring in while the patient
+ *                 deteriorates. Suspected fluid overload / anaphylaxis.
+ *
+ * Only three LEDs exist, so CRITICAL is shown as RED + YELLOW together with a
+ * distinctly faster beep. A nurse across the ward reads urgency from the beep
+ * rate; the exact reason travels to the HIS Server in the alarm bitmap. */
+typedef enum {
+  ALERT_LEVEL_NORMAL       = 0,
+  ALERT_LEVEL_LINE_WARNING = 1,
+  ALERT_LEVEL_VITALS_ALERT = 2,
+  ALERT_LEVEL_CRITICAL     = 3
+} alert_level_t;
 
 /* Sets the level to indicate. Cheap and idempotent - call it as often as you
  * like (app.c calls it once per AI tick). The actual LED/buzzer driving is
  * done by sh_alert_poll(), which sensor_hub_poll() already calls. */
 void          sh_alert_set_level(alert_level_t level);
 alert_level_t sh_alert_level(void);
+
+/* Human-readable name, for the serial log and the OLED. */
+const char   *sh_alert_level_name(alert_level_t level);
 
 void sensor_hub_init(void);
 void sensor_hub_poll(void);   // call EVERY loop iteration (reads drops continuously)

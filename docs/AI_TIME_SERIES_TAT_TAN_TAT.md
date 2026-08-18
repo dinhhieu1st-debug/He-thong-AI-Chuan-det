@@ -1,696 +1,360 @@
-# AI time series Smart IV — tất tần tật
+# AI v2 — tất tần tật: kiến trúc, huấn luyện, đánh giá, nhúng
 
-Tài liệu đầy đủ về **model AI mới** (dự báo chuỗi thời gian), thay cho model
-autoencoder tức thời cũ. Mọi con số trong đây là **số đo thật** từ các lần chạy
-đã thực hiện, không phải ước lượng — kèm lệnh để tái lập.
+Tài liệu kỹ thuật đầy đủ của hệ AI trên chip. Người đọc mục tiêu: người sẽ **sửa**
+phần AI này.
 
-- Ngày: 2026-07-30
-- Phần cứng: BRD2709A (EFR32MG26B510F3200IM48), SDK `simplicity_sdk 2025.12.3` + extension `aiml 2.2.2`
-- Liên quan: `Nghien_cuu_Nang_cap_AI_Time_Series.md` (phần nghiên cứu/lý luận),
-  `Dataset_va_Phuong_phap_AI_SmartIV.md` (mô tả model CŨ)
-
-> **TRẠNG THÁI: đã tích hợp xong vào logic báo động và chạy thật trên chip.**
-> `ts_monitor.c` giữ cửa sổ 64 giây, chạy dự báo mỗi giây, và
-> `alert_level_from_result()` trong `app.c` quyết định đèn/còi theo 3 tầng
-> (xem mục 12). Kết quả dự báo cũng hiện trên dashboard ở mục
-> "AI forecast (on-chip)".
+* Giải thích cho người không đọc code → [`AI_HOAT_DONG_THE_NAO.md`](AI_HOAT_DONG_THE_NAO.md)
+* Dữ liệu và cách chia tập → [`Dataset_va_Phuong_phap_AI_SmartIV.md`](Dataset_va_Phuong_phap_AI_SmartIV.md)
+* Luồng `.tflite` → chip → [`MLTK_AUTOGEN.md`](MLTK_AUTOGEN.md)
+* Lý do đằng sau từng quyết định, kèm cả những lần đi sai → [`AI_V2_PLAN.md`](AI_V2_PLAN.md)
 
 ---
 
-## 1. Tóm tắt trong 30 giây
+## 1. Ba model
 
-| | Model CŨ | Model MỚI |
+| | Model 1 — Drip | Model 2 — Vitals | Model 3 — Vitals AE |
+|---|---|---|---|
+| Việc | dự báo dòng chảy 16 s tới | dự báo sinh hiệu 16 s tới | trạng thái sinh lý *hiện tại* |
+| Input | `(1,1,64,1)` int8 | `(1,1,64,2)` int8 | `(1,2)` int8 |
+| Output | `(1,16)` int8 | `(1,32)` int8 | `(1,2)` int8 |
+| Kích thước | 22.400 B | 23.520 B | 3.136 B |
+| Operator | **6** | **6** | **4** |
+| Arena cấp / dùng thật | 4096 / **2836** B | 4096 / **2868** B | 2048 / **1108** B |
+
+Tổng flash cho model: 49.056 B. Tổng arena: 10.240 B cấp phát, 6.812 B dùng thật.
+
+### Chuẩn hoá tĩnh
+
+Phải **khớp tuyệt đối** giữa `ml/common.py` và `firmware/ai_engine.h`. Lệch một
+bên là không có lỗi build nào báo, chỉ có câu trả lời sai trong im lặng.
+
+```
+drops_ratio → (ratio − 1,0) / 0,35
+heart_rate  → (hr   − 80,0) / 20,0
+spo2        → (spo2 − 97,0) / 2,0
+hr_lệch     → (hr − nền_bệnh_nhân) / 20,0      ← chỉ Model 3
+```
+
+Các hằng số này là **chọn**, không phải fit từ dữ liệu: một scaler fit trên
+dataset sẽ âm thầm đổi mỗi lần sinh lại dataset, và hằng số trong firmware sẽ
+trôi lệch mà không có gì báo.
+
+---
+
+## 2. Kiến trúc
+
+### Hai forecaster
+
+```
+Input(1, 64, C)
+Conv2D(16, (1,5), strides=(1,2), same, relu)   → (1, 32, 16)
+Conv2D(32, (1,5), strides=(1,2), same, relu)   → (1, 16, 32)
+Conv2D(32, (1,3), strides=(1,2), same, relu)   → (1,  8, 32)
+Reshape((256,))                                 ← kích thước TĨNH
+Dense(32, relu)
+Dense(16 × C, linear)
+```
+
+**Vì sao `Conv2D` kernel 1×k chứ không phải `Conv1D`.** Chuỗi là một chiều nên
+`Conv1D` là lựa chọn hiển nhiên — và là lựa chọn sai ở đây. TFLite bung mỗi
+`Conv1D` của Keras thành `EXPAND_DIMS → CONV_2D → RESHAPE`, biến model 6 operator
+thành 15, và phần lớn operator thêm vào **không được MVP tăng tốc**. Viết đúng
+phép tính đó bằng `Conv2D` kernel `(1, k)` trên input `(1, 64, C)` cho ra **đúng
+một `CONV_2D` mỗi lớp**, tất cả đều MVP chạy được.
+
+**Cũng cố ý tránh:** LSTM/GRU (có trong TFLM nhưng MVP không tăng tốc) và dilated
+convolution (MVP không hỗ trợ dilation).
+
+### Autoencoder
+
+```
+Input(2)  →  Dense(4, relu)  →  Dense(1, relu)  →  Dense(4, relu)  →  Dense(2, linear)
+```
+
+**Nút thắt MỘT chiều cho hai đầu vào** là cơ chế, không phải con số tuỳ tiện.
+Trạng thái tim–phổi bình thường không lấp đầy mặt phẳng HR/SpO2 — chúng nằm gần
+một đường cong, và một chiều đủ để vẽ đường cong đó nhưng **quá nhỏ để học thuộc**
+bất cứ thứ gì nằm ngoài. Hai chiều cho hai đầu vào sẽ thành ánh xạ đồng nhất, tái
+tạo bất thường ngon lành như bình thường — cách kinh điển để tạo ra một
+autoencoder **không phát hiện được gì**.
+
+---
+
+## 3. Huấn luyện
+
+Cả ba: **chỉ trên dữ liệu bình thường** (unsupervised). Hai forecaster dùng loss
+**Huber (δ = 1,0)**, không phải MSE — dữ liệu giọt có gai một-mẫu thật (một giọt
+bị đếm trễ, giọt sau đúng giờ) và MSE bình phương chúng thành thành phần trội của
+gradient, kéo cả dự báo về phía ngoại lai. Số liệu ICU cũng có nhiễu đầu dò tương
+tự.
+
+Validation dùng cho early stopping cũng **chỉ chứa cửa sổ bình thường**: dừng
+theo một loss có lẫn ca tắc nghẽn sẽ chọn ra checkpoint **dự báo tắc nghẽn giỏi
+nhất** — tức là checkpoint tệ nhất cho việc phát hiện.
+
+### Level augmentation — bắt buộc, không phải tuỳ chọn
+
+Lần train đầu của Model 1:
+
+| Tập | MAE model | MAE baseline (persistence) | |
+|---|---:|---:|---|
+| validation mô phỏng | 0,0082 | 0,0092 | +11,3% |
+| **bản ghi thật** | **0,0512** | **0,0105** | **−390%** |
+
+Tệ hơn baseline **5 lần** trên dữ liệu thật. Chẩn đoán: **93% sai số là độ lệch
+hằng số**.
+
+```
+cửa sổ bình thường MÔ PHỎNG : tỉ số trung bình 0,9984
+cửa sổ bình thường THẬT     : tỉ số trung bình 0,9490
+```
+
+Ca truyền mô phỏng nằm đúng y lệnh; bàn thử thật chạy chậm hơn ~5% — do khoá
+lăn, do dây, do chiều cao treo, **không cái nào là sự cố**. Model đã âm thầm học
+"bình thường nghĩa là 1,0" và kéo mọi dự báo về đó.
+
+Mức vận hành tuyệt đối **không phải việc của forecaster**. Quyết định 0,95 có
+chấp nhận được không là việc của luật lâm sàng, vốn so với y lệnh. Forecaster chỉ
+phải trả lời *"với cách đường truyền này đang hành xử, tiếp theo sẽ ra sao"*.
+
+Vì vậy mỗi cửa sổ huấn luyện được **dịch một lượng ngẫu nhiên**, áp **giống nhau**
+cho cả phần lịch sử lẫn phần dự báo — động lực giữ nguyên, chỉ mức vận hành đổi.
+Model không còn đọc được mức từ thiên lệch của chính nó và buộc phải lấy từ cửa
+sổ. **Đây là thứ làm cho model chuyển được từ dữ liệu mô phỏng sang phần cứng
+thật.**
+
+Model 2 dùng cùng cơ chế, với lý do lâm sàng: nhịp nghỉ 55 và 95 đều bình thường,
+khác người. Biên độ dịch: HR ±0,75 (15 bpm), SpO2 ±0,25 — SpO2 ít hơn nhiều vì
+bão hoà của người khoẻ thật sự nằm trong vài điểm quanh 97, biến thiên cá thể như
+HR **không tồn tại**.
+
+---
+
+## 4. Thước đo: vì sao KHÔNG phải MAE
+
+Đo lại sau khi thêm augmentation, cả hai forecaster **vẫn tệ hơn** baseline
+persistence (dự báo = giá trị hiện tại) trên dữ liệu bình thường — khoảng 8% trên
+validation, 20% trên bản ghi thật. Nhìn riêng thì như model hỏng.
+
+Không hỏng, và lý do chính là cơ chế mà cả thiết kế dựa vào: model **chỉ học động
+lực bình thường**, nên nó **từ chối bám theo** động lực bất thường — khi dòng
+chảy bắt đầu sụp nó vẫn dự báo dòng chảy bình thường, và **residual bùng lên**.
+Persistence thì bám theo mọi thứ theo đúng cấu tạo: trong một ca tắc nghẽn chậm
+nó theo sát, residual bé tí. **Làm forecaster ngoan khiến persistence thành
+detector tồi.**
+
+Vì vậy MAE chỉ là chỉ số chẩn đoán. **Thước đo quyết định là AUC phát hiện.**
+
+### Kết quả (đo trên bản int8 sẽ nạp chip)
+
+| Model | Tập | AUC model | AUC persistence |
+|---|---|---:|---:|
+| **Drip** | **bản ghi thật leak-free** | **0,948** | 0,839 |
+| Drip | validation mô phỏng | 0,890 | 0,732 |
+| Drip | test mô phỏng | 0,940 | 0,766 |
+| Drip | bản ghi thật calibration-influenced | 0,813 | 0,873 |
+| **Vitals** | **12 bệnh nhân chưa từng thấy** | **0,885** | 0,680 |
+| Vitals AE | test theo từng giây | **0,9996** | — |
+
+**Đọc AUC của AE cho đúng:** nhãn "bất thường" của nó được định nghĩa **bằng
+chính** ngưỡng lâm sàng, nên AUC ≈ 1 phần lớn chỉ nói rằng AE **tái hiện được
+ngưỡng**. Giá trị tăng thêm nằm ở mục 5, không ở con số này. **Đừng lấy 0,9996
+làm điểm nhấn trong báo cáo.**
+
+**Chi phí lượng tử hoá:** drip mất 0,033 AUC (0,981 float → 0,948 int8) — vẫn bỏ
+xa baseline, nhưng là chi phí có thật. Vitals thì int8 **nhỉnh hơn** float (0,856
+→ 0,885): nhiễu lượng tử triệt bớt các residual nhỏ.
+
+---
+
+## 5. Model 3 bắt được gì mà ngưỡng cứng bỏ sót
+
+Quét lưới toàn bộ vùng **không luật cứng nào kích hoạt** (SpO2 ≥ 90, HR trong
+45–150), nền HR = 80:
+
+| HR | SpO2 | Luật cứng | AE (ngưỡng 3,46) |
+|---:|---:|---|---:|
+| 45 | 90,0 % | không báo | **8,91 → BÁO** |
+| 45 | 93,0 % | không báo | **3,83 → BÁO** |
+| 105 | 93,0 % | không báo | 3,04 (sát ngưỡng) |
+| 80 | 98,0 % | không báo | 0,07 |
+
+Đo cấu trúc mà model học được:
+
+```
+chỉ nhịp nhanh   (HRlệch +25, SpO2 98)  →  0,841
+chỉ tụt oxy      (HRlệch   0, SpO2 93)  →  2,266
+nền              (HRlệch   0, SpO2 98)  →  0,069
+tổ hợp cả hai    (HRlệch +25, SpO2 93)  →  3,037
+```
+
+`0,841 + 2,266 − 0,069 = 3,038` so với **3,037** đo được — sai số của tổ hợp
+đúng bằng **tổng** hai thành phần.
+
+Ban đầu nhóm kết luận vội rằng "cộng tính ⇒ không học được tương tác ⇒ vô dụng".
+**Sai.** Cộng tính theo *độ lệch* chính là điều cần: nó diễn đạt được *"hai sai
+lệch đều dưới ngưỡng, cộng lại thành đáng báo"*. Cái sẽ vô dụng là nếu AE hành xử
+như phép **OR/max** — khi đó nó chỉ lặp lại đúng hệ ngưỡng. Hai luật cứng OR với
+nhau **không thể** biểu diễn được hàng đầu tiên của bảng trên.
+
+Trên dữ liệu thật: gắn cờ **0,16%** số giây bình thường, bắt **99,75%** số giây
+bất thường.
+
+---
+
+## 6. Bộ hợp nhất trên chip
+
+`firmware/ai_fusion.c`. Mỗi giây, sau khi cả ba model chạy.
+
+### Chấm điểm nhân quả
+
+AUC ở mục 4 so dự báo với **toàn bộ** 16 giây theo sau. Hợp lý để xếp hạng model
+ngoại tuyến, nhưng chip **không nhìn thấy tương lai**. Trên chip, residual là:
+lấy dự báo mà model đưa ra **một giây trước** cho **bây giờ**, so với số vừa đo.
+Đó là residual duy nhất tính được thời gian thực — chip chấm bài tập của hôm qua.
+
+### Ngưỡng
+
+Phân vị 98 của residual nhân quả trên dữ liệu **validation bình thường**, đo trên
+**model int8**:
+
+```c
+#define AI_DRIP_RESIDUAL_THRESHOLD    0.0662f
+#define AI_VITALS_RESIDUAL_THRESHOLD  0.5295f
+#define AI_AE_THRESHOLD               3.460599f   // float cho 3.466246 — khác model, khác ngưỡng
+```
+
+Đây **không phải núm vặn** để chỉnh cho demo đẹp.
+
+### Bộ lọc kéo dài K = 11
+
+Tín hiệu do AI phát hiện phải giữ **11 giây liên tiếp** mới được nâng thành báo
+động. Đo bằng cách phát lại bản ghi thật ở 1 Hz:
+
+| | Báo giả/giờ trước K=11 | Sau K=11 | Dữ liệu bình thường |
+|---|---:|---:|---|
+| Drip | 29,0 | **0,0** | 0,03 h |
+| Vitals | 47,6 | **0,0** | 1,14 h |
+
+Recall drip: **6/8** bản ghi bất thường có báo động, độ trễ thêm trung vị 17 giây.
+
+**Luật lâm sàng cứng KHÔNG đi qua bộ lọc.** SpO2 < 90% báo ngay tick nhìn thấy.
+Lập luận chống báo động giả biện minh cho việc chờ hết một nháy thoáng qua; nó
+**không** biện minh cho việc chờ hết một ca tụt oxy.
+
+### Residual bắt gì và KHÔNG bắt gì
+
+Hệ quả trực tiếp của level augmentation: khi sự cố ổn định vào một **trạng thái
+dừng mới**, model dự báo trạng thái đó rất chuẩn và **residual về 0**.
+
+Nên residual bắt **CHUYỂN BIẾN** — dây bắt đầu tắc, tốc độ bắt đầu chạy loạn — và
+bắt sớm, đó là toàn bộ giá trị của nó. Nó **không** giữ báo động qua một sự cố
+kéo dài, và chưa bao giờ định làm việc đó.
+
+Giữ báo động là việc của những thứ nhìn **trạng thái hiện tại**: luật lâm sàng
+cứng, luật cân↔giọt, và autoencoder. Logic hai nhánh OR chúng lại chính vì lý do
+này — **bỏ đi một cái thì một sự cố đã ổn định sẽ âm thầm tắt chuông trong khi
+bệnh nhân vẫn đang gặp sự cố**.
+
+### Cảnh báo sớm theo dự báo
+
+Cơ chế thứ ba, tồn tại vì một khoảng trống đo được: diễn biến **xấu dần từ từ**
+rất dễ dự báo, nên model bám sát và residual không nhúc nhích — model đúng, bệnh
+nhân vẫn đang chìm. Vì vậy kiểm tra thêm: **bản thân dự báo** có vượt ngưỡng lâm
+sàng trong 16 giây tới không. Đây là cơ chế duy nhất ở đây có thể cảnh báo
+**trước** một ca tụt oxy diễn ra chậm. Nó xếp vào mức cảnh báo chứ không phải báo
+động — vì nó là dự đoán, chưa phải sự thật.
+
+### Ma trận quyết định
+
+```
+nhánh DỊCH      = Model 1 bất thường  HOẶC  luật cân↔giọt kết luận tắc/chảy tự do
+nhánh BỆNH NHÂN = Model 2 bất thường  HOẶC  Model 3 bất thường  HOẶC  luật cứng
+```
+
+| Nhánh dịch | Nhánh bệnh nhân | Cấp |
 |---|---|---|
-| Đầu vào | 6 số tại **1 thời điểm** | **64 giây × 4 kênh** |
-| Đầu ra | Tái tạo lại 6 số đó | **Dự báo 16 giây tiếp theo** |
-| Kiến trúc | FC `6→4→2→4→6` | CNN 1D (Conv2D height-1) + FC |
-| Kích thước | 3.272 byte | 30.616 byte |
-| Tham số | ~100 | 21.504 |
-| Thời gian suy luận | (chưa đo) | **4,77 ms** = 0,47% chu kỳ AI |
-| Làm được gì thêm | — | xu hướng, cảnh báo sớm, phân biệt thoáng qua/kéo dài |
+| — | — | 0 NORMAL |
+| ✓ | — | 1 LINE_WARNING |
+| — | ✓ | 2 VITALS_ALERT |
+| ✓ | ✓ | **3 CRITICAL** |
 
-**Kết quả cốt lõi:** so với cách ngưỡng tức thời, recall tăng gần **gấp đôi**
-(29,8% → 58,3%) mà báo nhầm do nhiễu thoáng qua lại **giảm** (5,1% → 3,4%).
+Đây là chỗ việc tách ba model trả cổ tức: với một model gộp, cấp 1 và cấp 2
+**không phân biệt được**, vì một điểm bất thường chung không nói được hỏng ở đâu.
 
 ---
 
-## 2. Vì sao phải đổi
+## 7. Nhúng vào firmware
 
-Model cũ nhận 6 số tại **một thời điểm**, autoencoder nút thắt 2 chiều, quyết
-định bằng `MSE > 1.4336`. Về mặt toán học đó là một **ngưỡng đa biến phi tuyến** —
-nên nhận xét "giỏi điện tử là làm được" là công bằng.
+### Ba interpreter, ba arena
 
-Hệ quả nghiêm trọng hơn: **không có ký ức** nên hai tình huống này giống hệt nhau
-dưới mắt model:
+Cố ý, và tốn thêm vài KB RAM. Gộp vào một flatbuffer nghĩa là một
+`AllocateTensors()` (all-or-nothing: thiếu bộ nhớ là mất cả ba) và một `Invoke()`
+(dừng ở operator lỗi đầu tiên, nên trục trặc ở nhánh drip sẽ **âm thầm làm hỏng**
+đầu ra của nhánh vitals). Hỏng độc lập đáng giá hơn vài KB.
 
-- HR = 130 trong **2 giây** (bệnh nhân trở người, chạm tay vào cảm biến PPG)
-- HR = 130 trong **10 phút** (nhịp nhanh thật, cần can thiệp)
+Mọi hàm trả `bool`. Không chỗ nào trong `ai_engine.cpp` treo, assert hay lặp vô
+hạn: model không nạp được thì thiết bị **vẫn phải đo và vẫn phải báo động bằng
+luật lâm sàng**.
 
-Model buộc phải báo cả hai (→ báo nhầm liên tục) hoặc bỏ cả hai (→ bỏ sót ca
-thật). Đây là **giới hạn kiến trúc**, không phải chuyện tinh chỉnh ngưỡng.
+### Đối chiếu Python ↔ chip
 
-Thêm nữa, firmware chạy AI 1 lần/giây nhưng mỗi tick được đánh giá độc lập rồi
-**bỏ đi** — toàn bộ thông tin về xu hướng, độ biến thiên, thời lượng, tương quan
-theo thời gian đều không dùng.
+Sau khi nạp, log khởi động in ra tham số lượng tử hoá mà chip đọc từ tensor:
+
+```
+[AI] drip   ready: arena 2836/4096 B, in scale 39214/1e6, zp -55
+[AI] vitals ready: arena 2868/4096 B, in scale 76469/1e6, zp  49
+[AI] ae     ready: arena 1108/2048 B, in scale 66618/1e6, zp  75
+```
+
+Đã đối chiếu với ba file `.tflite`: **khớp tuyệt đối cả ba**. Đây là bằng chứng
+đầu-cuối rằng số liệu trong tài liệu này là số liệu của model đang chạy trên chip.
 
 ---
 
-## 3. Kiến trúc mới
-
-### 3.1 Vào / ra
-
-```
-Đầu vào : 64 giây quá khứ × 4 kênh   (shape 1×1×64×4, int8)
-Đầu ra  : dự báo 16 giây tiếp theo × 4 kênh, PHẲNG 64 số (int8)
-          index: out[h * 4 + c]   với h = 0..15 (giây), c = 0..3 (kênh)
-```
-
-**4 kênh** (thứ tự cố định, firmware phải giữ đúng):
-
-| # | Kênh | Chuẩn hóa | Ghi chú |
-|---|---|---|---|
-| 0 | `heart_rate` | `(hr - 80) / 20` | bpm |
-| 1 | `spo2` | `(spo2 - 97) / 2` | % |
-| 2 | `drops_ratio` | `(dpm/target_dpm - 1.0) / 0.35` | tỉ lệ so mức bác sĩ đặt |
-| 3 | cân nặng **tương đối** | `(weight - weight[đầu cửa sổ]) / 5.0` | gam |
-
-Vì sao kênh 3 dùng giá trị **tương đối** so với đầu cửa sổ, không dùng tuyệt đối:
-bịch dịch nào cũng bắt đầu ~500 g rồi cạn dần, nên giá trị tuyệt đối chỉ cho biết
-"đã truyền bao lâu"; **thông tin thật nằm ở tốc độ giảm**. Dùng tương đối làm
-model bất biến với khối lượng ban đầu.
-
-Chuẩn hóa dùng **hằng số cố định**, không dùng `scaler.json` — firmware chỉ cần
-một phép trừ và một phép chia, không phải nạp thêm file cấu hình.
-
-### 3.2 Từ một model lấy ra được ba thứ
-
-1. **Xu hướng** — độ dốc đường dự báo → *"HR đang đi lên/xuống X bpm/phút"*
-2. **Cảnh báo sớm** — nếu đường dự báo **vượt ngưỡng lâm sàng trước khi** thực tế
-   xảy ra → báo trước hàng chục giây
-3. **Bất thường** — sai số dự báo (model chỉ học động lực học **bình thường**, nên
-   điều gì không dự báo được chính là bất thường)
-
-### 3.3 Các lớp
-
-```
-Input (1, 64, 4)                        # "ảnh" cao 1 pixel
-  Conv2D 16 filters, kernel (1,5), stride (1,2), ReLU   -> (1, 32, 16)
-  Conv2D 32 filters, kernel (1,5), stride (1,2), ReLU   -> (1, 16, 32)
-  Conv2D 32 filters, kernel (1,3), stride (1,2), ReLU   -> (1,  8, 32)
-  Reshape (256)                                          # kích thước TĨNH
-  Dense 48, ReLU
-  Dense 64                                               # = 16 giây × 4 kênh
-```
-
-**Tổng: 21.504 tham số.**
-
----
-
-## 4. Ba quyết định kiến trúc theo đúng phần cứng xG26
-
-Đây là phần quan trọng nhất để "tận dụng con chip", và cũng dễ chọn sai nhất. Ba
-điều dưới đây tớ **kiểm chứng trực tiếp trong SDK**, không tra web.
-
-### 4.1 Kernel nào được MVP tăng tốc
-
-Tìm trong `aiml220b56d6ae053/p/src/kernels/mvp1/`:
-
-```
-add.cc  conv.cc  depthwise_conv.cc  fully_connected.cc
-mul.cc  pooling.cc  transpose_conv.cc
-```
-
-→ `CONV_2D`, `DEPTHWISE_CONV_2D`, `FULLY_CONNECTED`, pooling, add, mul **được
-tăng tốc bằng phần cứng**.
-
-Trong `micro_mutable_op_resolver.h` có `UnidirectionalSequenceLSTM`, `Svdf`,
-`CircularBuffer` — chạy được nhưng **trên CPU M33, không có MVP**.
-
-### 4.2 KHÔNG dùng LSTM
-
-Y văn TinyML cho thấy 1D-CNN đạt độ chính xác *ngang hoặc cao hơn* LSTM (~95%)
-với chi phí bộ nhớ/tính toán thấp hơn nhiều trên MCU. Ở đây còn thêm lý do riêng:
-**CNN được MVP tăng tốc, LSTM thì không** — chọn LSTM là tự bỏ phần cứng tăng tốc
-mà chip này có sẵn.
-
-### 4.3 KHÔNG dùng dilation, KHÔNG dùng Keras Conv1D
-
-**Dilation:** MVP không hỗ trợ → TCN cổ điển (dilated convolution) sẽ rơi về
-kernel chậm. Muốn nhìn xa theo thời gian thì dùng **stride + pooling xếp tầng**.
-
-**Keras `Conv1D`:** đây là cái bẫy không hiển nhiên. TFLite dịch **mỗi** lớp
-Conv1D thành ba op `EXPAND_DIMS → CONV_2D → RESHAPE`. Với 3 lớp conv, model phình
-thành **15 op** mà chỉ 5 op được tăng tốc:
-
-```
-EXPAND_DIMS, CONV_2D, RESHAPE, EXPAND_DIMS, CONV_2D, RESHAPE,
-EXPAND_DIMS, CONV_2D, RESHAPE, SHAPE, STRIDED_SLICE, PACK,
-RESHAPE, FULLY_CONNECTED, FULLY_CONNECTED          (34.272 byte)
-```
-
-Dùng thẳng `Conv2D` với kernel `(1,k)` + `Reshape` kích thước tĩnh + batch cố
-định = 1 khi convert, cho ra đúng **6 op**:
-
-```
-CONV_2D, CONV_2D, CONV_2D, RESHAPE, FULLY_CONNECTED, FULLY_CONNECTED
-                                                    (30.616 byte)
-```
-
-Tất cả đều thuộc nhóm MVP tăng tốc (`RESHAPE` trong TFLM chỉ là đổi cách nhìn bộ
-nhớ, không tốn phép tính). **Giảm 9 op và 12% kích thước.**
-
-Cũng cần tránh `Flatten`: với batch động nó sinh ra `SHAPE`/`STRIDED_SLICE`/`PACK`.
-Dùng `Reshape` với kích thước tĩnh.
-
-### 4.4 Ràng buộc kích thước tensor
-
-MVP yêu cầu `width × channels ≤ 2047` và mọi chiều `≤ 1024`. Model này:
-
-| Tensor | width × channels | OK? |
-|---|---|---|
-| Input | 64 × 4 = 256 | ✓ |
-| Sau conv1 | 32 × 16 = 512 | ✓ |
-| Sau conv2 | 16 × 32 = 512 | ✓ |
-| Sau conv3 | 8 × 32 = 256 | ✓ |
-
-Số kênh để **chẵn** (16/32) để tăng khả năng được tăng tốc.
-
----
-
-## 4.5 HAI dataset — mô phỏng thuần và LAI với dữ liệu ICU thật
-
-Có **hai** bộ dữ liệu, dùng cùng một script train:
-
-| | `iv_timeseries_1hz.csv` | `iv_hybrid_1hz.csv` ← **nên dùng bộ này** |
-|---|---|---|
-| HR / SpO2 | Mô phỏng (AR(1)) | **BIDMC — 52 bệnh nhân ICU THẬT** |
-| Giọt / cân nặng | Mô phỏng | Mô phỏng (không có bộ công khai có nhãn) |
-| Tổng | 72.000 mẫu (20,0 giờ) | 75.036 mẫu (20,8 giờ) |
-| Số "ca" | 120 ảo | 156 (52 người thật × 3 lần tiêm biến cố khác nhau) |
-
-**Bộ lai giải quyết đúng lời phê bình "lãng phí dữ liệu".** Tài liệu cũ chỉ dùng
-BIDMC để *"hiệu chỉnh dải giá trị bình thường"* — tức là bỏ đi trục thời gian của
-chính bộ dữ liệu thật, đúng kiểu lãng phí mà thầy nói. Bộ lai dùng **nguyên chuỗi
-1 Hz**: `bidmc_##_Numerics.csv` có sẵn HR/PULSE/RESP/SpO2 lấy mẫu 1 Hz, mỗi bản
-ghi 8 phút.
-
-Dải giá trị thật trong bộ lai: **HR 25–194 bpm (trung vị 89)**, **SpO2 74–100%
-(trung vị 97)** — rộng và nhiễu hơn nhiều so với bộ mô phỏng, vì bệnh nhân ICU
-thật vốn vậy.
-
-**Bẫy phải tránh khi tách tập:** mỗi bản ghi BIDMC được dùng lại 3 lần với biến cố
-khác nhau. Nếu tách theo `patient_id` (id từng "ca") thì **cùng một người thật sẽ
-xuất hiện ở cả train và test** — model đã thấy trước động lực học HR/SpO2 của người
-đó, kết quả đánh giá tốt giả tạo. `train_forecaster.py` vì thế tách theo cột
-`bidmc_src` (**bệnh nhân thật**): train 31 / val 10 / test 11 người.
-
-1/53 bản ghi bị loại vì thiếu quá 20% dữ liệu (máy theo dõi mất tín hiệu).
-
-Tải dữ liệu:
-```bash
-mkdir -p ml/ai_timeseries/dataset/bidmc && cd ml/ai_timeseries/dataset/bidmc
-for i in $(seq -w 1 53); do
-  curl -fO "https://physionet.org/files/bidmc/1.0.0/bidmc_csv/bidmc_${i}_Numerics.csv"
-done          # 53 file, tong 468 KB
-```
-
-### 4.5.1 Kết quả trên bộ LAI (dữ liệu ICU thật) — con số nên đem đi trình bày
-
-| Cách quyết định | Báo nhầm (normal) | Báo nhầm (transient) | Recall |
-|---|---|---|---|
-| A. Ngưỡng tức thời — *cách hiện tại* | **9,6%** | **17,2%** | 34,6% |
-| B. Dự báo, quyết định tức thời | 2,2% | 17,6% | 52,0% |
-| **C. Dự báo + persistence K=11** | **1,5%** | **2,3%** | **41,4%** |
-
-**Trên dữ liệu thật, kết luận còn mạnh hơn:** phương pháp C tốt hơn ở **cả ba**
-chỉ số cùng lúc — báo nhầm trên cửa sổ bình thường giảm từ 9,6% xuống 1,5%
-(**giảm 6 lần**), báo nhầm do nhiễu thoáng qua giảm từ 17,2% xuống 2,3%
-(**giảm 7 lần**), mà recall vẫn **tăng** (34,6% → 41,4%).
-
-Điểm đáng chú ý: **ngưỡng tức thời báo nhầm 9,6% ngay trên cửa sổ bình thường** —
-so với chỉ 0,1% trên bộ mô phỏng. Lý do: bệnh nhân ICU thật có HR/SpO2 dao động ra
-ngoài khoảng 45–150 bpm / ≥90% khá thường xuyên mà **không phải** biến cố cần báo.
-Đây chính là cơ chế sinh ra alarm fatigue trong thực tế, và chỉ lộ ra khi dùng dữ
-liệu thật — bộ mô phỏng đã che mất nó.
-
-Xu hướng trên dữ liệu thật (vùng chết ±10 bpm/phút):
-
-| Nguồn | Đúng 3 nhãn | Đúng hướng |
-|---|---|---|
-| Từ dự báo của model | **83,5%** | **66,0%** |
-| Từ độ dốc 64 giây đã quan sát | 80,7% | **40,1%** |
-
-Phát hiện hồi quy về trung bình **vẫn đúng trên dữ liệu thật**: ngoại suy độ dốc
-cho 40,1%, vẫn tệ hơn tung đồng xu.
-
-Recall thấp hơn bộ mô phỏng (41,4% so với 58,3%) là **hợp lý và trung thực**: HR/
-SpO2 của bệnh nhân ICU thật khó dự báo hơn nhiều so với chuỗi AR(1) nhân tạo.
-
----
-
-## 5. Dataset mô phỏng thuần (chi tiết)
-
-`ml/ai_timeseries/make_timeseries_dataset.py` → `dataset/iv_timeseries_1hz.csv`
-
-### 5.1 Khác biệt then chốt so với bộ cũ
-
-Bộ cũ (`iv_vitals_synthetic_labeled.csv`) gán nhãn theo **từng dòng độc lập** →
-không thể dùng để dạy/đánh giá một model có trục thời gian.
-
-Bộ mới sinh **quy trình theo thời gian**, và tách rõ **hai loại** bất thường mà
-model phải đối xử **khác nhau**:
-
-| Loại | Thời lượng | Nhãn | Model phải |
-|---|---|---|---|
-| **TRANSIENT** | 2–6 giây | `label_alarm = 0` | **KHÔNG** báo động |
-| **SUSTAINED** | ≥ 45 giây | `label_alarm = 1` | **PHẢI** báo động |
-
-**Không có loại thứ nhất thì không có gì để ĐO việc giảm báo nhầm** — đây chính
-là thiếu sót khiến model cũ không thể trả lời phê bình của thầy.
-
-### 5.2 Cách sinh tín hiệu
-
-- Dùng **AR(1)** (`x[t] = rho·x[t-1] + noise`) thay vì lấy mẫu độc lập mỗi giây,
-  để chuỗi có tương quan thời gian giống sinh lý thật. Lấy mẫu độc lập cho chuỗi
-  trắng, model không học được gì về động lực học.
-- HR: nền riêng mỗi ca (62–94 bpm) + AR(1) + dao động chậm (chu kỳ 30–120 s)
-- SpO2: nền 96–99% + AR(1)
-- Giọt: quanh mức bác sĩ đặt + jitter cơ học
-- Cân: giảm dần theo lưu lượng (1 g ≈ 1 ml) + nhiễu load cell
-
-**Biến cố kéo dài đều có giai đoạn khởi phát dần (ramp 15–40 s), không nhảy bậc.**
-Đây là điều kiện để model dự báo có thể cảnh báo sớm — nếu mọi thứ nhảy bậc tức
-thì thì không còn gì để dự báo.
-
-Mức bác sĩ đặt khác nhau giữa các ca (15/18/20/25/30/40/50 dpm; 60/80/100/120/150
-ml/h) → model buộc phải học theo **tỉ lệ**, không phải con số tuyệt đối.
-
-### 5.3 Số liệu thực tế
-
-```
-tổng mẫu        : 72.000 (20,0 giờ @1Hz)
-số bệnh nhân    : 120
-label_alarm = 1 : 5.812 (8,1%)
-mẫu transient   : 807 (1,1%) — tất cả đều label_alarm = 0
-```
-
-| Loại biến cố | Số mẫu |
-|---|---|
-| normal | 65.381 |
-| occlusion (tắc) | 1.384 |
-| bradycardia | 1.253 |
-| desaturation | 1.178 |
-| free_flow (chảy tự do) | 1.019 |
-| tachycardia | 978 |
-| transient_hr_spike | 232 |
-| transient_hr_drop | 156 |
-| transient_spo2_dip | 155 |
-| transient_drop_miss | 139 |
-| transient_drop_burst | 125 |
-
----
-
-## 6. Huấn luyện
-
-`ml/ai_timeseries/train_forecaster.py`
-
-- **Tách theo BỆNH NHÂN** 60/20/20 (72/24/24 ca), không tách theo dòng → tránh rò
-  rỉ dữ liệu, đánh giá trung thực
-- **Học không giám sát:** train/val **chỉ** trên cửa sổ động lực học hoàn toàn
-  bình thường (không biến cố kéo dài, cũng không nhiễu thoáng qua). Nếu để nhiễu
-  vào, model sẽ học coi "nhảy 60 bpm" là bình thường và mất khả năng phát hiện.
-- **Loss:** Huber (`delta = 1.0`) — bền với ngoại lai hơn MSE
-- Adam `1e-3`, batch 128, EarlyStopping (patience 8), ReduceLROnPlateau
-- Nhãn **chỉ dùng để đánh giá**, không dùng để train
-
-Số cửa sổ: **train 23.750 / val 8.144 / test 12.480**
-
-Phân bố tập test: normal 9.411 · transient 1.588 · sustained 1.481
-Phân bố tập val: normal 8.976 · transient 2.133 · sustained 1.371
-
-### 6.1 Lượng tử hóa int8
-
-```
-IN_SCALE  = 0.011372549459     IN_ZP  = -5
-OUT_SCALE = 0.009817149490     OUT_ZP = -15
-```
-
-Convert bằng cách clone sang model **batch cố định = 1** rồi copy weights, sau đó
-`from_keras_model`. (Đường `from_concrete_functions` thất bại với lỗi
-`READ_VARIABLE` vì biến Keras chưa được khởi tạo trong graph.)
-
----
-
-## 7. Kết quả — độ chính xác dự báo
-
-Tập TEST, chỉ trên cửa sổ bình thường:
-
-| Kênh | MAE toàn horizon | tại +1 giây | tại +16 giây |
-|---|---|---|---|
-| Nhịp tim | **1,46 bpm** | 0,81 | 2,13 |
-| SpO2 | **0,22 %** | 0,13 | 0,28 |
-| Tỉ lệ giọt | **0,04** × mức đặt | 0,02 | 0,05 |
-
-Dự báo HR sai trung bình 1,46 bpm cho cả 16 giây phía trước — đủ chính xác để
-dùng cho cảnh báo sớm.
-
----
-
-## 8. Kết quả — chống báo nhầm (phần trả lời trực tiếp phê bình của thầy)
-
-### 8.1 Phương pháp luận
-
-Ba cách quyết định được so sánh trên **cùng** tập test:
-
-- **A. Ngưỡng tức thời** — mô phỏng đúng cách làm hiện tại: chỉ xét mẫu mới nhất
-  của cửa sổ, dùng đúng các ngưỡng trong `ai_monitor.h` (HR 45–150, SpO2 ≥ 90,
-  tỉ lệ 0,3–1,5)
-- **B. Sai số dự báo, quyết định tức thời**
-- **C. Sai số dự báo + persistence** (phải vượt ngưỡng liên tục K bước)
-
-**Mọi tham số** (cách tính điểm, ngưỡng, K) được chọn trên tập **VALIDATION**, rồi
-báo cáo **một lần** trên tập TEST. Chọn tham số trên chính tập test là tự đánh giá
-mình, con số sẽ đẹp giả tạo.
-
-Tiêu chí chọn K **công bằng**: tối đa recall **với điều kiện** báo nhầm trên cửa
-sổ transient không tệ hơn phương pháp A. Kết quả chọn: ngưỡng điểm ở phân vị
-99,5%, **K = 8**.
-
-Cách tính điểm cũng được chọn trên val (3 phương án thử):
-
-| Cách tính điểm | normal | transient | recall |
-|---|---|---|---|
-| trung bình thô mọi kênh + thời gian | 2,0% | 25,8% | 73,5% |
-| **max theo kênh, TB thời gian** ← chọn | 2,0% | 26,1% | **80,6%** |
-| max cả hai trục | 2,0% | 28,4% | 77,6% |
-
-Sai số từng kênh được chia cho độ lệch chuẩn của **chính kênh đó** trên dữ liệu
-bình thường trước khi lấy max. Nếu lấy trung bình thô, một ca tụt oxy (chỉ hiện ở
-kênh SpO2) bị 3 kênh còn lại pha loãng đến mức gần như vô hình.
-
-### 8.2 Kết quả trên tập TEST
-
-| Cách quyết định | Báo nhầm (normal) | **Báo nhầm (transient)** | **Recall (kéo dài)** |
-|---|---|---|---|
-| A. Ngưỡng tức thời — *cách hiện tại* | 0,1% | 5,1% | 29,8% |
-| B. Dự báo, quyết định tức thời | 2,0% | 27,1% | 72,9% |
-| **C. Dự báo + persistence K=8** | 0,3% | **3,4%** | **58,3%** |
-
-**Đọc bảng này:**
-
-- Recall gần **gấp đôi** (29,8% → 58,3%) mà báo nhầm thoáng qua **giảm**
-  (5,1% → 3,4%). Tốt hơn ở cả hai chiều, không phải đánh đổi.
-- **Dòng B rất quan trọng:** chỉ dùng model mà quyết định tức thời thì báo nhầm
-  **tệ hơn nhiều** (27,1%). Vì một cú nhảy 3 giây cũng gây sai số dự báo lớn.
-  → **Bước persistence là bắt buộc, không phải tùy chọn.** Có model mà quyết định
-  sai cách thì còn tệ hơn không có.
-
----
-
-## 9. Phát hiện đáng mang đi trình bày: hồi quy về trung bình
-
-So sánh hai cách lấy xu hướng nhịp tim (vùng chết ±10 bpm/phút, tập test):
-
-| Nguồn tín hiệu xu hướng | Đúng 3 nhãn | **Đúng HƯỚNG** |
-|---|---|---|
-| Từ **dự báo** của model | 70,7% | **72,7%** |
-| Từ **độ dốc 64 giây đã quan sát** | 72,1% | **23,7%** |
-
-Đo độ dốc rồi ngoại suy — đúng cách một người giỏi điện tử sẽ làm — cho **23,7%,
-tệ hơn cả tung đồng xu**. Lý do: nhịp tim có tính **hồi quy về trung bình** (mean
-reversion) — vừa tăng thì có xu hướng tụt lại. Model học được đúng động lực học đó
-nên đạt 72,7%.
-
-Đây là phản biện **trực tiếp và định lượng** cho câu "giỏi điện tử là làm được":
-cách làm bằng kỹ thuật điện tử thuần không chỉ kém hơn, mà **sai hướng**.
-
-### 9.1 Xu hướng theo các vùng chết khác nhau
-
-| Vùng chết | Đúng 3 nhãn | Đúng hướng | n (thực sự có xu hướng) |
-|---|---|---|---|
-| ±2 bpm/phút | 46,9% | 64,3% | 7.972 |
-| ±5 bpm/phút | 45,2% | 68,3% | 5.216 |
-| ±10 bpm/phút | 70,7% | 72,7% | 2.334 |
-
-Vùng chết càng rộng thì càng chính xác — hợp lý, vì xu hướng nhỏ phần lớn là
-nhiễu. **Nên dùng ±10 bpm/phút** khi hiển thị cho bác sĩ.
-
----
-
-## 10. Đo thật trên chip
-
-Nạp firmware có đoạn benchmark, chạy 200 lần suy luận với cửa sổ có biến đổi thật:
-
-```
-[TS] Model du bao san sang: 30616 byte, arena dung 2964/8192 byte
-[TS] Benchmark: 200/200 lan suy luan OK, tong 954 ms
-     -> 4770 us/lan = 0.47% ngan sach chu ky AI (1 giay)
-```
-
-| Hạng mục | Số đo |
-|---|---|
-| Thời gian suy luận | **4,77 ms/lần** |
-| Chiếm bao nhiêu chu kỳ AI 1 giây | **0,47%** |
-| Arena RAM thực dùng | **2.964 byte** |
-| Model trong flash | 30.616 byte |
-| Tỉ lệ thành công | 200/200 |
-
-Phép đo ổn định: chạy 20 lần cho 4.700 µs, chạy 200 lần cho 4.770 µs.
-
-**Con chip gần như không phải làm gì — còn dư 99,5% ngân sách thời gian.** Nghĩa
-là có thể chạy model to hơn nhiều, chạy dày hơn 1 Hz, hoặc thêm nhánh tái tạo cửa
-sổ (AER) để nâng recall, đều gần như miễn phí.
-
-Ban đầu cấp 24 KB arena theo tính toán trên giấy; đo thật chỉ cần 2.964 byte nên
-đã hạ xuống 8 KB (vẫn gần 3× dự phòng) → **trả lại 16 KB RAM**.
-
-Kích thước firmware sau khi thêm: `.text` 358.828 · `.data` 1.296 · `.bss` 31.236 byte.
-
-### 10.1 Về việc MVP có thực sự chạy — nói cho chính xác
-
-Kiểm chứng được: kernel MVP **có** được biên dịch vào build
-(`mvp1/conv.cc.obj`, `mvp1/fully_connected.cc.obj`), và mọi tensor đều thỏa ràng
-buộc tài liệu Silabs (mục 4.4).
-
-Nhưng **chưa chứng minh được bằng đo đạc** rằng MVP đang xử lý từng op, vì SDK sẽ
-âm thầm rơi về CMSIS-NN nếu không tăng tốc được. 4,77 ms cho ~91k MAC nghe hơi
-chậm nếu MVP chạy đầy đủ — nhiều khả năng **overhead cố định mỗi `Invoke()` đang
-chiếm phần lớn** (6 op, ~0,8 ms/op). Với model bé thế này thì điều đó bình thường,
-và vì dư 99,5% ngân sách nên không ảnh hưởng thực tế.
-
-Muốn biết chắc: build thêm một bản **tắt** component kernel tăng tốc rồi so sánh
-thời gian.
-
----
-
-## 11. Cách tái lập
+## 8. Chạy lại toàn bộ
 
 ```bash
-cd ~/SimplicityStudio/v6_workspace/smart-iv-monitor
+# dataset
+.venv-ai/bin/python ml/dataset/make_drip_timeseries.py
+.venv-ai/bin/python ml/dataset/make_drip_realtest.py
+.venv-ai/bin/python ml/dataset/make_vitals_timeseries.py
+.venv-ai/bin/python ml/dataset/make_vitals_ae.py
 
-# Môi trường (một lần)
-python3 -m venv .venv-ai
-.venv-ai/bin/pip install numpy pandas tensorflow-cpu
+# huấn luyện + xuất int8
+.venv-ai/bin/python ml/train_drip_forecaster.py
+.venv-ai/bin/python ml/train_vitals_forecaster.py
+.venv-ai/bin/python ml/train_vitals_ae.py
 
-cd ai_timeseries
+# đánh giá (báo giả trước/sau K=11)
+.venv-ai/bin/python ml/evaluate.py
 
-# 1a) Dataset mô phỏng thuần (72.000 mẫu)
-../.venv-ai/bin/python make_timeseries_dataset.py
+# sinh code C bằng tool MLTK
+.venv-ai/bin/python ml/export_c_headers.py
 
-# 1b) Dataset LAI với BIDMC thật (75.036 mẫu) - NÊN DÙNG BỘ NÀY
-mkdir -p dataset/bidmc && (cd dataset/bidmc && for i in $(seq -w 1 53); do \
-  curl -fsO "https://physionet.org/files/bidmc/1.0.0/bidmc_csv/bidmc_${i}_Numerics.csv"; done)
-../.venv-ai/bin/python make_hybrid_dataset.py
-
-# 2) Train + xuất int8 (~1 phút). Mặc định dùng bộ mô phỏng; thêm --csv cho bộ lai:
-../.venv-ai/bin/python train_forecaster.py --csv dataset/iv_hybrid_1hz.csv
-
-# 3) Đánh giá (tune trên val, báo cáo trên test)
-../.venv-ai/bin/python evaluate.py
-
-# 4) Xuất mảng byte C rồi copy vào gốc project
-../.venv-ai/bin/python export_model_header.py
-cp out/model_data_ts.h ..
-
-# 5) Build + nạp
-cd ..
-~/.silabs/slt/installs/archive/slc-cli-v6.0.20/slc_cli/slc generate smart-iv-monitor.slcp -d . -np \
-  --sdk-package-path ~/.silabs/slt/installs/conan/p/simpl35774a752829c/p,~/.silabs/slt/installs/conan/p/aiml220b56d6ae053/p \
-  --with cli:inst0
-cd cmake_gcc/build && ~/.silabs/slt/installs/conan/p/ninja1b9fed093d653/p/ninja
-~/.silabs/slt/installs/archive/commander/commander flash smart-iv-monitor.hex --serialno 440364712
+# kiểm thử logic hợp nhất trên máy, không cần chip
+cc -I firmware -o /tmp/fusion_test tools/fusion_test.c \
+   firmware/ai_fusion.c firmware/line_rules.c -lm && /tmp/fusion_test
 ```
 
-### 11.1 Danh sách file
-
-| File | Vai trò |
-|---|---|
-| `ml/ai_timeseries/make_timeseries_dataset.py` | Sinh dataset MÔ PHỎNG THUẦN |
-| `ml/ai_timeseries/make_hybrid_dataset.py` | Sinh dataset LAI (HR/SpO2 từ BIDMC thật) ← nên dùng |
-| `ml/ai_timeseries/dataset/bidmc/` | 53 file `*_Numerics.csv` tải từ PhysioNet (468 KB) |
-| `ml/ai_timeseries/dataset/iv_hybrid_1hz.csv` | Dataset lai (75.036 dòng) |
-| `ml/ai_timeseries/train_forecaster.py` | Train CNN dự báo + xuất int8 |
-| `ml/ai_timeseries/evaluate.py` | Đánh giá: dự báo, xu hướng, so sánh 3 cách quyết định |
-| `ml/ai_timeseries/export_model_header.py` | `.tflite` → mảng byte C |
-| `ml/ai_timeseries/dataset/iv_timeseries_1hz.csv` | Dataset (72.000 dòng) |
-| `ml/ai_timeseries/out/forecaster_int8.tflite` | Model int8 |
-| `ml/ai_timeseries/out/quant_params.txt` | Hằng số quantize + chuẩn hóa |
-| `model_data_ts.h` | Model nhúng dạng mảng byte (ở gốc project) |
-| `ts_forecaster.cpp` / `.h` | Runner TFLM trên chip |
+Build và nạp firmware: xem [`MLTK_AUTOGEN.md`](MLTK_AUTOGEN.md) mục 10.
 
 ---
 
-## 12. Tích hợp vào logic báo động — ĐÃ LÀM
+## 9. Giới hạn
 
-Model đã nối vào đường ra quyết định. Cách hoạt động:
+Nhắc lại ở đây để không ai đọc mỗi tài liệu này rồi kết luận mạnh hơn sự thật.
 
-### 12.1 Quyết định báo động — 3 tầng (`alert_level_from_result()` trong `app.c`)
-
-| Tầng | Điều kiện | Mức | Qua persistence? |
-|---|---|---|---|
-| 1 | Mất tín hiệu cảm biến đã lắp, SpO2 < 90, HR ngoài 45–150 | ĐỎ | **Không** — báo ngay |
-| 2 | Bất thường đã xác nhận (K=11), hoặc tắc/chảy tự do | ĐỎ | Có |
-| 3 | Cảnh báo sớm, HR lệch baseline, autoencoder cũ | VÀNG | — |
-
-Tầng 1 **cố ý không** qua persistence: mất tín hiệu và tụt oxy phải báo tức thì.
-Luật lâm sàng vẫn chạy song song — recall 41–58% chưa đủ để bỏ luật cứng.
-
-### 12.2 Các mảnh đã triển khai
-
-- **Cửa sổ 64 giây** nằm trong `ts_monitor.c` (không phải `sensor_hub.c`): 3 kênh
-  lưu đã chuẩn hóa, cân nặng lưu **thô** rồi quy đổi tương đối lúc chạy model —
-  cách này tránh được lỗi chỉ số đã gặp khi thử lưu sẵn dạng chuẩn hóa.
-- **Không đòi hỏi mọi kênh có tín hiệu.** Kênh mất tín hiệu được điền giá trị nền
-  và **loại khỏi** điểm bất thường. Nếu bắt buộc cả HR lẫn SpO2 phải `CH_OK` thì
-  toàn bộ phần dự báo chết khi chưa gắn cảm biến sinh hiệu — đúng lỗi đã gặp lần
-  chạy thử đầu tiên (cửa sổ không bao giờ đầy).
-- **Chặn giá trị chuẩn hóa ở ±4** trước khi vào model. Input model bị lượng tử hóa
-  int8 (dải biểu diễn ~±1,5), nên so dự báo **đã bị chặn** với giá trị thực tế
-  **không chặn** làm điểm bất thường vọt lên hàng nghìn lần ngưỡng. Lỗi cùng loại
-  cũng tồn tại trong `ai_monitor.c` (đã sửa: `err = 2147483647` = INT32_MAX).
-- **Bitmap dùng 4 bit trống (12–15)** cho: bất thường xác nhận, HR tăng, HR giảm,
-  cảnh báo sớm — **không phải đổi schema ZCL**, gateway và server chạy nguyên.
-- **Cờ "đáng tin" cho từng kênh dự báo.** Model chỉ học dữ liệu bình thường, nên
-  khi một kênh ở trạng thái bất thường kéo dài nó **kéo dự báo về mức bình thường**
-  thay vì đi theo xu hướng thật (đo được: giọt tụt 34→27 mà model vẫn báo ~49).
-  Giao diện đổi nhãn thành *"expected if normal"* khi cờ này false — nếu không, bác
-  sĩ sẽ đọc con số đó như một lời dự báo.
-
----
-
-## 13. Hạn chế — nói thẳng
-
-1. **Recall 58,3% chưa đủ cho thiết bị y tế thật.** Phải giữ luật lâm sàng tuyệt
-   đối song song. Hướng nâng từng đề xuất — thêm nhánh tái tạo cửa sổ (AER,
-   arXiv 2212.13558) — **đã thử và ĐO, kết quả là không ăn thua**: xem mục 13.1.
-2. **Phần truyền dịch (giọt/cân nặng) vẫn là mô phỏng.** HR/SpO2 đã dùng dữ liệu
-   ICU thật (BIDMC, 52 bệnh nhân) nhưng **chưa có bộ dữ liệu công khai có nhãn cho
-   truyền dịch IV** — phần này buộc phải mô phỏng, dù được gắn lên chuỗi sinh hiệu
-   thật nên động lực học tổng thể có gốc thực.
-3. **Dữ liệu thật thu được còn quá ít.** DB có ~2.900 dòng nhưng chỉ ~105 dòng có
-   đủ cả 4 kênh cùng lúc, và lưu ở 0,1 Hz (`VitalsSave.IntervalSeconds = 10`)
-   trong khi model cần 1 Hz. **Phải tăng tần số lưu trước khi train trên dữ liệu
-   thật.**
-4. **Chưa xác nhận MVP tăng tốc từng op** (xem 10.1).
-5. **Xu hướng chỉ đáng tin ở vùng chết rộng** (±10 bpm/phút → 72,7%). Đừng hiển
-   thị mũi tên xu hướng cho biến động nhỏ hơn thế.
-6. **Chưa kiểm chứng trên bệnh nhân/giàn thật.** Mọi con số ở đây là trên dataset
-   mô phỏng, cộng phép đo thời gian chạy trên chip thật.
-
-### 13.1 Đã thử nhánh tái tạo cửa sổ (AER) — và vì sao KHÔNG dùng
-
-Ý tưởng của AER: model hiện tại chỉ hỏi *"64 giây vừa rồi thì 16 giây tới ra
-sao"*, nên bất thường = phần tương lai nó không dự báo nổi. Câu hỏi đó có điểm
-mù: tương lai gần của một sinh hiệu bị chi phối bởi **giá trị hiện tại**, nên
-một đợt trôi chậm mà model đã "chấp nhận" là mức hiện hành vẫn được dự báo đúng
-và bị chấm là bình thường — dù bản thân cửa sổ 64 giây đó đã bất thường. Nhánh
-tái tạo hỏi câu bổ sung: *"nén cửa sổ này qua encoder rồi dựng lại được không"*
-— một cửa sổ có **hình dạng** lạ thì không dựng lại được, bất kể nó dễ dự báo
-tới đâu.
-
-Đã cài đặt đầy đủ trong `ml/ai_timeseries/train_aer.py`: **chung encoder**, thêm
-một đầu ra tái tạo, chấm điểm bằng đúng giao thức của `evaluate.py` (chọn tham
-số trên tập validation, báo cáo **một lần** trên test, và không cho phép tỉ lệ
-báo nhầm trên các cú nháy tệ hơn luật hiện tại).
-
-**Lần 1 — không có bottleneck** (`--bottleneck 0`):
-
-| Cách quyết định | normal (nhầm) | transient (NHẦM) | recall |
-|---|---|---|---|
-| A. Ngưỡng tức thời (luật hiện tại) | 9,6% | 17,2% | 34,6% |
-| B. Chỉ dự báo, K=10 | 1,8% | 2,3% | **45,8%** |
-| C. Chỉ tái tạo, K=22 | 5,0% | 6,9% | 14,8% |
-| D. AER gộp (α=0,1), K=9 | 1,9% | 2,5% | **47,8%** |
-
-Trông như +2,0 điểm. Nhưng nhánh tái tạo ở đây **không phải autoencoder thật**:
-code của encoder là `(64/8)×32 = 256` giá trị, đúng bằng kích thước cửa sổ
-`64×4 = 256`, tức **không nén gì cả** — nó học được cách gần như chép lại, mà
-một cái máy chép thì dựng lại cửa sổ bất thường cũng ngon lành như cửa sổ bình
-thường. Đúng như đo được: một mình nó chỉ đạt 14,8%.
-
-**Lần 2 — ép qua bottleneck 16 chiều** (`--bottleneck 16`), đây mới là phép thử
-công bằng:
-
-| Cách quyết định | normal | transient | recall |
-|---|---|---|---|
-| B. Chỉ dự báo, K=11 | 1,4% | 2,2% | **39,2%** |
-| C. Chỉ tái tạo, K=30 | 4,8% | 4,7% | 14,5% |
-| D. AER gộp (α=0,2), K=10 | 1,8% | 1,9% | **39,4%** |
-
-**Kết luận: không dùng.** Ba lý do, theo thứ tự quan trọng:
-
-1. **Mức "cải thiện" nhỏ hơn nhiễu giữa các lần chạy.** Chỉ riêng cột "chỉ dự
-   báo" đã dao động 45,8% → 39,2% giữa hai lần huấn luyện (**6,6 điểm**), trong
-   khi phần AER thêm vào được 2,0 và 0,2 điểm. Không thể tuyên bố một mức tăng
-   nhỏ hơn độ dao động của chính phép đo.
-2. **Quét trọng số cho thấy tái tạo càng nặng càng tệ**: α = 0,0 → 1,0 làm recall
-   trên validation rơi 57,5% → 35,2%. Nếu nhánh này thực sự bổ sung thông tin,
-   đường cong đã không đơn điệu giảm như vậy.
-3. **Giá phải trả là thật**: model từ 30.616 lên 63.064 byte (+32 KB flash), thêm
-   một tensor đầu ra phải đọc và 256 phép tính sai số mỗi giây trên chip — đổi
-   lấy 0,2 điểm.
-
-Giữ lại `train_aer.py` trong repo để bất kỳ ai muốn kiểm chứng lại đều chạy được
-`--eval-only` mà không cần huấn luyện lại. Hướng đáng đầu tư hơn cho recall là
-**dữ liệu**, không phải kiến trúc: xem hạn chế 2 và 3 ngay trên.
-
----
-
-## 14. Nguồn
-
-**Phần cứng** (kiểm chứng cục bộ trong SDK + tài liệu Silabs)
-- MVP Accelerator, danh sách kernel và ràng buộc tensor:
-  https://docs.silabs.com/machine-learning/latest/aiml-fundamentals/mvp-accelerator
-- TFLM cho vi điều khiển (Silabs):
-  https://docs.silabs.com/machine-learning/1.3.0/machine-learning-tensorflow-lite-for-microcontrollers/
-
-**1D-CNN so với LSTM trên MCU**
-- *Rethinking Temporal Models for TinyML: LSTM versus 1D-CNN in Resource-Constrained
-  Devices*, arXiv 2603.04860 — https://arxiv.org/abs/2603.04860
-- *Memory-Efficient CNN Autoencoder for Real-Time ECG Anomaly Detection on
-  TinyML-Enabled Edge Devices*, MDPI Future Internet 18(6):286 —
-  https://www.mdpi.com/1999-5903/18/6/286
-- *TinyAD: Memory-efficient anomaly detection for time series data in Industrial
-  IoT*, arXiv 2303.03611 — https://arxiv.org/pdf/2303.03611
-
-**Báo động giả / alarm fatigue** (cơ sở cho bước persistence)
-- *Classification of Methods to Reduce Clinical Alarm Signals for Remote Patient
-  Monitoring: A Critical Review*, arXiv 2302.03885 — https://arxiv.org/pdf/2302.03885
-- *Computational approaches to alleviate alarm fatigue in intensive care medicine*,
-  Frontiers in Digital Health —
-  https://www.frontiersin.org/journals/digital-health/articles/10.3389/fdgth.2022.843747/full
-- *Insights into the Problem of Alarm Fatigue with Physiologic Monitor Devices*,
-  PLOS One — https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0110274
-
-Các nghiên cứu trên cho con số: độ trễ xác nhận 5 giây giảm ~49% báo động giả,
-15 giây giảm 60–70%; và **100% biến cố VT kéo dài ≥ 30 giây đều đe dọa tính
-mạng** — nghĩa là persistence vài chục giây gần như không làm mất ca thật.
-
-**Autoencoder + regression cho chuỗi thời gian**
-- *AER: Auto-Encoder with Regression for Time Series Anomaly Detection*,
-  arXiv 2212.13558 — https://arxiv.org/pdf/2212.13558
-
-**Phát hiện tắc đường truyền bằng xu hướng/độ lệch chuẩn**
-- Infusion Pump Pressure Sensing Alarms — thuật toán hồi quy và 2·SD, và trễ báo
-  động tới 2 giờ ở lưu lượng thấp với ngưỡng truyền thống:
-  https://www.ivteam.com/intravenous-literature/infusion-pump-pressure-sensing-alarms/
+1. **Recall của nhánh sinh hiệu không đo được trên BIDMC.** Cả tập test chỉ có 2
+   lần vi phạm ngưỡng: một ca đã vi phạm từ **giây đầu tiên** của bản ghi (không
+   thể cảnh báo sớm cho thứ có trước cả bản ghi), và một ca chỉ kéo dài **một
+   giây** (K=11 cố ý không báo — báo mới là lỗi). Đo được: **tỉ lệ báo giả**.
+   Không đo được: **recall**. Vì vậy luật lâm sàng cứng là lưới an toàn **chính**
+   cho sinh hiệu.
+2. **Dữ liệu drip bình thường chỉ 0,03 giờ** → con số "0 báo giả/giờ" của nhánh
+   drip còn mỏng về thống kê.
+3. **Model 1 huấn luyện phần lớn trên dữ liệu mô phỏng** (dù đã hiệu chỉnh từ
+   session thật và **test hoàn toàn trên dữ liệu thật**), trong khi Model 2 và 3
+   là 100% ICU thật. Sự bất đối xứng này không nên gộp chung thành câu "AI được
+   huấn luyện trên dữ liệu thật".
+4. **Lượng tử hoá int8 làm drip mất 0,033 AUC.**

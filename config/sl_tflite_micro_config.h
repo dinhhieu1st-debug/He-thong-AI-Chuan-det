@@ -45,7 +45,24 @@
 // <i> operations and allocating memory required for the tensors. Modify
 // <i> the memory allocation size below.
 // <i> Default: 1
-#define SL_TFLITE_MICRO_INTERPRETER_INIT_ENABLE    (1)
+//
+// DELIBERATELY 0 FOR THIS PROJECT - do not turn it back on.
+//
+// With this enabled, sl_tflite_micro_init() builds an interpreter at system
+// startup and handles every failure with an infinite loop:
+//
+//     if (model->version() != TFLITE_SCHEMA_VERSION) { ...; while (1); }
+//     if (interpreter->AllocateTensors() != kTfLiteOk) { ...; while (1); }
+//
+// It is called from autogen/sl_event_handler.c during system init, BEFORE the
+// application starts. So a bad model does not degrade the device - it hangs it:
+// no sensor reads, no OLED, no Zigbee, and no clinical rules. A bedside monitor
+// that fails silently and completely is the worst failure mode available.
+//
+// It also cannot serve this project regardless: it creates ONE interpreter, and
+// there are three models. firmware/ai_engine.cpp builds all three itself and
+// reports failure with a return value, leaving the clinical rules running.
+#define SL_TFLITE_MICRO_INTERPRETER_INIT_ENABLE    (0)
 
 // <o SL_TFLITE_MICRO_ARENA_SIZE> Tensor Arena Size
 // <i> TensorFlow Lite for Microcontrollers requires a certain amount of

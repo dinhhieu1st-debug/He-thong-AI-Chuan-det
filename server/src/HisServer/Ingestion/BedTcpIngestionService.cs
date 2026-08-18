@@ -524,6 +524,15 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.HrForecastTrusted = reading.HrForecastTrusted;
             state.DropsForecastTrusted = reading.DropsForecastTrusted;
 
+            state.AlertLevel = reading.AlertLevel;
+            state.LineBranch = reading.LineBranch;
+            state.PatientBranch = reading.PatientBranch;
+            state.DripAnomaly = reading.DripAnomaly;
+            state.VitalsAnomaly = reading.VitalsAnomaly;
+            state.LineState = reading.LineState;
+            state.RemainingMl = reading.RemainingMl;
+            state.RemainingMin = reading.RemainingMin;
+
             state.AlertMessage = alertMessage;
             state.LastDataAt = reading.ReceivedAt;
         });

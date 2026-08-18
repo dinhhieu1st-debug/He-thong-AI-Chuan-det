@@ -370,6 +370,25 @@ typedef struct {
     int anomaly_score_x100;
     int hr_forecast_trusted;
     int drops_forecast_trusted;
+
+    /* --- AI v2: which side is at fault, not just "something is wrong" ------
+     *
+     * The device now runs three independent models and decides a 4-level alert
+     * from two attributable branches. A single boolean cannot carry that, and
+     * the distinction is the one a nurse acts on first: a blocked line and a
+     * deteriorating patient need completely different responses.
+     *
+     * The gateway still does NOT interpret any of this - it forwards. The bed's
+     * status is decided in exactly one place, VitalsStatusEvaluator.cs on the
+     * server, and that stays true. */
+    int alert_level;       /* 0 normal, 1 line warning, 2 vitals, 3 critical */
+    int line_branch;
+    int patient_branch;
+    int drip_anomaly;      /* Model 1 confirmed through persistence */
+    int vitals_anomaly;    /* Model 2 confirmed through persistence */
+    int line_state;        /* line_state_t from the device; -1 = not yet valid */
+    int remaining_ml;      /* -1 when the load cell cannot estimate it */
+    int remaining_min;
 } ts_forecast_t;
 
 static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_rate,
@@ -418,7 +437,10 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"tsTrend\":%d,\"dropsTrend\":%d,"
              "\"hrTrendBpmPerMin\":%d,\"dropsTrendDpmPerMin\":%d,"
              "\"tsAnomalyScore\":%d,"
-             "\"hrForecastTrusted\":%s,\"dropsForecastTrusted\":%s",
+             "\"hrForecastTrusted\":%s,\"dropsForecastTrusted\":%s,"
+             "\"alertLevel\":%d,\"lineBranch\":%s,\"patientBranch\":%s,"
+             "\"dripAnomaly\":%s,\"vitalsAnomaly\":%s,"
+             "\"lineState\":%d,\"remainingMl\":%d,\"remainingMin\":%d",
              ts->ready ? "true" : "false",
              ts->anomaly ? "true" : "false",
              ts->early_warning ? "true" : "false",
@@ -426,7 +448,13 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              ts->hr_trend_bpm_per_min, ts->drops_trend_dpm_per_min,
              ts->anomaly_score_x100,
              ts->hr_forecast_trusted ? "true" : "false",
-             ts->drops_forecast_trusted ? "true" : "false");
+             ts->drops_forecast_trusted ? "true" : "false",
+             ts->alert_level,
+             ts->line_branch ? "true" : "false",
+             ts->patient_branch ? "true" : "false",
+             ts->drip_anomaly ? "true" : "false",
+             ts->vitals_anomaly ? "true" : "false",
+             ts->line_state, ts->remaining_ml, ts->remaining_min);
 
     snprintf(line, sizeof(line),
              "{\"bedId\":\"%s\",\"room\":\"%s\",\"spo2\":%d,\"heartRate\":%d,"
@@ -1137,6 +1165,24 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     get_int_from_json(payload, "ts_anomaly_score", &ts.anomaly_score_x100);
     get_bool_from_json(payload, "hr_forecast_trusted", &ts.hr_forecast_trusted);
     get_bool_from_json(payload, "drops_forecast_trusted", &ts.drops_forecast_trusted);
+
+    /* AI v2. Defaults matter: a device still running v1 firmware sends none of
+     * these, and must not be reported as "level 0, everything fine" - so
+     * line_state stays -1 (unknown) and the level is derived from the legacy
+     * alarm flag rather than assumed. */
+    ts.line_state = -1;
+    ts.remaining_ml = -1;
+    ts.remaining_min = -1;
+    if (!get_int_from_json(payload, "alert_level", &ts.alert_level)) {
+        ts.alert_level = alarm ? 2 : 0;   /* legacy firmware: alarm -> vitals */
+    }
+    get_bool_from_json(payload, "line_branch", &ts.line_branch);
+    get_bool_from_json(payload, "patient_branch", &ts.patient_branch);
+    get_bool_from_json(payload, "drip_anomaly", &ts.drip_anomaly);
+    get_bool_from_json(payload, "vitals_anomaly", &ts.vitals_anomaly);
+    get_int_from_json(payload, "line_state", &ts.line_state);
+    get_int_from_json(payload, "remaining_ml", &ts.remaining_ml);
+    get_int_from_json(payload, "remaining_min", &ts.remaining_min);
     /* A forecast field arrives as a number or as null; the parse failing IS
      * the null case, and it must stay null all the way to the server. */
     ts.have_hr_forecast = get_int_from_json(payload, "hr_forecast_16s", &ts.hr_forecast_16s);
@@ -1155,6 +1201,20 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
                ts.early_warning ? " [EARLY WARNING]" : "");
     } else {
         printf("AI forecast     : still filling the 64s window\n");
+    }
+
+    {
+        static const char *level_name[4] = { "NORMAL", "LINE WARNING",
+                                             "VITALS ALERT", "CRITICAL" };
+        printf("Alert level     : %s%s%s\n",
+               level_name[(ts.alert_level >= 0 && ts.alert_level <= 3)
+                          ? ts.alert_level : 0],
+               ts.line_branch ? "  [line]" : "",
+               ts.patient_branch ? "  [patient]" : "");
+        if (ts.remaining_min >= 0) {
+            printf("Bag remaining   : ~%d mL (~%d min)\n",
+                   ts.remaining_ml, ts.remaining_min);
+        }
     }
 
     his_send_bed_data(heart_rate, spo2, flow, drop_rate,

@@ -50,3 +50,17 @@ __pycache__/
 # (see section 1.7 of docs/HUONG_DAN_A_Z.md). Not part of this project's build.
 IoT_Challenge-main/
 IoT_Challenge-main.zip
+
+# AI v2 — regenerated, not source of truth.
+#
+# ml/out/ holds the datasets and intermediate .keras models that
+# ml/dataset/*.py and ml/train_*.py rebuild from ml/data_src/. The exported
+# .tflite files ARE committed (ml/models/), because those are what the chip
+# actually runs and a reader must be able to open them without running anything.
+ml/out/
+ml/__pycache__/
+ml/**/__pycache__/
+
+# .NET build output for the test project
+server/tests/**/bin/
+server/tests/**/obj/

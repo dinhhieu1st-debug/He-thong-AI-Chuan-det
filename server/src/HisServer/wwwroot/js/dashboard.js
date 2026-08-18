@@ -10,7 +10,10 @@ const DashboardTab = (() => {
         <div class="body">
           <div class="row-top">
             <div><div class="bed-id">${UiUtils.escapeHtml(bed.bedId)}</div><div class="bed-room">${UiUtils.escapeHtml(bed.room)}</div></div>
-            <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
+            <div class="chip-stack">
+              <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
+              ${UiUtils.culpritBadgeHtml(bed)}
+            </div>
           </div>
           <div class="vitals">
             <div class="vital">SpO2<b>${UiUtils.formatMetric(bed.spo2, "%")}</b></div>

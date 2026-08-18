@@ -1,211 +1,323 @@
 # AI trong Smart IV làm gì — khi nào báo động, khi nào không
 
 Tài liệu này viết cho người **không đọc code**: bác sĩ, y tá, ban giám khảo,
-hoặc thành viên mới trong nhóm. Mục tiêu là trả lời đúng ba câu:
+hoặc thành viên mới trong nhóm. Mục tiêu là trả lời đúng bốn câu:
 
 1. AI ở đây thực sự làm gì, và làm được gì mà một cái ngưỡng cố định không làm được?
-2. **Khi nào** nó kêu?
-3. **Khi nào nó cố tình KHÔNG kêu** — phần này quan trọng ngang phần trên.
+2. **Hỏng ở dây truyền hay hỏng ở bệnh nhân?** — câu y tá hỏi đầu tiên.
+3. **Khi nào** nó kêu?
+4. **Khi nào nó cố tình KHÔNG kêu** — phần này quan trọng ngang phần trên.
 
 Chi tiết kỹ thuật (kiến trúc model, dataset, số đo) nằm ở
 [`AI_TIME_SERIES_TAT_TAN_TAT.md`](AI_TIME_SERIES_TAT_TAN_TAT.md) và
 [`Dataset_va_Phuong_phap_AI_SmartIV.md`](Dataset_va_Phuong_phap_AI_SmartIV.md).
+Lý do đằng sau từng quyết định thiết kế nằm ở
+[`AI_V2_PLAN.md`](AI_V2_PLAN.md).
 
 ---
 
 ## 1. Toàn bộ AI chạy TRÊN CHIP ở đầu giường
 
 Không có cloud, không có server nào tham gia vào việc **quyết định báo động**.
-Chip EFR32xG26 gắn ở giường tự đo, tự chạy model, tự quyết định, rồi mới gửi
+Chip EFR32MG26 gắn ở giường tự đo, tự chạy model, tự quyết định, rồi mới gửi
 kết quả đi. Hệ quả thực tế: **rút mạng, sập Wi-Fi, tắt server thì thiết bị vẫn
 báo động bình thường** — chỉ là không ai ở trạm điều dưỡng nhìn thấy.
 
-Mỗi giây chip làm đúng một vòng: đọc cảm biến → chạy 2 model + luật lâm sàng →
-quyết định → hiện lên màn hình đầu giường + đèn/còi + gửi Zigbee.
+Mỗi giây chip làm đúng một vòng: đọc cảm biến → chạy 3 model + luật lâm sàng +
+đối chiếu cân↔giọt → quyết định → hiện màn hình đầu giường + đèn/còi + gửi Zigbee.
 
 ---
 
-## 2. Thiết bị đo bốn thứ
+## 2. Câu hỏi mà bản cũ không trả lời được
+
+Bản AI đời đầu (v1) dùng **một mạng nơ-ron duy nhất** đọc chung cả sinh hiệu lẫn
+dữ liệu nhỏ giọt rồi phát ra **một điểm bất thường**. Nó nói được *"có gì đó
+không ổn"*, nhưng không nói được **không ổn ở đâu**.
+
+Đó không phải chuyện nhỏ. Tắc dây truyền và bệnh nhân đang xấu đi là hai sự cố
+có cách xử trí **hoàn toàn khác nhau** — một cái là đi lấy bộ dây mới, một cái là
+chạy tới giường ngay — mà v1 phát ra **cùng một tiếng còi**.
+
+Tệ hơn, dùng chung một mạng khiến hai thứ không liên quan ảnh hưởng lẫn nhau.
+Nhóm đo trực tiếp trên đúng file model đang chạy trên chip: giữ nguyên hai kênh
+sinh hiệu và **chỉ** đổi hai kênh đường truyền sang trạng thái tắc, thì
+
+> **dự báo nhịp tim của bệnh nhân dịch chuyển khoảng 2 nhịp/phút.**
+
+Không có bệnh nhân nào đổi nhịp tim vì dây truyền bị gập. Con số đó là hệ quả
+của việc một mạng dùng chung trọng số cho cả bốn kênh.
+
+**AI v2 tách thành ba mạng độc lập**, mỗi mạng nhìn đúng một thứ. Nhờ vậy hệ
+thống quy được trách nhiệm cho đúng nguồn, và trả lời được câu hỏi ở trên.
+
+---
+
+## 3. Thiết bị đo bốn thứ, ba model nhìn ba việc khác nhau
 
 | Kênh | Cảm biến | Ý nghĩa |
 |---|---|---|
-| Nhịp tim (HR) | MAX30102 kẹp đầu ngón tay | bpm |
-| SpO2 | cùng con MAX30102 | % bão hoà oxy |
-| Tốc độ truyền (Flow) | loadcell + HX711 cân túi dịch | so với **mức bác sĩ đặt**, không phải con số tuyệt đối |
-| Giọt/phút (Drops) | cảm biến giọt ở buồng đếm | so với mức bác sĩ đặt |
+| Nhịp tim | MAX30102 (kẹp ngón tay) | nhịp/phút |
+| SpO2 | MAX30102 | % bão hoà oxy |
+| Số giọt | cảm biến quang ở buồng đếm giọt | giọt/phút so với y lệnh |
+| Trọng lượng bình | loadcell HX711 | gam, để biết dịch **có thật sự chảy ra không** |
 
-Hai kênh dưới luôn được quy về **tỉ lệ so với y lệnh**: `1.00×` = đang chảy
-đúng như bác sĩ kê. Nhờ vậy cùng một bộ ngưỡng dùng được cho mọi y lệnh, và
-bác sĩ đổi y lệnh từ xa thì AI đổi cách đánh giá ngay lập tức, không cần nạp
-lại chip.
+Ba model:
 
----
+| | Nhìn gì | Trả lời câu hỏi |
+|---|---|---|
+| **Model 1 — dòng chảy** | 64 giây số giọt vừa qua | *Dòng chảy sắp đi về đâu?* |
+| **Model 2 — sinh hiệu** | 64 giây nhịp tim + SpO2 | *Sinh hiệu sắp đi về đâu?* |
+| **Model 3 — trạng thái bệnh nhân** | nhịp tim + SpO2 **ngay lúc này** | *Bản thân bệnh nhân có đang ổn không?* |
 
-## 3. Ba "bộ não" chạy song song
-
-Điểm cốt lõi: **AI không thay thế luật lâm sàng, nó chạy SONG SONG**. Cái nào
-kêu trước thì báo. Thiết bị y tế không được phép bỏ sót chỉ vì model đoán sai.
-
-### 3.1 Luật lâm sàng cứng — cái không bao giờ được tắt
-
-Ngưỡng cố định, ai cũng kiểm tra được, không có gì bí ẩn:
-
-| Điều kiện | Ngưỡng |
-|---|---|
-| SpO2 thấp | < 90% |
-| Nhịp tim | lệch > 30% so với **baseline riêng của bệnh nhân đó**, hoặc < 45, hoặc > 150 bpm |
-| Đường truyền | chảy > 1.5× mức đặt (free-flow) hoặc < 0.3× (tắc) |
-| Mất tín hiệu | cảm biến đã lắp nhưng 3 giây không có mẫu mới |
-
-"Baseline riêng của bệnh nhân" là phần đáng chú ý: 60 giây đầu sau khi gắn
-máy, thiết bị đo nhịp tim nền của **chính người đó** rồi so lệch phần trăm với
-mức nền ấy. Một cụ già nhịp nền 55 và một thanh niên nhịp nền 85 không bị đo
-bằng cùng một cái thước.
-
-### 3.2 Autoencoder — "cái này trông lạ"
-
-Model học **dáng vẻ bình thường** của 6 con số (HR, SpO2, flow, drops, 2 cờ
-mất tín hiệu). Khi tổ hợp hiện tại khác lạ so với mọi thứ nó từng thấy, sai số
-tái tạo tăng vọt → báo.
-
-Nó bắt được thứ mà ngưỡng không định nghĩa nổi: **từng chỉ số đều nằm trong
-giới hạn nhưng tổ hợp thì vô lý**. Ví dụ nhịp tim 130 (chưa quá 150) đi kèm
-SpO2 92% (chưa dưới 90) và dịch chảy 1.4× (chưa quá 1.5): không có luật nào
-kêu, nhưng cả cụm đó đứng cạnh nhau là bất thường.
-
-### 3.3 Bộ dự báo chuỗi thời gian — "cái này SẮP xấu"
-
-Model nhìn **64 giây vừa qua** rồi dự báo **16 giây tới** cho cả 4 kênh. Từ đó
-ra ba thứ mà một ngưỡng tức thời không thể có:
-
-- **Xu hướng**: "nhịp tim đang tăng 22 bpm/phút" — không phải "nhịp tim đang là
-  118".
-- **Cảnh báo sớm**: dự báo cho thấy chỉ số sẽ vượt giới hạn lâm sàng trong 16
-  giây tới, **trong khi hiện tại vẫn còn trong giới hạn**.
-- **Bất thường**: model chỉ học dữ liệu bình thường, nên phần nào nó **không
-  dự báo nổi** chính là phần bất thường.
+**Model 3 cố ý KHÔNG nhìn dữ liệu nhỏ giọt.** Nếu cho kênh giọt vào chung mạng
+thì tắc dây sẽ làm tăng điểm bất thường và **làm bẩn phán đoán về bệnh nhân** —
+đúng cái lỗi của v1, thu nhỏ lại. Việc kết hợp hai bên diễn ra **sau đó, bằng
+luật rõ ràng viết ra được**, chứ không chôn trong trọng số mạng. Nhờ vậy hệ
+thống giải thích được cho y tá, và y tá kiểm chứng được lời giải thích đó.
 
 ---
 
-## 4. Khi nào thiết bị BÁO ĐỘNG
+## 4. Cái cân giải quyết một chuyện mà số giọt không giải quyết nổi
 
-Ba tầng, xếp theo mức độ:
+Đây là phần đáng chú ý nhất của v2, và nó **không dùng AI**.
 
-### Tầng 1 — ĐỎ ngay lập tức, không chờ, không hoãn
+Bình dịch đầy có cột dịch cao → áp suất lớn → chảy nhanh. Bình gần hết có cột
+dịch thấp → áp suất nhỏ → **chảy chậm dần**. Chảy chậm lúc gần hết là **bình
+thường**, không phải hỏng. Báo động vào lúc đó là cách nhanh nhất để cả khoa học
+cách phớt lờ cái máy.
 
-- **Mất tín hiệu** một cảm biến đang được lắp.
-- **SpO2 < 90%**.
-- **Nhịp tim < 45 hoặc > 150 bpm** (giới hạn tuyệt đối).
+Nhưng nhìn từ số giọt thì **tắc dây và gần hết dịch giống hệt nhau** — đều là ít
+giọt đi. Cái cân phân định dứt khoát:
 
-Ba thứ này tuyệt đối không bị làm trễ. Cả tài liệu về "mệt mỏi vì báo động"
-(alarm fatigue) đều ủng hộ việc hoãn báo với các tình huống chớp nhoáng vô
-hại — nhưng lập luận đó **không áp dụng** cho ba trường hợp này.
+| Cân | Giọt | Kết luận | Có kêu không |
+|---|---|---|---|
+| vẫn nhẹ dần | chậm lại | Dịch **vẫn đang vào**, bình sắp hết | **Không** — chỉ nhắc "còn ~X phút" |
+| **đứng yên** | chậm lại | Dịch **không ra khỏi bình** → **TẮC DÂY** | **Có** — vàng |
+| nhẹ đi rất nhanh | tăng vọt | **Chảy tự do** | **Có** — vàng |
+| đứng yên | vẫn đếm đều | Cảm biến giọt đếm nhầm (nắng, rung) | **Có** — nhưng là lỗi **kỹ thuật**, không phải cảnh báo bệnh nhân |
 
-### Tầng 2 — ĐỎ sau khi đã xác nhận kéo dài
+Dòng cuối quan trọng ngang các dòng trên: báo một lỗi cảm biến thành cảnh báo
+lâm sàng sẽ khiến y tá chạy tới nhầm chỗ.
 
-- **Bộ dự báo báo bất thường liên tục 11 giây liền** (không phải một lần nháy).
-- **Đường truyền tắc hoặc chảy tự do** theo luật lâm sàng.
-
-### Tầng 3 — VÀNG, "đang xấu đi nhưng chưa nguy hiểm"
-
-- **Cảnh báo sớm**: dự báo sẽ vượt giới hạn trong 16 giây tới.
-- Nhịp tim lệch nhiều so với baseline riêng (nhưng vẫn trong 45–150).
-- Autoencoder thấy tổ hợp lạ.
-
-Cảnh báo sớm để VÀNG chứ không ĐỎ là có chủ ý: nó là một **dự đoán**, chưa
-phải sự thật.
+Ngoài ra cân còn cho **"còn khoảng bao nhiêu mL, còn bao nhiêu phút"** — phép
+chia đơn giản, và thực tế đây là thông tin y tá dùng nhiều nhất trong ngày.
 
 ---
 
-## 5. Khi nào nó CỐ TÌNH KHÔNG BÁO
+## 5. Bốn cấp cảnh báo
 
-Phần này mới là chỗ tốn công nhất, vì một thiết bị kêu suốt ngày thì y tá sẽ
-tắt nó đi — và lúc đó nó vô dụng đúng vào lúc cần nhất.
+Hệ thống gộp mọi thứ thành **hai nhánh**, rồi mới ra cấp:
 
-| Tình huống | Vì sao không báo |
-|---|---|
-| **Nháy 2–6 giây rồi về bình thường** (cử động, nói chuyện, chỉnh lại kẹp tay) | Bất thường phải **kéo dài 11 giây liên tiếp** mới được kêu. Đo thực tế: quyết định ngay lập tức cho 17,6% báo nhầm trên các cú nháy; thêm điều kiện kéo dài kéo xuống **2,3%** |
-| **Cảm biến chưa lắp bao giờ** | Kênh đó ở trạng thái "chưa lắp", bị bỏ qua hoàn toàn. Chỉ kênh **đã lắp rồi mất tín hiệu** mới báo |
-| **64 giây đầu sau khi bật máy** | Bộ dự báo chưa gom đủ cửa sổ; nó im lặng, luật lâm sàng vẫn chạy đầy đủ |
-| **60 giây đầu khi gắn máy cho bệnh nhân** | Đang đo baseline nhịp tim của người đó; chưa so lệch phần trăm với ai cả |
-| **Xu hướng nhỏ hơn ±10 bpm/phút** | Đo được là chỉ đúng ~72% ở vùng đó, dưới nữa thì chủ yếu là nhiễu. Không hiện mũi tên xu hướng cho biến động nhỏ hơn thế |
-| **Kênh mất tín hiệu đọc ra 0** | 0 không được coi là một chỉ số. Giường trống sẽ **không** kêu "SpO2 0% — nguy kịch"; nó báo đúng vấn đề thật: *chưa cắm cảm biến* |
+```
+nhánh ĐƯỜNG TRUYỀN = Model 1 báo bất thường  HOẶC  luật cân↔giọt kết luận tắc/chảy tự do
+nhánh BỆNH NHÂN    = Model 2 báo bất thường  HOẶC  Model 3 báo bất thường
+                                             HOẶC  vi phạm ngưỡng lâm sàng cứng
+```
 
----
+| Cấp | Điều kiện | Đèn / còi | Màn hình | Y tá làm gì |
+|---|---|---|---|---|
+| **0 — XANH** | cả hai nhánh im | xanh, không còi | *Monitoring* | không cần làm gì |
+| **1 — VÀNG** | chỉ nhánh đường truyền | vàng, còi chậm 1 giây | *KIỂM TRA DÂY TRUYỀN* | xem dây, buồng giọt, kim |
+| **2 — ĐỎ** | chỉ nhánh bệnh nhân | đỏ, còi nhanh 0,3 giây | *CẢNH BÁO SINH HIỆU* | tới giường ngay |
+| **3 — ĐỎ KHẨN** | **cả hai cùng lúc** | đỏ **+ vàng**, còi rất nhanh 0,15 giây | *NGUY HIỂM: NGHI NGỜ QUÁ TẢI DỊCH* | **ngừng truyền**, gọi bác sĩ |
 
-## 6. Sáu ví dụ cụ thể
+Cấp 3 không phải "cấp 2 nhưng to hơn". Dịch chảy ồ ạt *cùng lúc* sinh hiệu sụp
+là hình ảnh của **quá tải dịch hoặc phản vệ** — và xử trí đầu tiên là **khoá dây
+truyền**, khác hẳn cấp 2. Vì vậy nó có mã riêng, màu riêng, nhịp còi riêng.
 
-### Ví dụ 1 — Mọi thứ bình thường
-HR 78, SpO2 98%, dịch chảy 1.02× mức đặt, giọt đều.
-→ Luật lâm sàng: im. Autoencoder: sai số 0,4 (ngưỡng 1,43). Dự báo: 16 giây
-tới vẫn vậy.
-→ **Xanh.** Màn hình đầu giường hiện "BINH THUONG".
-
-### Ví dụ 2 — Bệnh nhân cử động, nhịp tim nháy lên 3 giây
-HR nhảy 82 → 148 trong 3 giây rồi về 85.
-→ Chưa chạm 150 nên luật tuyệt đối không kêu. Bộ dự báo có thấy lạ, nhưng chỉ
-lạ **4 giây** — chưa đủ 11 giây.
-→ **Không báo.** Đây chính là kiểu báo nhầm mà thầy hướng dẫn phê bình, và là
-lý do có điều kiện "kéo dài".
-
-### Ví dụ 3 — Tụt oxy thật
-SpO2 tụt dần 96 → 93 → 90 → 88%.
-→ Ở mức 88% luật lâm sàng kêu **ngay tại giây đó**, không đợi AI, không đợi
-đủ 11 giây.
-→ **ĐỎ ngay.** Console hiện "Critically low SpO2: 88%", màn hình đầu giường
-hiện "SPO2 THAP", banner đỏ toàn màn hình ở trạm điều dưỡng.
-
-### Ví dụ 4 — Dây truyền đang tắc dần (chỗ AI ăn điểm)
-Giọt giảm từ từ: 50 → 44 → 38 → 33 giọt/phút trong khoảng một phút. Y lệnh là
-60, nên ngưỡng "tắc" (0,3× = 18 giọt/phút) **vẫn còn xa**.
-→ Luật lâm sàng: im, vì 33 vẫn trên 18. Bộ dự báo: 64 giây vừa qua không giống
-bất kỳ đoạn bình thường nào nó từng học, sai số vượt ngưỡng và **giữ nguyên
-suốt hơn 11 giây**; đồng thời dự báo 16 giây tới sẽ xuống dưới giới hạn.
-→ **Cảnh báo sớm (vàng) trước, rồi ĐỎ.** Y tá tới trước khi dây tắc hẳn.
-Đây là thứ mà một cái ngưỡng cố định về nguyên tắc không thể làm được: nó chỉ
-biết "đã vượt" chứ không biết "đang đi tới".
-
-### Ví dụ 5 — Y tá rút kẹp SpO2 ra để đo huyết áp
-Kênh HR và SpO2 mất tín hiệu, cảm biến giọt và cân vẫn chạy.
-→ **Vàng, kèm chữ "No signal from: HR, SpO2".** Không hiện xanh giả vờ bình
-thường, cũng không hiện "SpO2 0% nguy kịch". Các kênh còn lại vẫn được theo
-dõi bình thường.
-
-### Ví dụ 6 — Tổ hợp lạ nhưng từng chỉ số đều "hợp lệ"
-HR 132 (< 150 ✓), SpO2 92% (> 90 ✓), dịch chảy 1,45× (< 1,5 ✓).
-→ Không luật nào kêu. Nhưng autoencoder chưa từng thấy ba con số này đứng
-cạnh nhau ở dữ liệu bình thường → sai số tái tạo vượt ngưỡng.
-→ **Vàng.** "AI model flagged an abnormal drip pattern".
+Bảng điều khiển ở trạm điều dưỡng hiển thị thêm một **huy hiệu quy trách nhiệm**:
+`IV LINE` / `PATIENT` / `LINE + PATIENT`.
 
 ---
 
-## 7. Nói thẳng về giới hạn
+## 6. Khi nào nó KÊU
 
-Phần này để trong tài liệu có chủ đích — một hệ thống y tế mà chỉ khoe điểm
-mạnh thì không đáng tin:
+**Kêu ngay lập tức, không chờ gì cả** — đây là các luật cứng, không đi qua bộ lọc:
 
-- **Model bắt được 58,3% các sự cố kéo dài** trên tập test. Nghĩa là **không
-  được** dùng AI thay cho luật lâm sàng — nó là lớp bắt thêm, chạy song song.
-- **Phần truyền dịch (giọt, cân nặng) vẫn là dữ liệu mô phỏng.** HR/SpO2 dùng
-  dữ liệu ICU thật (BIDMC, 53 bệnh nhân từ PhysioNet), nhưng chưa có bộ dữ liệu
-  công khai có nhãn cho truyền dịch IV.
-- **Chưa kiểm chứng trên bệnh nhân thật.** Mọi con số là trên dataset, cộng
-  phép đo thời gian chạy thật trên chip.
-- Model chỉ học dữ liệu **bình thường**. Nên khi một kênh đang bất thường kéo
-  dài, con số nó đưa ra không phải "dự báo" mà là "mức bình thường đáng lẽ phải
-  có" — giao diện đổi nhãn thành *"expected if normal"* đúng lúc đó, thay vì
-  hiện một con số trông như dự báo thật.
+* SpO2 < 90%
+* Nhịp tim < 45 hoặc > 150
+* Nhịp tim lệch quá 30% so với **nền riêng của chính bệnh nhân đó** (đo trong 60
+  giây đầu sau khi kẹp cảm biến)
+* Cảm biến **đang hoạt động rồi mất tín hiệu**
+
+**Kêu sau khi giữ liên tục 11 giây** — các tín hiệu do AI phát hiện:
+
+* Model 1 thấy dòng chảy đang chuyển biến bất thường
+* Model 2 thấy sinh hiệu đang chuyển biến bất thường
+* Model 3 thấy tổ hợp nhịp tim + SpO2 nằm ngoài vùng bình thường
+
+**Kêu vì dự báo** (cảnh báo sớm): bản thân **dự báo** của model vượt ngưỡng lâm
+sàng trong 16 giây tới, dù số đo hiện tại vẫn còn trong ngưỡng.
 
 ---
 
-## 8. Muốn tự kiểm chứng model
+## 7. Khi nào nó cố tình KHÔNG kêu
 
-Model không phải hộp đen: hai file `.tflite` nằm ngay trong repo và mở được
-bằng công cụ phổ thông.
+Phần này quan trọng ngang phần trên.
 
-| Việc | Cách |
-|---|---|
-| Xem kiến trúc, từng lớp, kích thước tensor | Mở `ml/models/*.tflite` bằng [Netron](https://netron.app) — kéo thả file vào trình duyệt |
-| Chạy lại toàn bộ huấn luyện | `ml/ai_timeseries/`, xem mục 11 của `AI_TIME_SERIES_TAT_TAN_TAT.md` |
-| Đánh giá lại trên tập test | `evaluate.py` — chọn tham số trên tập validation rồi báo cáo **một lần** trên test |
-| Xem model chạy thật trên chip | Cắm USB, mở serial 115200, xem dòng `[TS]` in mỗi giây: xu hướng, dự báo, điểm bất thường, bộ đếm kéo dài |
+**Nháy dưới 11 giây thì không kêu.** Bệnh nhân ho, cử động tay, một giọt rơi
+lệch — chỉ số nhảy vài giây rồi về. Đo bằng cách phát lại bản ghi thật ở nhịp 1
+giây, bộ lọc này đưa tỉ lệ báo giả **từ 29 lần/giờ xuống 0 lần/giờ** cho nhánh
+dòng chảy, và **từ 47,6 xuống 0** cho nhánh sinh hiệu.
+
+**Nhưng luật cứng thì KHÔNG chờ 11 giây.** SpO2 tụt dưới 90% kêu ngay tick đầu
+tiên. Lập luận chống báo động giả áp dụng cho một nháy thoáng qua, **không** áp
+dụng cho một ca tụt oxy.
+
+**Bình sắp hết không bị coi là tắc dây.** Xem mục 4.
+
+**Kênh chưa cắm không bị coi là số đo.** Cảm biến chưa cắm đọc ra 0; nếu coi số 0
+đó là thật thì giường trống cũng kêu "SpO2 0% — nguy kịch". Kênh chưa cắm hiện
+`--`, còn kênh **đã cắm rồi mất tín hiệu** thì đẩy sang cảnh báo — vì cảm biến
+chết **không phải** là bệnh nhân khoẻ.
+
+**Nhịp tim nghỉ 55 và 95 đều là bình thường, chỉ khác người.** Cả luật cứng lẫn
+Model 3 đều so với nền riêng của bệnh nhân đó. Bản đầu của Model 3 dùng nhịp tim
+tuyệt đối và gắn cờ **33% số giây hoàn toàn bình thường** của bệnh nhân mới — nó
+học nhịp nghỉ của nhóm bệnh nhân huấn luyện rồi coi mọi nền khác là bất thường,
+tức là phát hiện *"người lạ"* chứ không phải *"người bệnh"*. Sau khi chuyển sang
+độ lệch so với nền riêng: còn **0,16%**.
+
+---
+
+## 8. Sáu tình huống cụ thể
+
+| # | Chuyện gì xảy ra | Thiết bị làm gì |
+|---|---|---|
+| 1 | Bệnh nhân ho, SpO2 tụt 4 giây rồi về 98% | **Không kêu.** Bộ lọc 11 giây nuốt. |
+| 2 | SpO2 tụt xuống 88% và ở đó | **Kêu ngay tick đầu**, cấp 2 ĐỎ. Luật cứng không chờ. |
+| 3 | Bình còn 120 mL, giọt chậm còn 40% y lệnh, cân vẫn nhẹ dần đều | **Không kêu.** Màn hình: *"Bag running low — còn khoảng 28 phút"*. |
+| 4 | Y tá gập nhẹ dây; giọt chậm còn 25%, **cân đứng yên** | **Kêu**, cấp 1 VÀNG, *"KIỂM TRA DÂY TRUYỀN"*. Huy hiệu `IV LINE`. |
+| 5 | Nhịp tim 105 (chưa quá 150), SpO2 91,5% (chưa dưới 90) | Không luật cứng nào nổ. **Model 3 vẫn bắt được tổ hợp này** và đẩy lên cấp 2 sau 11 giây. |
+| 6 | Dây tuột, dịch chảy ồ ạt, đồng thời SpO2 tụt 86% | **Cấp 3 ĐỎ KHẨN.** Đỏ + vàng, còi 0,15 giây. *"NGUY HIỂM: NGHI NGỜ QUÁ TẢI DỊCH"*. |
+
+Tình huống 5 là lý do Model 3 tồn tại. Nhịp tim 45 và SpO2 90% — **đúng biên của
+cả hai ngưỡng, không luật nào nổ** — nhưng Model 3 cho điểm bất thường 8,9 trên
+ngưỡng 3,46. Hai sai lệch đều dưới ngưỡng, cộng lại thành đáng báo. Hệ ngưỡng
+`HOẶC` thông thường **không thể** diễn đạt được điều đó.
+
+---
+
+## 8b. Bốn kịch bản diễn biến theo từng giây
+
+Phần trên là bảng tóm tắt. Phần này là **diễn biến thật**, để hình dung được máy
+"nghĩ" gì ở từng thời điểm — và quan trọng hơn, **vì sao có lúc nó im lặng**.
+
+### Kịch bản A — Bệnh nhân ho (máy phải IM LẶNG)
+
+| Giây | SpO2 | Máy thấy gì | Bộ đếm | Phản ứng |
+|---:|---:|---|---:|---|
+| 0–40 | 98% | bình thường | 0 | xanh, im |
+| 41 | 94% | Model 2 thấy lệch dự báo | 1/11 | **vẫn im** |
+| 42 | 91% | vẫn lệch | 2/11 | vẫn im |
+| 43 | 90% | vẫn lệch | 3/11 | vẫn im |
+| 44 | 93% | vẫn lệch | 4/11 | vẫn im |
+| 45 | 97% | **về bình thường** | **0** (reset) | vẫn im |
+| 46+ | 98% | bình thường | 0 | xanh |
+
+> **Không một tiếng còi nào.** Đây chính là 29–47 lần báo giả mỗi giờ mà bộ lọc
+> K=11 loại bỏ. Nếu SpO2 có tụt xuống dưới 90% ở giây 43 thì luật cứng **đã kêu
+> ngay lập tức** — bộ lọc không đứng chắn trước luật cứng.
+
+### Kịch bản B — Bình dịch cạn dần tự nhiên (máy phải IM LẶNG)
+
+Bình 500 mL, y lệnh 60 giọt/phút, dây 20 giọt/mL.
+
+| Thời điểm | Cân | Giọt | Model 1 | Luật cân↔giọt | Cấp |
+|---|---:|---:|---|---|---|
+| 0 phút | 500 g | 60/ph (100%) | bình thường | cân giảm đúng 3 g/ph | 0 |
+| 90 phút | 230 g | 52/ph (87%) | bình thường | cân vẫn giảm | 0 |
+| 140 phút | 90 g | 34/ph (57%) | chậm dần, nhưng đều | cân **vẫn giảm** 1,7 g/ph | 0 |
+| 150 phút | 55 g | 24/ph (40%) | — | cân vẫn giảm → **"còn ~28 phút"** | 0 |
+| 165 phút | 20 g | 12/ph (20%) | — | cân vẫn giảm | 0 |
+| 172 phút | 4 g | 0/ph | — | **cân đứng yên + gần hết** → *BAG EMPTY* | 1 |
+
+> Từ phút 140 trở đi, tỉ số giọt **đã tụt dưới ngưỡng 30%** của y lệnh. Một hệ
+> chỉ có cảm biến giọt sẽ kêu **suốt 30 phút cuối của MỌI chai dịch trong khoa**.
+> Ở đây máy im, vì cân xác nhận dịch vẫn đang vào. Nó chỉ nói *"còn ~28 phút"* —
+> đúng thứ y tá cần để chuẩn bị chai mới.
+
+### Kịch bản C — Dây bị gập (máy PHẢI kêu, và phải nói đúng chỗ)
+
+Cùng bình 500 mL, nhưng ở phút 40 y tá vô tình đè lên dây.
+
+| Thời điểm | Cân | Giọt | Luật cân↔giọt | Model 1 | Cấp |
+|---|---:|---:|---|---|---|
+| 39 phút | 380 g | 60/ph | bình thường | bình thường | 0 |
+| 40 phút | 380 g | 42/ph | chưa đủ 60 s để kết luận | **bắt đầu lệch dự báo** (1/11) | 0 |
+| 40 ph 11 s | 379 g | 20/ph | — | **11/11 → xác nhận** | **1 VÀNG** |
+| 41 phút | 379 g | 8/ph | **cân ĐỨNG YÊN + giọt chậm → TẮC DÂY** | — | **1 VÀNG** |
+| 43 phút | 379 g | 0/ph | vẫn tắc | (residual về 0, xem ghi chú) | **1 VÀNG** |
+
+Màn hình: *"KIỂM TRA DÂY TRUYỀN"*. Huy hiệu: `IV LINE`. Còi chậm 1 giây. Trạng
+thái giường trên console: **Warning**, không phải Critical — vì bệnh nhân vẫn ổn.
+
+> **Ghi chú quan trọng:** từ phút 43, Model 1 **thôi báo bất thường**. Không phải
+> nó hỏng: model được huấn luyện bất biến với mức vận hành, nên khi dòng chảy đã
+> ổn định ở trạng thái mới (0 giọt/phút), nó dự báo đúng trạng thái đó và sai số
+> về 0. **Model dự báo bắt CHUYỂN BIẾN, không giữ báo động.** Giữ báo động là
+> việc của luật cân↔giọt và luật cứng — chúng nhìn *trạng thái hiện tại*. Đó là
+> lý do hệ thống cần cả ba, và bỏ bớt một cái thì sự cố kéo dài sẽ **âm thầm tắt
+> chuông trong khi bệnh nhân vẫn đang gặp sự cố**.
+
+So sánh B và C: **cùng là "giọt chậm còn 20–40%"**, hai kết luận trái ngược. Thứ
+phân định duy nhất là **cân có nhẹ đi hay không**.
+
+### Kịch bản D — Quá tải dịch (cấp 3, hiếm nhưng nguy hiểm nhất)
+
+Dây tuột khỏi khoá, dịch chảy tự do vào bệnh nhân.
+
+| Giây | Cân | Giọt | SpO2 | HR | Nhánh dịch | Nhánh bệnh nhân | Cấp |
+|---:|---:|---:|---:|---:|---|---|---|
+| 0 | 300 g | 60/ph | 98% | 78 | — | — | 0 |
+| 5 | 297 g | 180/ph | 98% | 80 | Model 1 lệch (5/11) | — | 0 |
+| 11 | 292 g | 195/ph | 97% | 86 | **11/11 xác nhận** | — | **1 VÀNG** |
+| 20 | 280 g | 200/ph | 96% | 95 | cân giảm rất nhanh → **CHẢY TỰ DO** | Model 3 bắt đầu lệch | 1 |
+| 35 | 258 g | 200/ph | 93% | 112 | chảy tự do | **Model 3 xác nhận** (11/11) | **3 ĐỎ KHẨN** |
+| 50 | 235 g | 200/ph | 88% | 128 | chảy tự do | **luật cứng SpO2 < 90 nổ ngay** | **3 ĐỎ KHẨN** |
+
+Ở giây 35, **chưa có ngưỡng cứng nào bị vi phạm**: SpO2 93% (> 90), HR 112
+(< 150). Nhưng Model 3 thấy **tổ hợp** này bất thường, và nhánh dịch đang báo —
+nên hệ thống đã lên **cấp 3** trước khi SpO2 chạm 90% tới **15 giây**.
+
+Màn hình: *"NGUY HIỂM: NGHI NGỜ QUÁ TẢI DỊCH"*. Đèn đỏ **+** vàng, còi 0,15 giây.
+Console: `LINE + PATIENT`, và thông điệp đầu tiên y tá đọc là *"Infusion line AND
+patient vitals both abnormal — suspected fluid overload"* — tức là **khoá dây
+truyền trước**, chứ không phải chỉ xử trí tụt oxy.
+
+> Đây là lý do cấp 3 tồn tại như một mục riêng chứ không phải "cấp 2 to hơn":
+> xử trí đầu tiên khác hẳn.
+
+---
+
+## 9. AI hỏng thì sao
+
+**Thiết bị vẫn là máy theo dõi.** Đây là ràng buộc thiết kế, không phải may mắn:
+
+* Ba model chạy trên **ba bộ nhớ riêng biệt**. Hỏng một model thì hai model kia
+  vẫn chạy. (Gộp chung vào một file thì hỏng một là mất cả ba.)
+* Không model nào nạp được → **luật lâm sàng cứng vẫn báo động đầy đủ**. Có bài
+  kiểm thử riêng cho đúng tình huống này.
+* Nhóm đã **tắt** cơ chế tự khởi tạo model của SDK Silicon Labs, vì nó xử lý lỗi
+  bằng vòng lặp vô hạn ngay trong lúc khởi động hệ thống — model lỗi sẽ làm chip
+  treo, mất luôn cảm biến, màn hình, Zigbee và cả luật lâm sàng. Với thiết bị y
+  tế, **treo im lặng là kiểu hỏng tệ nhất có thể có**.
+* Mất mạng, mất Zigbee, tắt server: đèn và còi ở đầu giường vẫn hoạt động.
+
+---
+
+## 10. Những gì AI này KHÔNG làm
+
+Nói rõ để không ai kỳ vọng nhầm:
+
+* **Không chẩn đoán bệnh.** Nó phát hiện *lệch khỏi bình thường*, không kết luận
+  nguyên nhân.
+* **Không thay bác sĩ đặt y lệnh.** Tốc độ truyền do bác sĩ đặt; AI chỉ so số đo
+  với y lệnh đó.
+* **Không tự điều chỉnh dịch truyền.** Thiết bị chỉ theo dõi và báo động.
+* **Recall của nhánh sinh hiệu chưa chứng minh được bằng dữ liệu.** Bộ dữ liệu
+  ICU dùng để đánh giá (PhysioNet BIDMC) gồm các đoạn 8 phút phần lớn ổn định và
+  **không chứa ca diễn biến xấu dần nào** để đo. Đo được trên nó là **tỉ lệ báo
+  giả**; **không** đo được là tỉ lệ bắt đúng. Vì vậy luật lâm sàng cứng là lưới
+  an toàn **chính** cho sinh hiệu, còn AI là lớp cảnh báo sớm bổ sung. Nhóm nêu
+  rõ điều này thay vì để nó trôi qua.

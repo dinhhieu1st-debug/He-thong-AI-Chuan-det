@@ -1,3 +1,13 @@
+> **TÀI LIỆU LỊCH SỬ.** Đây là nghiên cứu dẫn tới bản AI v1 (autoencoder 6 đặc
+> trưng + forecaster gộp 4 kênh). Bản v1 đó **đã được thay thế**; các file mã
+> nó nhắc tới (`ai_monitor.c`, `model_runner.cpp`, `model_data.h`) không còn
+> trong repo. Giữ lại để tham chiếu quá trình.
+>
+> Hệ AI đang chạy: [`AI_TIME_SERIES_TAT_TAN_TAT.md`](AI_TIME_SERIES_TAT_TAN_TAT.md).
+> Vì sao thay: [`AI_V2_PLAN.md`](AI_V2_PLAN.md) mục 1.
+
+---
+
 # Nghiên cứu: nâng cấp AI Smart IV từ "ảnh tức thời" sang time series
 
 Tài liệu này trả lời nhận xét của thầy: AI hiện tại *"giống như set ngưỡng, giỏi

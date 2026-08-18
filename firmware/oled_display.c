@@ -209,11 +209,9 @@ bool oled_display_show_splash(oled_display_t *display)
  * not be told two different stories. */
 static const char *alarm_banner(const oled_vitals_t *v)
 {
-  if (v->reason_spo2)    return "SPO2 THAP";
-  if (v->reason_flow)    return "TAC DAY TRUYEN";
-  if (v->reason_hr)      return "NHIP TIM BAT THUONG";
-  if (v->reason_missing) return "MAT TIN HIEU CAM BIEN";
-  if (v->reason_ai)      return "AI BAO BAT THUONG";
+  /* ai_fusion decided the message; render it. The fallback below only covers
+   * the case of a caller that has not been updated to supply one. */
+  if (v->banner != NULL && v->banner[0] != '\0') return v->banner;
   return "CANH BAO";
 }
 

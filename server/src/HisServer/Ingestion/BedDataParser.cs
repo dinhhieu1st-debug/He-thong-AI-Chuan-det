@@ -80,6 +80,23 @@ public static class BedDataParser
         if (string.IsNullOrWhiteSpace(deviceId)) deviceId = null;
         var dropsForecastTrusted = ReadBool(root, true, "dropsForecastTrusted", "drops_forecast_trusted");
 
+        // AI v2. AlertLevel stays null for a v1 device rather than defaulting
+        // to 0 - "this device cannot tell us" and "this device says everything
+        // is fine" are different facts, and collapsing them would let an old
+        // device report a permanently green bed.
+        var alertLevel = ReadNullableInt(root, "alertLevel", "alert_level");
+        var lineBranch = ReadBool(root, false, "lineBranch", "line_branch");
+        var patientBranch = ReadBool(root, false, "patientBranch", "patient_branch");
+        var dripAnomaly = ReadBool(root, false, "dripAnomaly", "drip_anomaly");
+        var vitalsAnomaly = ReadBool(root, false, "vitalsAnomaly", "vitals_anomaly");
+        // The gateway sends -1 for "the device could not work this out yet".
+        var lineState = ReadNullableInt(root, "lineState", "line_state");
+        if (lineState is < 0) lineState = null;
+        var remainingMl = ReadNullableInt(root, "remainingMl", "remaining_ml");
+        if (remainingMl is < 0) remainingMl = null;
+        var remainingMin = ReadNullableInt(root, "remainingMin", "remaining_min");
+        if (remainingMin is < 0) remainingMin = null;
+
         return new BedReading(
             bedId, room, spo2, heartRate, temperature, dripRate, DateTime.UtcNow,
             flowRate, heartRateSignal, spo2Signal, flowSignal, dripRateSignal,
@@ -89,7 +106,9 @@ public static class BedDataParser
             tsReady, tsAnomaly, tsEarlyWarning, tsTrend, hrForecast16s,
             spo2Forecast16s, hrTrendBpmPerMin, tsAnomalyScoreX100,
             dropsTrend, dropsTrendDpmPerMin, dropsForecast16s,
-            hrForecastTrusted, dropsForecastTrusted, linkQuality, deviceId);
+            hrForecastTrusted, dropsForecastTrusted, linkQuality, deviceId,
+            alertLevel, lineBranch, patientBranch, dripAnomaly, vitalsAnomaly,
+            lineState, remainingMl, remainingMin);
     }
 
     private static string? ReadString(JsonElement root, params string[] names)

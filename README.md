@@ -41,23 +41,57 @@ mà không đụng ba trạm kia.
 
 ## AI chạy ở đâu, làm gì
 
-Cả hai model đều chạy **trên chip**, không cần mạng, không gửi dữ liệu bệnh
-nhân đi đâu để suy luận:
+Cả **ba** model đều chạy **trên chip**, không cần mạng, không gửi dữ liệu bệnh
+nhân đi đâu để suy luận. Chúng chạy **độc lập với nhau** — đó là điểm cốt lõi:
 
-- **Autoencoder** (6 đặc trưng, TensorFlow Lite Micro): học "dáng vẻ bình
-  thường" của bệnh nhân; đầu vào lệch khỏi những gì model từng thấy thì sai số
-  tái tạo tăng vọt → cảnh báo. Bắt được các bất thường **không định nghĩa
-  trước được bằng ngưỡng**.
-- **Bộ dự báo chuỗi thời gian** (cửa sổ 64 giây, dự báo 16 giây tới): cho biết
-  chỉ số đang **đi về đâu**, không chỉ đang ở đâu — cảnh báo sớm trước khi
-  vượt ngưỡng lâm sàng.
+| Model | Nhìn gì | Trả lời câu hỏi | Kích thước |
+|---|---|---|---|
+| **Drip forecaster** | 64 giây số giọt | *Dòng chảy sắp đi về đâu?* | 22,4 KB |
+| **Vitals forecaster** | 64 giây HR + SpO2 | *Sinh hiệu sắp đi về đâu?* | 23,5 KB |
+| **Vitals autoencoder** | HR + SpO2 **ngay lúc này** | *Bản thân bệnh nhân có ổn không?* | 3,1 KB |
 
-Hai file `.tflite` đang chạy nằm trong [`ml/models/`](ml/models/) — mở bằng
-[Netron](https://netron.app) là xem được từng lớp, không phải hộp đen.
+**Vì sao tách ba.** Bản cũ dùng **một** mạng đọc chung sinh hiệu lẫn dữ liệu
+giọt, nên nó nói được *"có gì đó không ổn"* nhưng không nói được **không ổn ở
+đâu** — trong khi tắc dây và bệnh nhân xấu đi có cách xử trí hoàn toàn khác nhau.
+Tệ hơn, đo trực tiếp trên chính file model đang chạy: chỉ đổi hai kênh đường
+truyền sang trạng thái tắc thì **dự báo nhịp tim dịch chuyển ≈ 2 bpm**. Không dây
+truyền nào làm đổi nhịp tim bệnh nhân.
 
-Song song với AI luôn có **luật lâm sàng cứng** (SpO2 < 90%, nhịp tim lệch
->30% baseline riêng của bệnh nhân, flow ngoài 0.3–1.5× mức bác sĩ đặt...).
-Hai cơ chế OR với nhau: thà báo thừa còn hơn bỏ sót.
+Tách rời cho ba tín hiệu **quy được về đúng nguồn**, nên hệ thống ra được **4 cấp
+cảnh báo** phân biệt *lỗi đường truyền* với *lỗi bệnh nhân*, và cấp cao nhất là
+khi **cả hai cùng xảy ra** — nghi ngờ quá tải dịch, xử trí đầu tiên là khoá dây.
+
+**Cái cân không dùng AI.** Bình đầy chảy nhanh, bình gần hết chảy chậm — chảy
+chậm lúc gần hết là **bình thường**. Nhìn từ số giọt thì tắc dây và hết dịch
+giống hệt nhau; **trọng lượng bình phân định dứt khoát**: cân vẫn nhẹ dần nghĩa
+là dịch vẫn vào (im lặng, chỉ nhắc "còn ~28 phút"), cân đứng yên nghĩa là tắc
+(báo động). Đây là luật số học tường minh, giải thích được cho y tá, không phải
+trọng số mạng.
+
+Ba file `.tflite` đang chạy nằm trong [`ml/models/`](ml/models/) — mở bằng
+[Netron](https://netron.app) là xem được từng lớp, không phải hộp đen. Tham số
+lượng tử hoá chip in ra lúc khởi động đã được **đối chiếu khớp tuyệt đối** với
+ba file này.
+
+Song song với AI luôn có **luật lâm sàng cứng** (SpO2 < 90%, nhịp tim lệch >30%
+so với baseline riêng của bệnh nhân, flow ngoài 0.3–1.5× mức bác sĩ đặt...). Luật
+cứng **không đi qua bộ lọc chống báo giả** — SpO2 tụt kêu ngay tick đầu tiên. Và
+nếu **không model nào nạp được**, luật cứng vẫn gánh toàn bộ việc báo động; có
+bài kiểm thử riêng cho đúng tình huống đó.
+
+Số đo (trên bản int8 đang chạy trên chip):
+
+| | Kết quả |
+|---|---|
+| Phát hiện bất thường dòng chảy, **bản ghi thật** | AUC **0,948** (baseline 0,839) |
+| Phát hiện bất thường sinh hiệu, **bệnh nhân chưa từng thấy** | AUC **0,885** (baseline 0,680) |
+| Báo động giả sau bộ lọc 11 giây | **0,0 lần/giờ** (trước đó 29–47) |
+| RAM tĩnh / Flash | 32,5 KB (6,2%) / 381 KB |
+
+**Một giới hạn nhóm nêu rõ:** bộ dữ liệu ICU dùng để đánh giá không chứa ca diễn
+biến xấu dần nào, nên **tỉ lệ bắt đúng của nhánh sinh hiệu chưa đo được** — chỉ
+đo được tỉ lệ báo giả. Chi tiết ở
+[`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md).
 
 ---
 
@@ -90,9 +124,13 @@ Repo xếp theo **trạm xử lý**: mã của trạm nào nằm trong thư mụ
 | `firmware/` | **Trạm 1** — mã nguồn chạy trên chip: đọc cảm biến, AI, báo động, OLED, Zigbee |
 | `gateway/` | **Trạm 3** — `main.c` (cầu MQTT → TCP) và converter cho zigbee2mqtt, đều chạy trên Pi |
 | `server/` | **Trạm 4** — HIS Server: ASP.NET Core + MySQL + SignalR + web UI |
-| `ml/models/` | Hai file `.tflite` **đang chạy thật trên chip** — mở bằng Netron là xem được |
-| `ml/ai_timeseries/` | Pipeline huấn luyện model dự báo (Python), xuất ra header nhúng vào firmware |
-| `tools/` | `serial_gateway.py` — đường dự phòng đọc thẳng USB khi không có Pi |
+| `ml/models/` | Ba file `.tflite` **đang chạy thật trên chip** — mở bằng Netron là xem được |
+| `ml/dataset/` | Script sinh dataset cho từng model, tách rời nhau |
+| `ml/` | `train_*.py`, `evaluate.py`, `export_c_headers.py` (gọi tool MLTK của Silicon Labs) |
+| `ml/data_src/` | Dữ liệu nguồn: bản ghi cảm biến giọt thật + ICU BIDMC |
+| `firmware/models/` | Header C **sinh tự động** từ `.tflite` — đừng sửa tay |
+| `tools/` | `serial_gateway.py`; `fusion_test.c` và `dashboard_render_check.js` (kiểm thử chạy trên máy) |
+| `server/tests/` | Kiểm thử bộ đánh giá trạng thái giường (console app, không cần NuGet) |
 | `docs/` | Toàn bộ tài liệu (xem bên dưới) |
 
 Bốn thứ này **bắt buộc nằm ở gốc repo**, không gom vào `firmware/` được:
@@ -113,11 +151,13 @@ rồi chạy lại `slc generate`.
 | File | Nội dung |
 |---|---|
 | [`docs/HUONG_DAN_A_Z.md`](docs/HUONG_DAN_A_Z.md) | **Đọc file này trước.** Toàn bộ hệ thống từ chip tới web, giải thích cả *vì sao* thiết kế như vậy, kèm bảng lỗi thường gặp |
-| [`docs/AI_HOAT_DONG_THE_NAO.md`](docs/AI_HOAT_DONG_THE_NAO.md) | AI làm gì, **khi nào báo động và khi nào cố tình không báo**, kèm 6 ví dụ cụ thể — viết cho người không đọc code |
-| [`ml/models/`](ml/models/) | Hai file `.tflite` đang chạy thật trên chip, mở bằng Netron được |
-| [`docs/AI_TIME_SERIES_TAT_TAN_TAT.md`](docs/AI_TIME_SERIES_TAT_TAN_TAT.md) | Model dự báo chuỗi thời gian: dữ liệu, huấn luyện, đánh giá, nhúng vào firmware |
-| [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset và phương pháp của autoencoder |
-| [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI |
+| [`docs/AI_HOAT_DONG_THE_NAO.md`](docs/AI_HOAT_DONG_THE_NAO.md) | AI làm gì, **khi nào báo động và khi nào cố tình không báo**, kèm 4 kịch bản diễn biến **theo từng giây** — viết cho người không đọc code |
+| [`ml/models/`](ml/models/) | Ba file `.tflite` đang chạy thật trên chip, mở bằng Netron được |
+| [`docs/AI_TIME_SERIES_TAT_TAN_TAT.md`](docs/AI_TIME_SERIES_TAT_TAN_TAT.md) | Tất tần tật phần AI: kiến trúc, huấn luyện, đánh giá, bộ hợp nhất, nhúng vào firmware |
+| [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset, cách chia tập, và **những gì nhóm không chứng minh được** |
+| [`docs/MLTK_AUTOGEN.md`](docs/MLTK_AUTOGEN.md) | Luồng `.tflite` → tool MLTK của Silicon Labs → chip, kèm hai cái bẫy |
+| [`docs/AI_V2_PLAN.md`](docs/AI_V2_PLAN.md) | Lý do đằng sau từng quyết định của bản AI v2, **kèm cả những lần đi sai** |
+| [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI (bản cũ, giữ để tham chiếu) |
 | [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |
 
 ---

@@ -1,251 +1,322 @@
-# Smart IV & Patient Safety — Bộ dữ liệu, đặc trưng và phương pháp AI
+# Dataset và phương pháp — AI v2 Smart IV
 
-Tài liệu này mô tả đầy đủ phần AI phát hiện bất thường của thiết bị: dùng những
-thông số gì, thông số nào do bác sĩ đặt, cách lấy baseline nhịp tim cá nhân, tại
-sao chọn cách huấn luyện autoencoder, và các bài báo/nguồn chứng minh dữ liệu là
-thật cũng như phương pháp là đúng chuẩn.
+Tài liệu này trả lời câu mà người chấm sẽ hỏi đầu tiên: **dữ liệu ở đâu ra, và
+con số các anh đưa ra có đáng tin không?**
 
----
+Nhóm cố gắng viết phần **giới hạn** kỹ ngang phần kết quả. Chỗ nào đo được thì
+nói rõ đo thế nào; chỗ nào **không** đo được thì nói thẳng là không đo được, thay
+vì để người đọc tự suy ra một điều mạnh hơn sự thật.
 
-## 1. Tổng quan
+Ba script sinh dataset nằm ở `ml/dataset/`, chạy được độc lập:
 
-Thiết bị giám sát bệnh nhân truyền dịch (IV) và cảnh báo an toàn. Phần AI nhận
-**6 đặc trưng** mỗi giây, chạy một **autoencoder** (mô hình học sâu nén–giải nén)
-kết hợp với **luật lâm sàng**, và báo động khi phát hiện bất thường.
-
-Nguyên tắc thiết kế: mỗi đặc trưng phải khớp với **một cảm biến thật**. Kênh nào
-chưa nối cảm biến thì đánh dấu "chưa có" (DISABLED) và **không báo động nhầm**;
-kênh đã nối mà mất tín hiệu (LOST) thì báo mất tín hiệu.
-
----
-
-## 2. Sáu đặc trưng đầu vào
-
-| # | Đặc trưng | Ý nghĩa | Cảm biến | Dải bình thường |
-|---|-----------|---------|----------|-----------------|
-| 0 | `heart_rate` | Nhịp tim (bpm) | MAX30102 (PPG) | 70–95 |
-| 1 | `spo2` | Bão hòa oxy máu (%) | MAX30102 | 95–99 |
-| 2 | `flow_ratio` | Lưu lượng thật / mức bác sĩ đặt | Loadcell / cảm biến lưu lượng | ≈ 1.0 |
-| 3 | `drops_ratio` | Số giọt/phút thật / mức bác sĩ đặt | Cảm biến giọt (quang) | ≈ 1.0 |
-| 4 | `vital_missing` | Cờ: mất tín hiệu sinh hiệu (MAX30102 hỏng → mất HR/SpO2) | (suy ra) | 0 |
-| 5 | `line_missing` | Cờ: mất tín hiệu đường truyền (mất cảm biến giọt/lưu lượng) | (suy ra) | 0 |
-
-- 4 đặc trưng đầu là **số liên tục**, được **chuẩn hóa** (StandardScaler) trước khi
-  đưa vào mô hình.
-- 2 đặc trưng cuối là **cờ 0/1**, giữ nguyên (không chuẩn hóa).
-
-`flow_ratio` và `drops_ratio` là **tỉ lệ so với mức đặt**, không phải giá trị thô.
-Nhờ vậy mô hình không phụ thuộc tốc độ truyền cụ thể của từng bệnh nhân: chạy đúng
-mức đặt ⇒ tỉ lệ ≈ 1.0 (100%), bất kể bác sĩ kê 60 hay 150 mL/giờ.
-
-### Ghi chú lịch sử
-
-Bản đầu dùng **8 đặc trưng**, sau rút xuống **6** để khớp đúng cảm biến phần cứng
-đo được. Hai đặc trưng bị bỏ là `pulse_rate` (nhịp mạch từ PPG) và `resp_rate`
-(nhịp thở). **Dataset chưa từng có nhiệt độ** — nếu muốn thêm phải gắn cảm biến
-nhiệt thật và lấy phân bố từ nguồn có nhiệt độ (MIMIC-III/IV, eICU), xem mục 9.
+```bash
+.venv-ai/bin/python ml/dataset/make_drip_timeseries.py    # train/val cho Model 1
+.venv-ai/bin/python ml/dataset/make_drip_realtest.py      # test THẬT cho Model 1
+.venv-ai/bin/python ml/dataset/make_vitals_timeseries.py  # Model 2
+.venv-ai/bin/python ml/dataset/make_vitals_ae.py          # Model 3
+```
 
 ---
 
-## 3. Thông số do BÁC SĨ đặt (doctor-set)
+## 1. Ba model, ba nguồn dữ liệu tách rời
 
-Khai báo trong `sensor_hub.h`, chỉnh theo đơn kê của từng bệnh nhân:
+| | Model 1 — Drip | Model 2 — Vitals | Model 3 — Vitals AE |
+|---|---|---|---|
+| Đầu vào | 64 giây `drops_ratio` | 64 giây (HR, SpO2) | (HR lệch nền, SpO2) tại 1 thời điểm |
+| Nguồn | cảm biến giọt ESP8266 (`AI-nho-giot`) | PhysioNet BIDMC | PhysioNet BIDMC |
+| Dữ liệu thật? | huấn luyện: mô phỏng hiệu chỉnh từ thật · **test: 100% thật** | **100% thật** | **100% thật** |
+| Chia tập theo | **session** | **bệnh nhân** | **bệnh nhân** |
 
-| Tham số | Giá trị mặc định | Ý nghĩa |
-|---------|------------------|---------|
-| `SET_FLOW_ML_H` | 100.0 | Tốc độ truyền đặt (mL/giờ) |
-| `SET_DROPS_DPM` | 20.0 | Số giọt/phút đặt |
-
-Đây là "mức chuẩn" để tính tỉ lệ: `flow_ratio = lưu_lượng_thật / SET_FLOW_ML_H`,
-`drops_ratio = giọt_phút_thật / SET_DROPS_DPM`. Khi test trên giàn thực tế, phải
-đặt hai giá trị này bằng đúng tốc độ mà giàn của bạn chạy ở trạng thái bình thường,
-nếu không tỉ lệ sẽ lệch xa 100% và báo động (đúng logic nhưng sai mức đặt).
+**Không model nào nhìn thấy dữ liệu của model khác.** Đây là điểm cốt lõi của
+v2, và nó có lý do đo được — xem mục 6.
 
 ---
 
-## 4. Ba trạng thái mỗi kênh (mấu chốt để không báo nhầm)
+## 2. Model 1 — dữ liệu nhỏ giọt
 
-| Trạng thái | Ý nghĩa | Cờ missing | Báo động? |
-|------------|---------|------------|-----------|
-| `CH_DISABLED` | Chưa nối cảm biến | 0 | Không (điền giá trị nền trung tính) |
-| `CH_OK` | Có dữ liệu tươi | 0 | Theo luật + autoencoder |
-| `CH_LOST` | Đã nối nhưng mất tín hiệu | 1 | **Có** (mất tín hiệu) |
+### Nguồn
 
-Kênh `CH_DISABLED` được điền **giá trị nền** = trung bình của scaler → sau chuẩn hóa
-≈ 0 → autoencoder tái tạo gần đúng → không đẩy sai số lên → **không báo nhầm**.
-Chỉ khi kênh đã bật mà mất tín hiệu (`CH_LOST`) mới bật cờ `vital_missing`/
-`line_missing` và báo động.
+Từ dự án `AI-nho-giot` (github.com/dinhhieu1st-debug/AI-nho-giot), gồm:
 
----
+* `data/raw/` — **11 session cảm biến thật** từ ESP8266 + photodiode, schema
+  `timestamp_ms, drop_number, target_interval_ms, actual_interval_ms`.
+* `data/synthetic/` — 240 session mô phỏng (3 preset × 8 kịch bản × 10 session ×
+  180 bản ghi = 43.200 bản ghi).
 
-## 5. Baseline nhịp tim cá nhân — cách lấy và vì sao
+Điểm đáng chú ý: theo `DATASET_CARD.md` của dự án đó, bộ sinh mô phỏng được
+**hiệu chỉnh số học từ 5 session thật** (`003, 005, 006, 009, 010`). Nó không
+phải bịa từ con số 0 — mức nhiễu và cách trôi dạt lấy từ cảm biến thật.
 
-Nhịp tim bình thường khác nhau theo người (trẻ em, người già, người tập luyện).
-Nếu dùng một ngưỡng cứng cho mọi người sẽ báo nhầm. Vì vậy HR được so với
-**baseline riêng của từng bệnh nhân**.
+Tám kịch bản: `stable`, `gradually_slowing`, `gradually_speeding`, `rapid_change`,
+`temporary_disturbance`, `missing_drop`, `recovery`, `irregular`.
 
-**Khi huấn luyện:** baseline mỗi bệnh nhân = **median (trung vị) của HR trên các
-dòng bình thường** của chính bệnh nhân đó (`label == 0`). Dùng median thay vì mean
-để không bị nhiễu/ngoại lai kéo lệch.
+### Từ sự kiện-giọt sang chuỗi 1 Hz
 
-**Trên thiết bị thật:** khi vừa gắn máy, firmware lấy **median HR trong ~60 giây
-đầu** làm baseline cá nhân (cửa sổ hiệu chuẩn `HR_CALIB_MS = 60000`). Nếu chưa có
-(kênh HR chưa bật), baseline mặc định = trung bình trong `scaler.json` (81.68).
+Cảm biến không cho một mẫu mỗi giây — nó cho **một dòng mỗi giọt**. Mọi thứ phía
+sau (cửa sổ 64 giây, model, ring buffer trong firmware) đều định nghĩa trên lưới
+1 Hz cố định, nên phép chuyển đổi này là chỗ **thời gian sự kiện** thành **thời
+gian thực**. Sai ở đây thì mọi cửa sổ trong dataset lệch đi mà không có lỗi nào
+báo. Nó nằm gọn trong một file, `ml/dataset/drip_common.py`.
 
-**Luật HR:** báo khi lệch quá **30%** so baseline cá nhân (`AI_HR_PCT = 0.30`),
-hoặc vượt lưới an toàn tuyệt đối `HR < 45` / `HR > 150` (phòng khi baseline hỏng).
+Hai quyết định trong đó đáng nói:
 
----
+**a) Dùng tỉ số TỐC ĐỘ, không phải tỉ số KHOẢNG CÁCH.** `AI-nho-giot` làm việc
+với `actual_interval / target_interval` — chỉ số này **tăng** khi chảy chậm lại.
+Firmware và đặc tả model làm việc bằng giọt/phút, nên phải nghịch đảo:
 
-## 6. Bộ dữ liệu: input là gì, output là gì để train
+```
+drops_ratio = dpm_thực_tế / dpm_y_lệnh = target_interval / actual_interval
+```
 
-Dataset gồm **hai phần**:
+chỉ số này **giảm** khi chảy chậm lại. Hai quy ước đều hợp lý; trộn lẫn thì
+**lật ngược dấu của mọi ca tắc nghẽn** trong dataset. Nên phép nghịch đảo được
+làm đúng một lần, ở một chỗ.
 
-### 6.1. Phần THẬT — HR/SpO2/nhịp thở: BIDMC (PhysioNet)
+**b) Khoảng lặng là BẰNG CHỨNG, không phải thiếu dữ liệu.** Giữa hai giọt, cách
+làm hiển nhiên là giữ nguyên tốc độ đo được lần cuối (zero-order hold). Cách đó
+sai ở đúng trường hợp quan trọng nhất: nếu một giọt đáng lẽ phải rơi từ một giây
+trước mà chưa rơi, dòng chảy **đã** chậm lại rồi — im lặng càng lâu thì càng
+chậm. Đây là dấu hiệu **sớm nhất** của tắc nghẽn đang hình thành, và zero-order
+hold **xoá sạch** nó. Vì vậy:
 
-- **BIDMC PPG and Respiration Dataset**, PhysioNet — 53 bản ghi bệnh nhân ICU thật
-  tại Beth Israel Deaconess Medical Center (Boston), trích từ MIMIC II, mỗi bản 8
-  phút, lấy mẫu 1 Hz: HR, PULSE, RESP, SpO2.
-- Link: https://physionet.org/content/bidmc/1.0.0/
-- Dùng để **hiệu chỉnh dải giá trị bình thường** cho phần mô phỏng (HR ~70–95,
-  SpO2 ~95–99, RESP ~14–26).
+```
+khoảng_hiệu_dụng(t) = max(khoảng_giọt_gần_nhất, t − thời_điểm_giọt_gần_nhất)
+```
 
-### 6.2. Phần MÔ PHỎNG có nhãn — cột truyền dịch IV
+Đo trên session_001 thật, ở khoảng mất giọt 13,7 giây, tỉ số suy giảm mượt
+`0,89 → 0,58 → 0,37 → 0,27 → … → 0,073` rồi hồi phục — đúng điều một y tá nhìn
+buồng đếm giọt cũng cảm nhận được.
 
-- File `dataset/iv_vitals_synthetic_labeled.csv`: 24.000 dòng, 40 bệnh nhân ảo,
-  10 phút/người, 1 Hz. Sinh bằng `dataset/make_synthetic.py`.
-- **Lý do phải mô phỏng:** không có bộ dữ liệu công khai **có gán nhãn** cho tốc độ
-  truyền dịch IV. Đây là phần mới của đề tài, không phải điểm yếu.
-- Dải giá trị bình thường được calibrate theo đúng phân bố BIDMC thật.
-- **Sáu loại bất thường có nhãn** (~6% số dòng): `iv_occlusion` (tắc), `iv_free_flow`
-  (chảy tự do), `desaturation` (tụt SpO2), `tachycardia` (tim nhanh), `bradycardia`
-  (tim chậm), `sensor_dropout` (mất tín hiệu cảm biến).
+### Chia tập — và một vấn đề trung thực về nó
 
-### 6.3. Input / Output khi huấn luyện autoencoder
+* **Train + validation:** 240 session mô phỏng, theo đúng cột `split` mà bộ sinh
+  đã gán. Chia **theo session**, không bao giờ theo dòng: các cửa sổ chồng lấn
+  nhau 79/80 mẫu, nên chia theo dòng sẽ đặt những cửa sổ gần như giống hệt nhau
+  vào cả hai tập và cho ra điểm số vô nghĩa (mà lại đẹp).
+* **Test:** **chỉ bản ghi thật**, và chỉ những session **không tham gia hiệu
+  chỉnh** → `001, 002, 004, 007, 008`. (Session `011` bỏ vì cảm biến ngừng đếm
+  sau giọt thứ hai — ghi rõ trong nhật ký của chính nó.)
 
-- **Input:** vector 6 đặc trưng (4 số đã chuẩn hóa + 2 cờ 0/1).
-- **Output:** **chính 6 đặc trưng đó được tái tạo lại** (autoencoder học `X → X`).
-- **Hàm mất mát:** MSE giữa input và bản tái tạo.
-- **Nhãn để train:** KHÔNG dùng nhãn — chỉ train trên các dòng **bình thường**
-  (`label == 0`, đã lọc sạch HR 60–110, SpO2 ≥ 93). Cột `label`/`anomaly_type`
-  **chỉ dùng để đánh giá** (precision/recall/ROC) trên tập test.
+**Vấn đề, nói thẳng:** cả 5 session giữ riêng đó **đều là session bất thường**:
 
-Nói gọn: *input = 6 chỉ số sinh hiệu + cờ mất tín hiệu; output = tái tạo lại chính
-6 chỉ số đó; huấn luyện chỉ trên dữ liệu bình thường (học không giám sát).*
+| Session | Nhật ký của người vận hành |
+|---|---|
+| 001 | mất giọt rồi hồi phục |
+| 002 | trôi dần lên biên trên, kèm một lần trễ |
+| 004 | hồi phục thủ công về ổn định |
+| 007 | tăng tốc thủ công, chuyển tiếp bất thường |
+| 008 | hồi phục bất thường |
 
----
+Hai session **ổn định thật** duy nhất (`005`, `006`) lại chính là hai session đã
+dùng để hiệu chỉnh bộ sinh. Nghĩa là:
 
-## 7. Vì sao huấn luyện theo cách này (autoencoder + luật lai)
+> Dữ liệu thật đo được **recall** một cách sạch sẽ, nhưng **không có dữ liệu thật
+> sạch để đo tỉ lệ báo giả**.
 
-**Ý tưởng autoencoder cho phát hiện bất thường:** cho mô hình học nén rồi bung lại
-dữ liệu **bình thường**. Khi gặp dữ liệu lạ (bất thường), mô hình tái tạo sai nhiều
-⇒ **sai số tái tạo (reconstruction error)** vượt ngưỡng ⇒ báo động. Ưu điểm: chỉ
-cần dữ liệu bình thường để học, và bắt được cả những bất thường **tổ hợp** mà luật
-cứng bỏ sót.
+Nhóm không giấu chuyện này. Script xuất ra **hai file riêng**, mỗi file mang cờ
+`leakage`, và `evaluate.py` **từ chối gộp chúng**:
 
-**Kiến trúc:** `6 → 4 → 2 → 4 → 6` (nút thắt cổ chai 2 chiều), MSE, tối đa 120 epoch,
-EarlyStopping.
+| File | Session | Rò rỉ |
+|---|---|---|
+| `drip_realtest_heldout.npz` | 001, 002, 004, 007, 008 | **không** — dùng làm số liệu chính |
+| `drip_realtest_calibrated.npz` | 003, 005, 006, 009, 010 | **có ảnh hưởng qua hiệu chỉnh** — chỉ dùng kèm chú thích |
 
-**Tách dữ liệu theo BỆNH NHÂN** 60/20/20 (train/val/test) — không để một bệnh nhân
-xuất hiện ở cả train lẫn test, tránh rò rỉ dữ liệu, đánh giá trung thực hơn.
+**Cách bịt lỗ hổng này:** ghi thêm 2–3 session ổn định từ phần cứng. Không gấp,
+nhưng nên làm trước khi nộp báo cáo cuối.
 
-**Đặt ngưỡng:** lấy phân vị của sai số trên tập validation-bình-thường theo tỉ lệ
-báo nhầm mục tiêu (`FP_TARGET = 2%`). Ngưỡng chốt: `AI_AE_THRESHOLD ≈ 1.4336`.
+### Một kiểm chứng tự phát sinh
 
-**Vì sao thêm LUẬT LÂM SÀNG (kết hợp OR):** một số ngưỡng phải theo chuẩn y khoa
-tuyệt đối, không nên để mô hình "tự học":
-- **SpO2 dùng ngưỡng tuyệt đối < 90%** — 88% là nguy hiểm với *mọi* bệnh nhân.
-- **HR dùng % so baseline cá nhân** — chuẩn hóa theo người già/trẻ nhỏ.
-- **Đường truyền:** tỉ lệ flow/drops ngoài `[0.3, 1.5]×` mức đặt → tắc hoặc chảy tự do.
-- **Mất tín hiệu:** cờ missing → báo thẳng.
+Nhãn "bình thường" được gán tự động (mọi mẫu trong 80 giây nằm trong dải
+0,90–1,10). Đối chiếu với nhật ký viết tay của người vận hành:
 
-Báo động cuối = **OR** của (autoencoder vượt ngưỡng) HOẶC (bất kỳ luật nào đúng) —
-ưu tiên **recall cao** (không bỏ sót ca nguy hiểm).
+| Session | Người ghi | Máy gán |
+|---|---|---|
+| 005 | `stable` | **46/46 cửa sổ bình thường** |
+| 006 | `stable` | **48/48 cửa sổ bình thường** |
+| 001, 003, 007, 008, 009, 010 | bất thường | **0 cửa sổ bình thường** |
 
-### Tham số luật (chốt trong `threshold.json` / `ai_monitor.h`)
-
-| Tham số | Giá trị | Ý nghĩa |
-|---------|---------|---------|
-| `AI_HR_PCT` | 0.30 | HR lệch > 30% baseline cá nhân → nghi ngờ |
-| `AI_HR_ABS_LOW` | 45 | Lưới an toàn dưới (bradycardia nặng) |
-| `AI_HR_ABS_HIGH` | 150 | Lưới an toàn trên (tachycardia nặng) |
-| `AI_SPO2_ABS` | 90 | SpO2 < 90% → tụt oxy (tuyệt đối) |
-| `AI_FLOW_HI / LO` | 1.5 / 0.3 | Tỉ lệ flow/drops ngoài khoảng → tắc/chảy tự do |
-| `AI_AE_THRESHOLD` | 1.4336 | Ngưỡng sai số tái tạo của autoencoder |
-
-**Kết quả trên tập test:** Recall = 100% (bắt hết mọi loại bất thường), tỉ lệ báo
-nhầm (FP) ≈ 3.4%.
+Máy và người đồng ý hoàn toàn, dù máy **không hề được cho biết nhãn**. Đây là
+bằng chứng độc lập rằng khâu resample và định nghĩa dải bình thường đúng.
 
 ---
 
-## 8. Bằng chứng: dữ liệu là thật + phương pháp là đúng chuẩn
+## 3. Model 2 — sinh hiệu ICU thật
 
-### 8.1. Chứng minh BIDMC là dữ liệu THẬT (có bài báo gốc, bình duyệt)
+**Nguồn:** PhysioNet BIDMC, 53 bản ghi bệnh nhân ICU, đã lấy mẫu sẵn ở 1 Hz, mỗi
+bản ghi ~8 phút (`HR`, `SpO2`).
 
-- **Pimentel M.A.F. et al. (2016)**, *"Toward a Robust Estimation of Respiratory
-  Rate from Pulse Oximeters"*, **IEEE Transactions on Biomedical Engineering,
-  64(8):1914–1923**. Bài gốc tạo ra BIDMC, dữ liệu đo trên bệnh nhân ICU thật, trích
-  từ MIMIC II.
-- Trang dữ liệu PhysioNet (mở, có bình duyệt, bắt buộc trích dẫn):
-  https://physionet.org/content/bidmc/1.0.0/
+**Chia theo BỆNH NHÂN, không bao giờ theo dòng.** 31 train / 10 validation / 12
+test, chia bằng hoán vị có seed cố định. Script **assert** ba tập mã bệnh nhân
+rời nhau chứ không tin là phép trộn đã làm đúng. Cùng một bệnh nhân xuất hiện ở
+cả train lẫn test là rò rỉ, và điểm số sẽ đẹp một cách vô nghĩa.
 
-### 8.2. Chứng minh NGƯỜI KHÁC đã dùng BIDMC (được cộng đồng công nhận)
+**Giá trị thiếu:** BIDMC có một ít ô NaN (6 bệnh nhân, tệ nhất là 102/962 ô ở
+`bidmc_19`). Đó là **khoảng mất theo dõi**, không phải số 0: bệnh nhân có SpO2
+đọc ra NaN **không phải** là bệnh nhân bão hoà 0%. Nội suy qua đó sẽ chế ra sinh
+lý chưa từng được đo, nên **cửa sổ nào chứa NaN thì bỏ nguyên cửa sổ** (696 cửa
+sổ bị bỏ).
 
-- MDPI *Diagnostics* 14(3):284 (2024) — *"A Novel Respiratory Rate Estimation
-  Algorithm from Photoplethysmogram Using Deep Learning Model"* (dùng BIDMC):
-  https://www.mdpi.com/2075-4418/14/3/284
-- MDPI *Bioengineering* 10(2):167 (2023) — *"Machine Learning-Based Respiration Rate
-  and Blood Oxygen Saturation Estimation Using PPG Signals"* (BIDMC, ước lượng SpO2):
-  https://www.mdpi.com/2306-5354/10/2/167
-- Repo GitHub công khai — *rr-prediction-ppg-bidmc* (CNN/LSTM dự đoán nhịp thở từ
-  BIDMC): https://github.com/hammadarif784/rr-prediction-ppg-bidmc
-- Bản BIDMC tái xử lý trên Zenodo ("32s window") — nhiều nhóm tải về dùng lại.
+**Kết quả chia tập:**
 
-### 8.3. Chứng minh CÁCH LÀM (autoencoder train trên bình thường → sai số tái tạo) là phương pháp đã công bố
+| Tập | Bệnh nhân | Cửa sổ | Bình thường | Bất thường |
+|---|---:|---:|---:|---:|
+| train | 30¹ | 11.532 | 11.532 | 0 |
+| validation | 10 | 3.935 | 3.885 | 50 |
+| test | 12 | 4.741 | 4.259 | 482 |
 
-- *IoT* (MDPI) 5(4):39 — *"Autoencoder-Based Neural Network Model for Anomaly
-  Detection in Wireless Body Area Networks"* (đúng mô hình autoencoder unsupervised
-  + ngưỡng trên tín hiệu sinh hiệu): https://doi.org/10.3390/iot5040039
-- *Sensors* (2023, PMC10136265) — *"Anomaly Detection for Sensor Signals Utilizing
-  Deep Learning Autoencoder-Based Neural Networks"*:
-  https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10136265/
-- arXiv 2010.06846 — *"Reconstruct Anomaly to Normal: ... Autoencoder for Time-series
-  Anomaly Detection"* (dùng cả BIDMC trong benchmark):
-  https://arxiv.org/pdf/2010.06846
+¹ Một trong 31 bệnh nhân được gán vào train **không có nổi 80 giây liên tục bình
+thường**, nên bị lọc hết khi lấy dữ liệu huấn luyện.
 
-### Cách trình bày ngắn gọn
-
-> Nền HR/SpO2/nhịp thở lấy từ BIDMC — bộ ICU thật của Beth Israel Deaconess, công bố
-> trên IEEE TBME 2016, được nhiều bài deep learning dùng lại (MDPI 2023/2024,
-> Zenodo, GitHub). Phương pháp autoencoder-train-trên-bình-thường của nhóm cũng là
-> hướng đã được công bố cho phát hiện bất thường tín hiệu sinh hiệu. Riêng cột truyền
-> dịch IV là mô phỏng có nhãn, calibrate theo phân bố BIDMC, vì chưa có bộ IV công
-> khai có nhãn.
+Dải giá trị: train HR 66–139, SpO2 91–100 (đúng trong ngưỡng lâm sàng); test HR
+44–129, SpO2 **83**–100 — tức là tập test **có** ca tụt oxy và nhịp chậm thật.
 
 ---
 
-## 9. Hướng mở rộng
+## 4. Model 3 — autoencoder sinh hiệu
 
-- **Nhiệt độ:** hiện KHÔNG thêm, vì dataset (BIDMC + mô phỏng) không có nhiệt độ và
-  board chưa có cảm biến nhiệt — thêm cột bịa sẽ mâu thuẫn với lập luận "dữ liệu
-  thật". Chỉ thêm khi đồng thời (1) gắn cảm biến nhiệt thật (MLX90614/thermistor) và
-  (2) lấy phân bố nhiệt độ từ nguồn thật (MIMIC-III/IV, eICU), rồi sinh lại dataset
-  thành 7 đặc trưng và train lại.
-- **Bật thêm kênh cảm biến:** kiến trúc đã hỗ trợ (cơ chế DISABLED/OK/LOST) — chỉ cần
-  bật `#define` tương ứng trong `sensor_hub.h` và điền code đọc thật, không phải sửa
-  phần AI.
+**Chỉ hai kênh: `hr_lệch_nền` và `spo2`.** Không có kênh nhỏ giọt.
+
+### Vì sao bỏ kênh nhỏ giọt ra
+
+Bản đầu cho AE ăn 3 kênh gồm cả giọt. Sai hai lần:
+
+1. **Không có gì để học.** Không tồn tại bản ghi nào đo *cùng lúc* nhịp tim và
+   tốc độ giọt của **cùng một bệnh nhân** — BIDMC là bệnh nhân ICU Mỹ, dữ liệu
+   giọt là bàn thử ở ICTU. Hai nguồn buộc phải ghép **ngẫu nhiên**, mà ghép ngẫu
+   nhiên thì **độc lập theo đúng cấu tạo**. AE tiêu nút thắt cổ chai để mô hình
+   hoá ba phân phối biên rời rạc — thứ mà ba cái ngưỡng đã làm được.
+2. **Tái phạm lỗi của v1.** Có kênh giọt trong mạng nghĩa là **tắc dây làm tăng
+   sai số tái tạo**, tức làm bẩn phán đoán về **bệnh nhân**.
+
+HR và SpO2 thì **được đo cùng lúc trên cùng một bệnh nhân**. Đó là quan hệ đa
+biến **có thật**, và là quan hệ có thật duy nhất trong cả hệ thống. Model 3 học
+đúng nó.
+
+### Vì sao nhịp tim vào dưới dạng ĐỘ LỆCH
+
+Bản đầu dùng nhịp tim tuyệt đối. Nó hỏng theo kiểu chỉ lộ ra khi tập test có
+**bệnh nhân chưa từng thấy**:
+
+```
+ngưỡng đặt ở phân vị 98 của snapshot BÌNH THƯỜNG trong validation
+  → gắn cờ  2% snapshot bình thường của validation   (đúng theo cấu tạo)
+  → gắn cờ 33% snapshot bình thường của TEST         (thảm hoạ)
+```
+
+Không có gì sai trong khâu huấn luyện. Nhịp nghỉ 55 và 95 **đều bình thường, chỉ
+khác người**. AE trên nhịp tim tuyệt đối học nhịp nghỉ của nhóm bệnh nhân train,
+nên mọi bệnh nhân test có nền khác đều tái tạo kém và bị gắn cờ — model đã học
+cách phát hiện **"người lạ"**, không phải **"người bệnh"**.
+
+Chuyển sang độ lệch so với nền riêng — đúng cơ chế firmware vốn đã có
+(`ai_fusion_get_hr_baseline()`, chốt bằng trung vị 60 giây đầu sau khi kẹp cảm
+biến) — thì còn **0,16%**.
+
+SpO2 giữ tuyệt đối, vì 97% có nghĩa như nhau ở mọi người.
+
+**Nhãn theo TỪNG GIÂY**, không theo cửa sổ: một cửa sổ bị coi là bất thường nếu
+bất kỳ giây nào trong 80 giây của nó bất thường, và như thế sẽ gán nhãn sai cho
+79 giây khoẻ mạnh còn lại.
+
+| Tập | Snapshot | Bình thường | Bất thường |
+|---|---:|---:|---:|
+| train | 738.048 | 738.048 | 0 |
+| validation | 251.840 | 251.741 | 99 |
+| test | 303.424 | 277.632 | 25.792 |
 
 ---
 
-## 10. Các file liên quan
+## 5. Nguyên tắc chung: train trên BÌNH THƯỜNG, hiệu chuẩn trên TOÀN DẢI
 
-| File | Vai trò |
-|------|---------|
-| `dataset/make_synthetic.py` | Sinh lại dataset mô phỏng có nhãn |
-| `dataset/download_bidmc_full.py` | Tải đủ 53 bản ghi BIDMC thật |
-| `dataset/README_dataset.md` | Mô tả chi tiết dataset |
-| `train_autoencoder_pct.py` | Huấn luyện autoencoder + luật % → xuất `.tflite`, `scaler.json`, `threshold.json` |
-| `scaler.json` | Trung bình/độ lệch chuẩn (StandardScaler) + baseline HR từng bệnh nhân |
-| `threshold.json` | Ngưỡng autoencoder + tham số luật lâm sàng |
-| `ai_monitor.c/.h` | Gom 6 đặc trưng + chuẩn hóa + luật lâm sàng (firmware) |
-| `model_runner.cpp`, `model_data.h` | Nạp & chạy model int8 trên chip (TFLM) |
+Cả ba model chỉ huấn luyện trên dữ liệu bình thường (unsupervised). Đó là điều
+làm cho sai số trở thành tín hiệu bất thường: model **từ chối bám theo** động lực
+mà nó chưa từng thấy.
+
+Nhưng khâu **lượng tử hoá int8** thì ngược lại, và đây là một cái bẫy tìm ra được
+lúc dựng dataset:
+
+> Dải `drops_ratio` sau chuẩn hoá trên dữ liệu thật là **−2,75 … +6,93**, trong
+> khi dải bình thường chỉ **±0,29**.
+
+Nếu `representative_dataset` lúc quantize cũng chỉ chứa cửa sổ bình thường,
+TFLite sẽ đo dải đầu vào là ±0,29 và đặt scale int8 theo đó. **Mọi bất thường sau
+đó bão hoà về cùng một giá trị**, và chip không phân biệt nổi "chậm nhẹ" với "tắc
+hoàn toàn".
+
+Không có gì bắt được lỗi này: model convert sạch, chạy nhanh, cho số liệu hợp lý
+trên dữ liệu bình thường, và **mù đúng vào lúc cần nhất**.
+
+Vì vậy khâu hiệu chuẩn dùng **bao thiết kế** (`ml/common.py`) — toàn bộ dải mà
+cảm biến có thể báo, quét tường minh:
+
+| Kênh | Bao thiết kế | Cơ sở |
+|---|---|---|
+| `drops_ratio` | 0 … 3,5 | 0 = tắc hoàn toàn, 3,5 = chảy tự do vượt xa ngưỡng 1,5× |
+| `HR` | 30 … 200 bpm | dải báo cáo của MAX30102 |
+| `HR` (độ lệch, Model 3) | −70 … +70 bpm | mọi biên độ từ mọi nền hợp lý |
+| `SpO2` | 70 … 100 % | dải báo cáo của cảm biến |
+
+Đây là **thuộc tính của phần cứng và ngưỡng lâm sàng**, không đo từ tập test —
+nên không có dữ liệu test nào ảnh hưởng tới model xuất ra. Script **từ chối xuất
+model** nếu dải int8 không phủ hết bao thiết kế.
+
+---
+
+## 6. Khuyết điểm của v1: đo được, và khác với điều nhóm tưởng ban đầu
+
+Ban đầu nhóm lập luận rằng dataset v1 chứa "tương quan ảo" giữa sinh hiệu và
+giọt. **Đo lại thì lập luận đó sai.** Tương quan tuyến tính chéo nguồn trong
+`iv_hybrid_1hz.csv` (75.036 dòng) vốn đã xấp xỉ 0:
+
+```
+corr(heart_rate, drops_per_min) = −0,0117
+corr(heart_rate, weight_g)      = −0,0461
+corr(spo2,       drops_per_min) = −0,0180
+```
+
+Khuyết điểm thật nằm ở **kiến trúc**. Đo trực tiếp trên
+`ml/models/forecaster_int8.tflite` — đúng file từng chạy trên chip — giữ nguyên
+hai kênh sinh hiệu và **chỉ** đổi hai kênh đường truyền sang trạng thái tắc:
+
+| Kênh đầu ra | Thay đổi dự báo | Quy ra lâm sàng |
+|---|---:|---|
+| HR | 0,0993 | **≈ 2,0 bpm** |
+| SpO2 | 0,1642 | **≈ 0,33 %** |
+
+Một dây truyền bị gập **không thể** làm đổi nhịp tim bệnh nhân. Mạng nói là có.
+
+Đó là lý do tách ba model — và lý do đó là **một con số đo được**, không phải một
+lập luận định tính.
+
+---
+
+## 7. Điều nhóm KHÔNG chứng minh được
+
+Nói rõ, vì im lặng ở đây sẽ khiến người đọc suy ra một điều mạnh hơn sự thật.
+
+**Recall của nhánh sinh hiệu không đo được trên BIDMC.** Toàn bộ tập test chỉ có
+**2** lần vi phạm ngưỡng lâm sàng, và cả hai đều không dùng để chấm điểm được:
+
+* **Bệnh nhân 32** — SpO2 đã 84% ngay **giây đầu tiên** của bản ghi. Không cơ chế
+  nào cảnh báo sớm được cho một tình trạng có **trước cả bản ghi**.
+* **Bệnh nhân 45** — nhịp tim chạm 44 đúng **một giây**, SpO2 100% suốt. Bộ lọc
+  K=11 **cố ý** không báo cái đó; báo mới là lỗi.
+
+BIDMC là các đoạn 8 phút số liệu ICU phần lớn ổn định, **không chứa ca diễn biến
+xấu dần nào**. Trên nó:
+
+* **đo được:** tỉ lệ báo giả, trên 1,14 giờ sinh lý bình thường của bệnh nhân
+  chưa từng thấy;
+* **không đo được:** tỉ lệ bắt đúng.
+
+Hệ quả thiết kế: **luật lâm sàng cứng là lưới an toàn CHÍNH cho sinh hiệu**, còn
+AI là lớp cảnh báo sớm bổ sung chưa chứng minh được recall bằng dữ liệu. Điều này
+được ghi thẳng trong mã nguồn (`ml/evaluate.py`) chứ không chỉ trong tài liệu.
+
+**Dữ liệu drip bình thường chỉ có 0,03 giờ** (~2 phút, từ 2 session ổn định
+thật). Con số "0 báo giả/giờ" của nhánh drip vì thế còn mỏng về mặt thống kê.
+
+**Kênh loadcell không có dữ liệu thật nào** — nhưng nó cũng **không tham gia model
+nào**. Cân được dùng bằng luật số học tường minh (`firmware/line_rules.c`), nên
+không cần dữ liệu huấn luyện, và không có mạng nào học được quan hệ bịa ra từ nó.
+Xem [`AI_HOAT_DONG_THE_NAO.md`](AI_HOAT_DONG_THE_NAO.md) mục 4.

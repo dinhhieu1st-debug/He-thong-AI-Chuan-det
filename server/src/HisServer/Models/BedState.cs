@@ -53,6 +53,25 @@ public sealed class BedState
     public int? DropsForecast16s { get; set; }
 
     /// <summary>
+    /// AI v2. Ba model chay doc lap tren chip, nen thiet bi tra loi duoc cau
+    /// hoi ma y ta hoi dau tien: HONG O DAY TRUYEN HAY HONG O BENH NHAN? Hai
+    /// su co nay xu tri hoan toan khac nhau, va v1 phat ra cung mot bao dong.
+    ///
+    /// AlertLevel: 0 binh thuong, 1 duong truyen, 2 benh nhan, 3 ca hai.
+    /// null = thiet bi doi cu, khong bao duoc - KHAC voi "moi thu binh thuong".
+    /// LineState: 0 ok, 1 sap het, 2 tac day, 3 chay tu do, 4 loi cam bien giot,
+    /// 5 het dich. null khi cua so trong luong 60 giay chua day.
+    /// </summary>
+    public int? AlertLevel { get; set; }
+    public bool LineBranch { get; set; }
+    public bool PatientBranch { get; set; }
+    public bool DripAnomaly { get; set; }
+    public bool VitalsAnomaly { get; set; }
+    public int? LineState { get; set; }
+    public int? RemainingMl { get; set; }
+    public int? RemainingMin { get; set; }
+
+    /// <summary>
     /// Con so du bao cua kenh do co doc duoc nhu "du bao" khong. Khi false, no
     /// la "muc binh thuong ky vong" chu khong phai du doan tuong lai - giao dien
     /// phai doi nhan, neu khong bac si se hieu nham hoan toan.

@@ -24,7 +24,10 @@ const BedsTab = (() => {
         <div class="body">
           <div class="row-top">
             <div><div class="bed-id">${UiUtils.escapeHtml(bed.bedId)}</div><div class="bed-room">${UiUtils.escapeHtml(bed.room)}</div></div>
-            <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
+            <div class="chip-stack">
+              <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
+              ${UiUtils.culpritBadgeHtml(bed)}
+            </div>
           </div>
           <div class="vitals">
             <div class="vital">SpO2<b>${UiUtils.formatMetric(bed.spo2, "%")}</b></div>
@@ -120,6 +123,67 @@ const BedsTab = (() => {
    * is large enough to be real (the firmware applies a +-10 bpm/min deadband -
    * below that, short-term heart-rate direction measured on this hardware is
    * mostly noise and was only ~66% accurate in evaluation). */
+  /* What the load cell concluded, and how long the bag has left.
+   *
+   * The states matter because "fewer drops per minute" has two completely
+   * different causes and only the bag's WEIGHT tells them apart: if the bag
+   * keeps getting lighter the fluid is going in and the bag is simply running
+   * out (normal - a full bag has a taller fluid column, so higher pressure, so
+   * faster flow); if the weight holds still, the fluid is not leaving at all. */
+  const LINE_STATE = {
+    0: { text: "Flow and weight agree", cls: "ls-ok" },
+    1: { text: "Bag running low", cls: "ls-info" },
+    2: { text: "LINE BLOCKED — drops slowed and the bag is not getting lighter", cls: "ls-alarm" },
+    3: { text: "FREE FLOW — emptying far faster than prescribed", cls: "ls-alarm" },
+    4: { text: "Drop sensor fault — drops counted but the weight is not moving", cls: "ls-warn" },
+    5: { text: "Bag empty", cls: "ls-warn" },
+  };
+
+  function lineSectionHtml(bed) {
+    if (bed.lineState == null) {
+      /* Not "everything is fine" - the device has not worked it out yet. The
+       * weight trend needs a full 60 seconds before it means anything, and
+       * showing a green "OK" during that minute would be a lie. */
+      return `
+        <div class="line-status">
+          <h4>Infusion line (load cell)</h4>
+          <div class="status-line status-line-muted">
+            Measuring the bag's weight trend…
+          </div>
+        </div>`;
+    }
+
+    const spec = LINE_STATE[bed.lineState] || LINE_STATE[0];
+    const remaining = (bed.remainingMl != null || bed.remainingMin != null)
+      ? `<div class="ls-remaining">
+           <span class="fc-label">Remaining</span>
+           <b>${bed.remainingMl != null ? UiUtils.escapeHtml(String(bed.remainingMl)) + " mL" : "--"}</b>
+           <span class="fc-sub">${bed.remainingMin != null
+             ? "about " + UiUtils.escapeHtml(String(bed.remainingMin)) + " min at the current rate"
+             : "rate too low to estimate"}</span>
+         </div>`
+      : "";
+
+    const models = [];
+    if (bed.dripAnomaly) {
+      models.push(`<span class="fc-flag fc-alarm" title="The drip forecaster's error stayed above threshold for 11 consecutive seconds.">Drip model</span>`);
+    }
+    if (bed.vitalsAnomaly) {
+      models.push(`<span class="fc-flag fc-alarm" title="The vitals forecaster's error stayed above threshold for 11 consecutive seconds.">Vitals model</span>`);
+    }
+    if (bed.aeAlarm) {
+      models.push(`<span class="fc-flag fc-alarm" title="The autoencoder found this combination of heart rate and SpO2 abnormal, even though neither reading has crossed its own limit.">Vitals combination</span>`);
+    }
+
+    return `
+      <div class="line-status">
+        <h4>Infusion line (load cell)</h4>
+        <div class="ls-verdict ${spec.cls}">${UiUtils.escapeHtml(spec.text)}</div>
+        ${remaining}
+        ${models.length ? `<div class="fc-flags">${models.join("")}</div>` : ""}
+      </div>`;
+  }
+
   function forecastSectionHtml(bed) {
     if (!bed.tsReady) {
       return `
@@ -872,6 +936,7 @@ const BedsTab = (() => {
           <span class="bd-room">${UiUtils.escapeHtml(bed.room)}</span>
         </div>
         <span class="status-chip" style="background:${statusColor};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
+        ${UiUtils.culpritBadgeHtml(bed)}
         ${UiUtils.signalRowHtml(bed)}
         <div class="bd-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
       </div>
@@ -883,6 +948,9 @@ const BedsTab = (() => {
           ${trendsSectionHtml()}
         </div>
         <div class="bd-col bd-col-side bd-col-right">
+          <div class="bd-card">
+            ${lineSectionHtml(bed)}
+          </div>
           <div class="bd-card">
             <h4>AI forecast (on-chip)</h4>
             ${forecastSectionHtml(bed)}

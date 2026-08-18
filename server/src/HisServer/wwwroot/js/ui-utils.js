@@ -11,6 +11,31 @@ const UiUtils = (() => {
     return STATUS_COLOR[(status || "").toUpperCase()] || "#8a97a8";
   }
 
+  /* AI v2: WHICH SIDE is at fault.
+   *
+   * This is the single most useful thing on the card, and it is what v1 could
+   * not say. One network consumed vitals and drip data together and emitted one
+   * anomaly score, so "something is wrong" was the most it could ever manage.
+   * Three separate models give three attributable signals, and a nurse reading
+   * this badge knows whether to bring a new giving set or to go to the bedside.
+   *
+   * Renders nothing at all for a bed that is fine, and nothing for a device too
+   * old to report it - an empty badge is better than a confident wrong one. */
+  function culpritBadgeHtml(bed) {
+    if (bed.alertLevel == null || bed.alertLevel === 0) return "";
+
+    const spec = bed.alertLevel === 3
+      ? { cls: "culprit-critical", text: "LINE + PATIENT",
+          hint: "Both the infusion line and the patient's vitals are abnormal at the same time — suspected fluid overload." }
+      : bed.alertLevel === 2
+      ? { cls: "culprit-patient", text: "PATIENT",
+          hint: "The patient's vitals are abnormal. The infusion line is behaving normally." }
+      : { cls: "culprit-line", text: "IV LINE",
+          hint: "The infusion line needs checking. The patient's vitals are normal." };
+
+    return `<span class="culprit-badge ${spec.cls}" title="${UiUtils.escapeHtml(spec.hint)}">${spec.text}</span>`;
+  }
+
   function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text == null ? "" : String(text);
@@ -66,5 +91,5 @@ const UiUtils = (() => {
     }, 4000);
   }
 
-  return { statusColor, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast };
+  return { statusColor, culpritBadgeHtml, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast };
 })();

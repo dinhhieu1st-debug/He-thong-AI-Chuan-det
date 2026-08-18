@@ -1352,12 +1352,13 @@ của trạm đó.
 smart-iv-monitor/
 ├── firmware/                 TRẠM 1 - mã chạy trên chip end device
 │   ├── sensor_hub.{c,h}        đọc cảm biến, trạng thái từng kênh, bus I2C dùng chung
-│   ├── ai_monitor.{c,h}        autoencoder tức thời + luật lâm sàng
-│   ├── ts_monitor.{c,h}        cửa sổ 64s + dự báo + persistence
-│   ├── ts_forecaster.{cpp,h}   runner TFLM cho model dự báo
+│   ├── ai_engine.{cpp,h}       3 interpreter TFLM, 3 arena riêng - chỉ chạy model
+│   ├── ai_fusion.{c,h}         hợp nhất: 2 nhánh, bộ lọc K=11, ma trận 4 cấp
+│   ├── line_rules.{c,h}        luật cân↔giọt: tắc dây vs hết dịch (KHÔNG dùng AI)
+│   ├── clinical_limits.h       ngưỡng cứng, tách riêng để sống sót khi AI chết
+│   ├── models/                 header C SINH TỰ ĐỘNG từ .tflite - đừng sửa tay
 │   ├── oled_display.{c,h}      màn hình OLED đầu giường (mục 1.7)
-│   ├── model_data_ts.h         model dự báo int8 nhúng sẵn (30 KB)
-│   └── app.c                   vòng lặp chính, quyết định báo động, ghi Zigbee
+│   └── app.c                   vòng lặp chính, ghi Zigbee, log JSON
 ├── gateway/                  TRẠM 3 - mã chạy trên Raspberry Pi
 │   ├── main.c                  chương trình C: MQTT → TCP JSON
 │   └── zigbee2mqtt_smart_iv_converter.js   converter giải mã cho zigbee2mqtt
@@ -1370,8 +1371,12 @@ smart-iv-monitor/
 │       ├── Api/*Endpoints.cs
 │       ├── Program.cs
 │       └── wwwroot/            web UI (index.html, css/, js/)
-├── ml/ai_timeseries/         pipeline huấn luyện model dự báo (mục AI_TIME_SERIES)
+├── ml/                       pipeline AI: dataset/, train_*.py, evaluate.py,
+│                             export_c_headers.py, models/ (3 file .tflite)
+├── server/tests/             kiểm thử bộ đánh giá trạng thái giường
 ├── tools/serial_gateway.py   gateway dự phòng khi không có Pi (mục 5.5)
+├── tools/fusion_test.c       kiểm thử logic báo động, chạy trên MÁY (không cần chip)
+├── tools/dashboard_render_check.js  kiểm thử phần hiển thị mới của dashboard
 ├── docs/                     toàn bộ tài liệu, kể cả file này
 │
 │   ── Bốn thứ dưới đây PHẢI nằm ở gốc repo, không gom vào firmware/ được:

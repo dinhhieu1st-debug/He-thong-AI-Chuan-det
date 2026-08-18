@@ -767,3 +767,53 @@ body.no-scroll { overflow: hidden; }
 .device-fault-line { color: #a35b00; font-weight: 600; }
 .device-event { padding: 5px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
 .device-event-type { font-weight: 700; margin-right: 8px; }
+
+/* ============================================================================
+ *  AI v2 — "which side is at fault"
+ *
+ *  The badge answers the question a nurse asks before any other, and the two
+ *  answers need completely different responses: a blocked line means fetch a
+ *  new giving set, a patient alert means go to the bedside now. v1 showed the
+ *  same alarm for both, so the colours here are deliberately NOT interchangeable
+ *  and the line badge is deliberately NOT red - a line fault with a stable
+ *  patient is not an emergency, and colouring it like one is how a ward learns
+ *  to ignore the alarm that is.
+ * ========================================================================== */
+.chip-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+
+.culprit-badge {
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+  cursor: help; white-space: nowrap;
+}
+.culprit-line     { background: #fdf1de; color: var(--warning);  border: 1px solid var(--warning); }
+.culprit-patient  { background: #fdeaea; color: var(--critical); border: 1px solid var(--critical); }
+/* Both failing at once is its own category, not a louder version of one of
+ * them - solid fill so it separates at a glance across a ward screen. */
+.culprit-critical {
+  background: var(--critical); color: #fff; border: 1px solid var(--critical);
+  animation: culprit-pulse 1.1s ease-in-out infinite;
+}
+@keyframes culprit-pulse { 50% { opacity: .55; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .culprit-critical { animation: none; }
+}
+
+/* ---- Load-cell verdict --------------------------------------------------- */
+.line-status h4 { margin: 0 0 10px; }
+.ls-verdict {
+  padding: 9px 11px; border-radius: 6px;
+  font-size: 12.5px; font-weight: 600; line-height: 1.45;
+}
+.ls-ok    { background: #eaf7ef; color: var(--stable);   border: 1px solid var(--stable); }
+.ls-info  { background: var(--accent-soft); color: var(--text-dim); }
+.ls-warn  { background: #fdf1de; color: var(--warning);  border: 1px solid var(--warning); }
+.ls-alarm { background: #fdeaea; color: var(--critical); border: 1px solid var(--critical); }
+
+.ls-remaining {
+  margin-top: 10px; padding: 9px 11px; border-radius: 6px;
+  background: var(--accent-soft);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.ls-remaining b { font-size: 17px; }

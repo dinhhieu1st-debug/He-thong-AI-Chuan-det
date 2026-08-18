@@ -70,15 +70,21 @@ typedef struct {
   bool     flow_valid;    /* flow channel is CH_OK */
   int16_t  flow_pct;      /* flow as % of the doctor's target, 100 = on target */
   bool     alarm;         /* any alarm reason is active right now */
-  /* Individual reasons, shown as the bottom banner. Only the most severe is
-   * displayed: 128x64 at a readable size fits one line, and a nurse who reads
-   * one line reliably is worth more than four lines nobody reads. The console
-   * still lists every reason at once. */
-  bool reason_spo2;
-  bool reason_hr;
-  bool reason_flow;
-  bool reason_missing;
-  bool reason_ai;
+
+  /* The banner line, decided by ai_fusion and passed through verbatim.
+   *
+   * This used to be five booleans that the display ranked itself. That put a
+   * second, simpler copy of the severity ordering inside the display, and with
+   * four alert levels it would have been a third place where "which problem
+   * matters most" is decided - free to drift out of step with the console and
+   * the ward dashboard. ai_fusion already picked one message; the screen's job
+   * is to render it, not to re-derive it.
+   *
+   * 128x64 at a readable size fits one line, and a nurse who reads one line
+   * reliably is worth more than four lines nobody reads. The console still
+   * lists every contributing reason at once. */
+  const char *banner;
+  uint8_t     level;      /* alert_level_t, 0..3 - drives emphasis only */
 } oled_vitals_t;
 
 /* Probes 0x3C then 0x3D, runs the panel init sequence and paints the splash.

@@ -8,7 +8,8 @@
  *
  *  Main loop:
  *    - sensor_hub_poll(): called EVERY iteration (reads drops continuously, never misses a pulse).
- *    - Every 1 second: ai_monitor_step() -> runs the autoencoder + rules -> prints status.
+ *    - Every 1 second: ai_fusion_step() -> runs the three models + the clinical
+ *      rules + the load-cell cross-check -> one 4-level alert -> prints status.
  *
  *  COMPONENTS to install (.slcp -> SOFTWARE COMPONENTS):
  *    - IO Stream: EUSART (instance "vcom")  + IO Stream: STDIO   -> printf over VCOM
@@ -21,8 +22,7 @@
 #include <string.h>
 #include "sl_sleeptimer.h"
 #include "sensor_hub.h"
-#include "ai_monitor.h"
-#include "ts_monitor.h"
+#include "ai_fusion.h"
 #include "oled_display.h"
 
 #include "app/framework/include/af.h"
@@ -105,73 +105,12 @@ static uint8_t app_hr_baseline_seconds_remaining(void)
   return (uint8_t)((HR_CALIB_MS - elapsed) / 1000U);
 }
 
-/* Maps the AI result onto the 3-level local indicator (green/yellow/red LED +
- * buzzer, driven by sensor_hub.c). The ESP8266 reference sketch distinguished
- * "warning" from "danger" using two separate HR bands; ai_monitor gives a
- * single binary reason_hr flag instead, so the same distinction is
- * reconstructed here from the raw HR against the ABSOLUTE limits in
- * ai_monitor.h:
- *   RED    - signal lost on an installed sensor, low SpO2, an infusion-line
- *            problem (occlusion / free-flow / drops stopped), or HR past the
- *            absolute bradycardia/tachycardia bounds. All of these need
- *            someone at the bedside NOW.
- *   YELLOW - "worth a look" only: HR merely deviating >AI_HR_PCT from the
- *            patient's own baseline while still inside the absolute bounds,
- *            or the autoencoder flagging an anomaly no explicit rule caught.
- *   GREEN  - no alarm at all.
- * Note this is deliberately INDEPENDENT of the alarm bitmap sent to the HIS
- * Server: the bitmap keeps carrying every individual reason, while the LEDs
- * only convey urgency. */
-static alert_level_t alert_level_from_result(const ai_result_t *r,
-                                            const ts_result_t *ts)
-{
-  /* ---- TIER 1: ABSOLUTE safety net - alarms IMMEDIATELY, no persistence ----
-   * These three must never be delayed: loss of signal on a sensor that IS
-   * attached, SpO2 below its absolute limit, and heart rate past its absolute
-   * floor/ceiling. The alarm-fatigue literature supports delaying conditions
-   * where a transient excursion is harmless - but that argument does NOT apply
-   * to these three. */
-  bool hr_critical = r->reason_hr
-                     && (sh_hr_state() == CH_OK)
-                     && (r->feat[0] < AI_HR_ABS_LOW || r->feat[0] > AI_HR_ABS_HIGH);
-
-  if (r->reason_missing || r->reason_spo2 || hr_critical) {
-    return ALERT_RED;
-  }
-
-  /* ---- TIER 2: anomaly CONFIRMED through persistence -----------------------
-   * The forecaster's anomaly score must stay above threshold for TS_PERSIST_K
-   * CONSECUTIVE steps before it may alarm. Measured on real ICU data (BIDMC):
-   * deciding instantly gives a 17.6% false-alarm rate on transients - worse
-   * than the old threshold-only approach at 17.2% - while persistence brings it
-   * down to 2.3%. A sustained infusion-line anomaly needs someone at the
-   * bedside, so it maps to RED. */
-  if (ts->anomaly_confirmed) {
-    return ALERT_RED;
-  }
-
-  /* Drip/flow ratio out of band, sustained (clinical rule) -> RED. */
-  if (r->reason_flow) {
-    return ALERT_RED;
-  }
-
-  /* ---- TIER 3: "getting worse, not yet dangerous" -> YELLOW ---------------
-   * Early warning is the forecaster's own contribution: the forecast crosses a
-   * clinical limit within the next 16 seconds even though the CURRENT reading
-   * is still inside it. An instantaneous threshold cannot know this. It maps to
-   * YELLOW rather than RED because it is a prediction, not yet a fact. */
-  if (ts->early_warning) {
-    return ALERT_YELLOW;
-  }
-
-  /* HR well off the patient's own baseline (but still inside the absolute
-   * limits), or the older autoencoder flagging something -> worth a look. */
-  if (r->alarm) {
-    return ALERT_YELLOW;
-  }
-
-  return ALERT_GREEN;
-}
+/* The alert level is no longer reconstructed here. ai_fusion.c owns the whole
+ * decision - four levels, two attributable branches, and the K=11 persistence
+ * filter - so there is exactly one place in the firmware where "how bad is
+ * this" is decided. It used to be split between ai_monitor, ts_monitor and this
+ * file, and the three could disagree.
+ */
 
 /* Default reporting configuration for the attributes carrying AI data, so
  * the device automatically sends reports to the coordinator (zigbee2mqtt)
@@ -355,29 +294,41 @@ static void zb_report_ai_result(int16_t hr, uint16_t spo2, uint16_t flow_x100,
  * JSON path sends null there. */
 #define TS_FORECAST_INVALID  0xFFFFu
 
-static void zb_report_ts_result(const ts_result_t *ts)
+static void zb_report_ts_result(const fusion_result_t *f)
 {
-  const bool usable = (ts->ready && ts->have_forecast);
+  const bool usable = (f->vitals_ready || f->drip_ready);
 
   uint16_t flags = (uint16_t)((usable                 ? 0x0001u : 0u)
-                              | (ts->anomaly_confirmed ? 0x0002u : 0u)
-                              | (ts->early_warning     ? 0x0004u : 0u)
-                              | (((uint16_t)ts->hr_trend    & 0x3u) << 3)
-                              | (((uint16_t)ts->drops_trend & 0x3u) << 5)
-                              | (ts->hr_forecast_trusted    ? 0x0080u : 0u)
-                              | (ts->drops_forecast_trusted ? 0x0100u : 0u));
+                              | ((f->drip_anomaly || f->vitals_anomaly) ? 0x0002u : 0u)
+                              | (f->early_warning     ? 0x0004u : 0u)
+                              | (((uint16_t)f->hr_trend    & 0x3u) << 3)
+                              | (((uint16_t)f->drops_trend & 0x3u) << 5)
+                              | (f->vitals_forecast_trusted ? 0x0080u : 0u)
+                              | (f->drip_forecast_trusted  ? 0x0100u : 0u)
+                              /* bits 9-10: the 4-level alert, and bits 11-12
+                               * the branch that caused it. These ride in spare
+                               * bits of an attribute the gateway already reads,
+                               * so no ZCL schema change is needed - the
+                               * converter only gains decode lines. */
+                              | (((uint16_t)f->level & 0x3u) << 9)
+                              | (f->line_branch    ? 0x0800u : 0u)
+                              | (f->patient_branch ? 0x1000u : 0u));
 
-  uint16_t hr_forecast = (usable && ts->hr_valid)
-                         ? (uint16_t)(ts->hr_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
-  uint16_t spo2_forecast = (usable && ts->spo2_valid)
-                           ? (uint16_t)(ts->spo2_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
+  uint16_t hr_forecast = (usable && f->vitals_ready)
+                         ? (uint16_t)(f->hr_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
+  uint16_t spo2_forecast = (usable && f->vitals_ready)
+                           ? (uint16_t)(f->spo2_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
   uint16_t drops_forecast = usable
-                            ? (uint16_t)(ts->drops_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
-  int16_t  hr_slope    = (int16_t)ts->hr_trend_bpm_per_min;
-  int16_t  drops_slope = (int16_t)ts->drops_trend_dpm_per_min;
-  /* x100 keeps two decimals over an integer-only wire format, matching the
-   * tsAnomalyScoreX100 the server already parses from the serial path. */
-  uint16_t score_x100  = (uint16_t)(ts->anomaly_score * 100.0f + 0.5f);
+                            ? (uint16_t)(f->drip_forecast_16s + 0.5f) : TS_FORECAST_INVALID;
+  int16_t  hr_slope    = (int16_t)f->hr_trend_bpm_per_min;
+  int16_t  drops_slope = (int16_t)f->drops_trend_dpm_per_min;
+  /* The larger of the two residuals - one number for a dashboard with room for
+   * one; which branch it came from travels in the flags above. x100 keeps two
+   * decimals over an integer-only wire format, matching the tsAnomalyScoreX100
+   * the server already parses from the serial path. */
+  const float worst = (f->drip_residual > f->vitals_residual)
+                      ? f->drip_residual : f->vitals_residual;
+  uint16_t score_x100  = (uint16_t)(worst * 100.0f + 0.5f);
 
   sl_zigbee_af_write_manufacturer_specific_server_attribute(
       ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_TS_FLAGS_ATTRIBUTE_ID,
@@ -571,7 +522,7 @@ static void oled_try_init(void)
   }
 }
 
-static void oled_update(const ai_result_t *r, const ts_result_t *ts,
+static void oled_update(const fusion_result_t *f,
                         bool hr_ok, int hr, bool spo2_ok, int spo2,
                         int flow_pct, uint32_t now)
 {
@@ -590,15 +541,13 @@ static void oled_update(const ai_result_t *r, const ts_result_t *ts,
     .spo2_pct   = (uint16_t)(spo2 < 0 ? 0 : spo2),
     .flow_valid = (sh_flow_state() == CH_OK),
     .flow_pct   = (int16_t)flow_pct,
-    /* Same condition app.c uses for the serial "*** ALARM ***" line and the
-     * alarm bitmap, so the screen, the log and the ward console can never
-     * disagree about whether this bed is alarming. */
-    .alarm          = (r->alarm || ts->anomaly_confirmed || ts->early_warning),
-    .reason_spo2    = r->reason_spo2,
-    .reason_hr      = r->reason_hr,
-    .reason_flow    = r->reason_flow,
-    .reason_missing = r->reason_missing,
-    .reason_ai      = (r->reason_ae || ts->anomaly_confirmed || ts->early_warning)
+    /* Exactly the level ai_fusion decided, and exactly the message it chose.
+     * The screen, the serial log, the Zigbee bitmap and the ward console all
+     * read these two fields, so they cannot tell a nurse different stories
+     * about the same second. The display no longer ranks reasons itself. */
+    .alarm  = (f->level != ALERT_LEVEL_NORMAL),
+    .banner = f->headline,
+    .level  = (uint8_t)f->level
   };
 
   if (!oled_display_show_vitals(&bedside_oled, &v)) {
@@ -616,17 +565,15 @@ void app_init(void)
   setvbuf(stdout, NULL, _IONBF, 0);   // disable buffering -> printf shows up immediately
 
   sensor_hub_init();
-  ai_monitor_init();
+  ai_fusion_init();
   oled_try_init();
 
-  /* Load the time-series forecaster. On failure the system STILL runs normally
-   * on the clinical rules and merely loses trend / early warning. The AI must
-   * never be a single point of failure for the device's ability to alarm. */
-  if (ts_monitor_init()) {
-    printf("[TS] Time-series forecasting: ON (64s window, 16s horizon)\r\n");
-  } else {
-    printf("[TS] Forecaster failed to load - running on clinical rules only\r\n");
-  }
+  /* ai_fusion_init() has already tried to load all three models and logged the
+   * outcome of each. Nothing below depends on them having succeeded: a model
+   * that failed simply never contributes, and the clinical rules carry the
+   * device. The AI must never be a single point of failure for the ability to
+   * alarm - which is also why SL_TFLITE_MICRO_INTERPRETER_INIT_ENABLE is 0
+   * (the SDK's own initialiser handles a bad model with `while (1)`). */
 
 
   printf("\r\n=== Smart IV - AI module ready ===\r\n");
@@ -635,7 +582,9 @@ void app_init(void)
          HR_ENABLED    ? "ON" : "OFF",
          SPO2_ENABLED  ? "ON" : "OFF",
          FLOW_ENABLED  ? "ON" : "OFF");
-  printf("Model: int8 6-feature autoencoder + clinical rules.\r\n\r\n");
+  printf("Models: drip forecaster + vitals forecaster + vitals autoencoder,\r\n"
+         "        int8, run separately; plus clinical rules and the\r\n"
+         "        load-cell/drop cross-check.\r\n\r\n");
 }
 
 /* ====== CALLED REPEATEDLY (like Arduino's loop()) ====== */
@@ -656,7 +605,7 @@ void app_process_action(void)
   if (!calib_done && (now - calib_start_ms) < HR_CALIB_MS) {
     /* Waiting for the settling window; currently HR is DISABLED so this is safely skipped. */
   } else if (!calib_done) {
-    ai_monitor_set_hr_baseline(sh_hr());  // lock in the baseline after 60s
+    ai_fusion_set_hr_baseline(sh_hr());  // lock in the baseline after 60s
     calib_done = true;
     hr_baseline_just_completed = true;   // one-shot pulse, consumed below in the same tick it fires
     hr_baseline_event_count++;           // persistent, wraps 255->0 harmlessly - see comment above
@@ -668,19 +617,14 @@ void app_process_action(void)
   if (now - last_ai >= AI_PERIOD_MS) {
     last_ai = now;
 
-    ai_result_t r;
-    ai_monitor_step(&r);
-
-    /* Time-series forecaster: pushes this second's sample into the 64s window,
-     * forecasts the next 16s, and reports trend / early warning / a
-     * persistence-confirmed anomaly. Must run BEFORE the alarm decision below,
-     * which consumes its result. */
-    ts_result_t ts;
-    ts_monitor_step(&ts);
+    /* One call runs all three models, the clinical rules and the load-cell
+     * cross-check, and returns the finished 4-level decision. */
+    fusion_result_t f;
+    ai_fusion_step(&f);
 
     /* Drive the local LEDs/buzzer straight away, BEFORE the printf/Zigbee
      * work below - the bedside indicator should never wait on the network. */
-    sh_alert_set_level(alert_level_from_result(&r, &ts));
+    sh_alert_set_level(f.level);
 
     /* Only treat HR/SpO2 as REAL numbers when the channel is CH_OK (fresh
      * sample from a real chip). CH_LOST/CH_DISABLED -> do NOT print/send the
@@ -691,11 +635,11 @@ void app_process_action(void)
     bool spo2_ok = (sh_spo2_state() == CH_OK);
 
     /* Compact print: values + result. Scaled by *1000 / rounded to avoid printf %f. */
-    int hr   = (int)(r.feat[0] + 0.5f);
-    int spo2 = (int)(r.feat[1] + 0.5f);
-    int flow = (int)(r.feat[2] * 100.0f + 0.5f);   // %
-    int drop = (int)(r.feat[3] * 100.0f + 0.5f);   // %
-    int err  = (int)(r.recon_error * 1000.0f + 0.5f);
+    int hr   = (int)(sh_hr() + 0.5f);
+    int spo2 = (int)(sh_spo2() + 0.5f);
+    int flow = (int)(sh_flow_ratio() * 100.0f + 0.5f);   // %
+    int drop = (int)(sh_drops_ratio() * 100.0f + 0.5f);  // %
+    int err  = (int)(f.ae_error * 1000.0f + 0.5f);
 
     char hr_str[8], spo2_str[8];
     if (hr_ok)   { snprintf(hr_str,   sizeof(hr_str),   "%d", hr);   } else { snprintf(hr_str,   sizeof(hr_str),   "--"); }
@@ -705,20 +649,29 @@ void app_process_action(void)
      * the serial log below and the Zigbee report further down. It only
      * repaints when the displayed content actually changes, so a steady bed
      * costs nothing on the shared I2C bus. */
-    oled_update(&r, &ts, hr_ok, hr, spo2_ok, spo2, flow, now);
+    oled_update(&f, hr_ok, hr, spo2_ok, spo2, flow, now);
 
     printf("[AI] HR=%s SpO2=%s Flow=%d%% Drop=%d%% (dpm=%d) | err=%d/1000 | ",
            hr_str, spo2_str, flow, drop, (int)(sh_drops_per_min() + 0.5f), err);
 
-    if (r.alarm || ts.anomaly_confirmed || ts.early_warning) {
-      printf("*** ALARM ***");
-      if (r.reason_missing)     printf(" [SIGNAL_LOST]");
-      if (r.reason_spo2)        printf(" [LOW_SpO2]");
-      if (r.reason_hr)          printf(" [HEART_RATE]");
-      if (r.reason_flow)        printf(" [INFUSION_LINE]");
-      if (r.reason_ae)          printf(" [AE]");
-      if (ts.anomaly_confirmed) printf(" [TS_ANOMALY]");
-      if (ts.early_warning)     printf(" [EARLY_WARN]");
+    if (f.level != ALERT_LEVEL_NORMAL) {
+      /* The level and the branch that caused it, then the individual reasons.
+       * "which branch" is the part a nurse acts on: the line and the patient
+       * need completely different responses. */
+      printf("*** %s *** %s", sh_alert_level_name(f.level), f.headline);
+      if (f.line_branch)     printf(" [LINE]");
+      if (f.patient_branch)  printf(" [PATIENT]");
+      if (f.rule_missing)    printf(" [SIGNAL_LOST]");
+      if (f.rule_spo2)       printf(" [LOW_SpO2]");
+      if (f.rule_hr)         printf(" [HEART_RATE]");
+      if (f.rule_flow)       printf(" [FLOW_RATE]");
+      if (f.drip_anomaly)    printf(" [DRIP_MODEL]");
+      if (f.vitals_anomaly)  printf(" [VITALS_MODEL]");
+      if (f.ae_anomaly)      printf(" [AE]");
+      if (f.early_warning)   printf(" [EARLY_WARN]");
+      if (f.line.valid && f.line.state != LINE_OK) {
+        printf(" [%s]", line_state_text(f.line.state));
+      }
       printf("\r\n");
     } else {
       printf("Normal\r\n");
@@ -728,17 +681,45 @@ void app_process_action(void)
      * many consecutive steps are above threshold. Very useful when diagnosing
      * at the bedside - it shows what the model is "thinking" before it
      * alarms. */
-    if (ts.ready && ts.have_forecast) {
-      const char *tr = (ts.hr_trend == TS_TREND_RISING)  ? "TANG"
-                     : (ts.hr_trend == TS_TREND_FALLING) ? "GIAM" : "on dinh";
-      printf("[TS] HR trend %s (%d bpm/min) | forecast +16s: HR=%d SpO2=%d"
-             " | score=%d/1000 (threshold %d) | persist %u/%u\r\n",
-             tr, (int)ts.hr_trend_bpm_per_min,
-             (int)(ts.hr_forecast_16s + 0.5f), (int)(ts.spo2_forecast_16s + 0.5f),
-             (int)(ts.anomaly_score * 1000.0f), (int)(5.6111f * 1000.0f),
-             (unsigned)ts.persist_count, (unsigned)11u);
-    } else if (!ts.ready) {
-      printf("[TS] Filling the 64-second window...\r\n");
+    if (f.drip_ready || f.vitals_ready) {
+      const char *tr = (f.hr_trend == 1u) ? "TANG"
+                     : (f.hr_trend == 2u) ? "GIAM" : "on dinh";
+      printf("[AI] HR trend %s (%d bpm/min) | +16s: HR=%d SpO2=%d dpm=%d\r\n",
+             tr, (int)f.hr_trend_bpm_per_min,
+             (int)(f.hr_forecast_16s + 0.5f), (int)(f.spo2_forecast_16s + 0.5f),
+             (int)(f.drip_forecast_16s + 0.5f));
+      /* Each model's own residual and how far its persistence counter has run.
+       * This is what shows the device "thinking" before it alarms, and it is
+       * the first thing to look at when it alarms and should not have. */
+      printf("[AI] residual drip=%d/1000 (thr %d) persist %u/%u | "
+             "vitals=%d/1000 (thr %d) persist %u/%u | ae=%d/1000 (thr %d) "
+             "persist %u/%u\r\n",
+             (int)(f.drip_residual * 1000.0f),
+             (int)(AI_DRIP_RESIDUAL_THRESHOLD * 1000.0f),
+             (unsigned)f.drip_persist, (unsigned)AI_PERSIST_K,
+             (int)(f.vitals_residual * 1000.0f),
+             (int)(AI_VITALS_RESIDUAL_THRESHOLD * 1000.0f),
+             (unsigned)f.vitals_persist, (unsigned)AI_PERSIST_K,
+             (int)(f.ae_error * 1000.0f), (int)(AI_AE_THRESHOLD * 1000.0f),
+             (unsigned)f.ae_persist, (unsigned)AI_PERSIST_K);
+    } else {
+      printf("[AI] Filling the 64-second windows...\r\n");
+    }
+
+    /* The load cell's verdict, and the number a nurse actually wants: how long
+     * this bag has left. */
+    if (f.line.valid) {
+      printf("[LINE] %s | weight %d g (%d g/min, drops imply %d) | "
+             "remaining ~%d mL",
+             line_state_text(f.line.state),
+             (int)(f.line.weight_g + 0.5f),
+             (int)f.line.weight_rate_g_min,
+             (int)f.line.expected_rate_g_min,
+             (int)(f.line.remaining_ml + 0.5f));
+      if (f.line.remaining_min >= 0) {
+        printf(" (~%d min)", (int)f.line.remaining_min);
+      }
+      printf("\r\n");
     }
 
     /* Alarm bitmap: bit0=signal lost, bit1=low SpO2, bit2=heart rate,
@@ -760,11 +741,11 @@ void app_process_action(void)
      *   bit14 = HR trending DOWN   (< -10 bpm/min)
      *   bit15 = early warning: forecast crosses a clinical limit within 16s */
     bool tare_just_done = sh_flow_tare_just_completed();   // one-shot: consumes itself here
-    uint16_t alarm_bitmap = (uint16_t)((r.reason_missing ? 0x01 : 0)
-                                        | (r.reason_spo2    ? 0x02 : 0)
-                                        | (r.reason_hr      ? 0x04 : 0)
-                                        | (r.reason_flow    ? 0x08 : 0)
-                                        | (r.reason_ae      ? 0x10 : 0)
+    uint16_t alarm_bitmap = (uint16_t)((f.rule_missing ? 0x01 : 0)
+                                        | (f.rule_spo2  ? 0x02 : 0)
+                                        | (f.rule_hr    ? 0x04 : 0)
+                                        | (f.rule_flow  ? 0x08 : 0)
+                                        | (f.ae_anomaly ? 0x10 : 0)
                                         | (sh_hr_state()    == CH_OK ? 0x20  : 0)
                                         | (sh_spo2_state()  == CH_OK ? 0x40  : 0)
                                         | (sh_flow_state()  == CH_OK ? 0x80  : 0)
@@ -772,10 +753,11 @@ void app_process_action(void)
                                         | (sh_flow_tare_in_progress() ? 0x200 : 0)
                                         | (tare_just_done              ? 0x400 : 0)
                                         | (hr_baseline_just_completed  ? 0x800 : 0)
-                                        | (ts.anomaly_confirmed        ? 0x1000 : 0)
-                                        | (ts.hr_trend == TS_TREND_RISING  ? 0x2000 : 0)
-                                        | (ts.hr_trend == TS_TREND_FALLING ? 0x4000 : 0)
-                                        | (ts.early_warning            ? 0x8000 : 0));
+                                        | ((f.drip_anomaly || f.vitals_anomaly)
+                                                                       ? 0x1000 : 0)
+                                        | (f.hr_trend == 1u            ? 0x2000 : 0)
+                                        | (f.hr_trend == 2u            ? 0x4000 : 0)
+                                        | (f.early_warning             ? 0x8000 : 0));
     hr_baseline_just_completed = false;   // one-shot: consumed here, same tick it was set
 
     /* ===== JSON telemetry line on VCOM =======================================
@@ -798,6 +780,9 @@ void app_process_action(void)
            ",\"target_flow_ml_h\":%d,\"target_drops_per_min\":%d"
            ",\"hr_signal\":%s,\"spo2_signal\":%s,\"flow_signal\":%s,\"drops_signal\":%s"
            ",\"line_blocked\":%s,\"ae_alarm\":%s,\"alarm\":%s"
+           ",\"alert_level\":%d,\"line_branch\":%s,\"patient_branch\":%s"
+           ",\"drip_anomaly\":%s,\"vitals_anomaly\":%s"
+           ",\"line_state\":%d,\"remaining_ml\":%d,\"remaining_min\":%d"
            ",\"tare_in_progress\":%s,\"hr_baseline_bpm\":%d"
            ",\"hr_baseline_seconds_remaining\":%d"
            ",\"tare_event_count\":%d,\"hr_baseline_event_count\":%d"
@@ -815,26 +800,38 @@ void app_process_action(void)
            (sh_spo2_state()  == CH_OK) ? "true" : "false",
            (sh_flow_state()  == CH_OK) ? "true" : "false",
            (sh_drops_state() == CH_OK) ? "true" : "false",
-           r.reason_flow    ? "true" : "false",
-           r.reason_ae      ? "true" : "false",
-           (r.alarm || ts.anomaly_confirmed) ? "true" : "false",
+           f.rule_flow  ? "true" : "false",
+           f.ae_anomaly ? "true" : "false",
+           (f.level != ALERT_LEVEL_NORMAL) ? "true" : "false",
+           /* The whole point of v2 travels in these three: how bad, and WHICH
+            * side is at fault. A single "alarm" flag cannot tell a nurse
+            * whether to check the tubing or go to the bedside. */
+           (int)f.level,
+           f.line_branch    ? "true" : "false",
+           f.patient_branch ? "true" : "false",
+           f.drip_anomaly   ? "true" : "false",
+           f.vitals_anomaly ? "true" : "false",
+           f.line.valid ? (int)f.line.state : -1,
+           f.line.valid ? (int)(f.line.remaining_ml + 0.5f) : -1,
+           f.line.valid ? (int)f.line.remaining_min : -1,
            sh_flow_tare_in_progress() ? "true" : "false",
-           (int)(ai_monitor_get_hr_baseline() + 0.5f),
+           (int)(ai_fusion_get_hr_baseline() + 0.5f),
            (int)app_hr_baseline_seconds_remaining(),
            (int)sh_flow_tare_event_count(),
            (int)hr_baseline_event_count,
-           ts.anomaly_confirmed ? "true" : "false",
-           (int)ts.hr_trend,
-           ts.early_warning ? "true" : "false",
-           (ts.ready && ts.have_forecast) ? "true" : "false",
-           (int)ts.hr_trend_bpm_per_min,
+           (f.drip_anomaly || f.vitals_anomaly) ? "true" : "false",
+           (int)f.hr_trend,
+           f.early_warning ? "true" : "false",
+           (f.drip_ready || f.vitals_ready) ? "true" : "false",
+           (int)f.hr_trend_bpm_per_min,
            /* score x100 to keep 2 decimals over an integer-only wire format */
-           (int)(ts.anomaly_score * 100.0f + 0.5f),
-           (int)ts.drops_trend,
-           (int)ts.drops_trend_dpm_per_min,
-           (int)(ts.drops_forecast_16s + 0.5f),
-           ts.hr_forecast_trusted    ? "true" : "false",
-           ts.drops_forecast_trusted ? "true" : "false");
+           (int)(((f.drip_residual > f.vitals_residual)
+                  ? f.drip_residual : f.vitals_residual) * 100.0f + 0.5f),
+           (int)f.drops_trend,
+           (int)f.drops_trend_dpm_per_min,
+           (int)(f.drip_forecast_16s + 0.5f),
+           f.vitals_forecast_trusted ? "true" : "false",
+           f.drip_forecast_trusted   ? "true" : "false");
 
     /* The HR/SpO2 forecasts are only sent as NUMBERS while that channel really
      * has signal; otherwise null. When the PPG sensor drops out, the channel is
@@ -845,12 +842,12 @@ void app_process_action(void)
      * sensor while "HR in 16s" kept changing), so null is sent instead and the
      * UI hides it. */
     printf(",\"hr_forecast_16s\":");
-    if (ts.ready && ts.have_forecast && ts.hr_valid) {
-      printf("%d", (int)(ts.hr_forecast_16s + 0.5f));
+    if (f.vitals_ready) {
+      printf("%d", (int)(f.hr_forecast_16s + 0.5f));
     } else { printf("null"); }
     printf(",\"spo2_forecast_16s\":");
-    if (ts.ready && ts.have_forecast && ts.spo2_valid) {
-      printf("%d", (int)(ts.spo2_forecast_16s + 0.5f));
+    if (f.vitals_ready) {
+      printf("%d", (int)(f.spo2_forecast_16s + 0.5f));
     } else { printf("null"); }
     printf("}\r\n");
 
@@ -860,13 +857,13 @@ void app_process_action(void)
     uint16_t drops_per_min_report = (uint16_t)(sh_drops_per_min() + 0.5f);
     uint16_t target_flow_report = (uint16_t)(sh_target_flow_ml_h() + 0.5f);
     uint16_t target_drops_report = (uint16_t)(sh_target_drops_per_min() + 0.5f);
-    uint16_t hr_baseline_bpm_report = (uint16_t)(ai_monitor_get_hr_baseline() + 0.5f);
+    uint16_t hr_baseline_bpm_report = (uint16_t)(ai_fusion_get_hr_baseline() + 0.5f);
     zb_report_ai_result(hr_report, spo2_report, (uint16_t)flow,
                         (int16_t)drop, alarm_bitmap,
                         weight_g_report, drops_per_min_report,
                         target_flow_report, target_drops_report,
                         app_hr_baseline_seconds_remaining(), hr_baseline_bpm_report,
                         sh_flow_tare_event_count(), hr_baseline_event_count);
-    zb_report_ts_result(&ts);
+    zb_report_ts_result(&f);
   }
 }

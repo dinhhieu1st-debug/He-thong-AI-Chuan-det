@@ -953,10 +953,11 @@ static void max30102_poll(void)
 #define BUZZER_PORT      gpioPortC
 #define BUZZER_PIN_NUM   4        /* mikroBUS CS  = PC04 */
 
+#define BUZZER_PERIOD_CRITICAL_MS 150U    /* urgent beep = both systems failing */
 #define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
 #define BUZZER_PERIOD_YELLOW_MS  1000U    /* slow beep = warning   (matches the .ino) */
 
-static alert_level_t alert_level        = ALERT_GREEN;
+static alert_level_t alert_level        = ALERT_LEVEL_NORMAL;
 static bool          buzzer_on          = false;
 static uint32_t      buzzer_last_toggle = 0;
 
@@ -993,16 +994,21 @@ void sh_alert_set_level(alert_level_t level)
   /* Re-arm the beep so a level change is heard immediately rather than
    * waiting out the remainder of the previous level's period. */
   buzzer_last_toggle = now_ms();
-  buzzer_on = (level != ALERT_GREEN);
+  buzzer_on = (level != ALERT_LEVEL_NORMAL);
 
-  alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,  level == ALERT_GREEN);
-  alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN, level == ALERT_YELLOW);
-  alert_pin_write(LED_RED_PORT,    LED_RED_PIN,    level == ALERT_RED);
+  /* CRITICAL lights RED and YELLOW together - the only combination the three
+   * LEDs can show that is unambiguous at a glance from across the room. */
+  alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,
+                  level == ALERT_LEVEL_NORMAL);
+  alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN,
+                  level == ALERT_LEVEL_LINE_WARNING
+                  || level == ALERT_LEVEL_CRITICAL);
+  alert_pin_write(LED_RED_PORT,    LED_RED_PIN,
+                  level == ALERT_LEVEL_VITALS_ALERT
+                  || level == ALERT_LEVEL_CRITICAL);
   alert_pin_write(BUZZER_PORT,     BUZZER_PIN_NUM, buzzer_on);
 
-  printf("[ALERT] Level -> %s\r\n",
-         level == ALERT_RED ? "RED (danger)"
-         : level == ALERT_YELLOW ? "YELLOW (warning)" : "GREEN (normal)");
+  printf("[ALERT] Level -> %s\r\n", sh_alert_level_name(level));
 }
 
 alert_level_t sh_alert_level(void)
@@ -1010,9 +1016,19 @@ alert_level_t sh_alert_level(void)
   return alert_level;
 }
 
+const char *sh_alert_level_name(alert_level_t level)
+{
+  switch (level) {
+    case ALERT_LEVEL_CRITICAL:     return "CRITICAL (line + patient)";
+    case ALERT_LEVEL_VITALS_ALERT: return "RED (patient)";
+    case ALERT_LEVEL_LINE_WARNING: return "YELLOW (infusion line)";
+    default:                       return "GREEN (normal)";
+  }
+}
+
 static void alert_poll(void)
 {
-  if (alert_level == ALERT_GREEN) {
+  if (alert_level == ALERT_LEVEL_NORMAL) {
     if (buzzer_on) {
       buzzer_on = false;
       alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
@@ -1020,7 +1036,9 @@ static void alert_poll(void)
     return;
   }
 
-  uint32_t period = (alert_level == ALERT_RED)
+  uint32_t period = (alert_level == ALERT_LEVEL_CRITICAL)
+                    ? BUZZER_PERIOD_CRITICAL_MS
+                    : (alert_level == ALERT_LEVEL_VITALS_ALERT)
                     ? BUZZER_PERIOD_RED_MS : BUZZER_PERIOD_YELLOW_MS;
   uint32_t now = now_ms();
 
