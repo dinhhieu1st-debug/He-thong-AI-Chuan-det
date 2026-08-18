@@ -136,8 +136,8 @@ Bảng điều khiển ở trạm điều dưỡng hiển thị thêm một **hu
 
 * SpO2 < 90%
 * Nhịp tim < 45 hoặc > 150
-* Nhịp tim lệch quá 30% so với **nền riêng của chính bệnh nhân đó** (đo trong 60
-  giây đầu sau khi kẹp cảm biến)
+* Nhịp tim lệch quá 30% so với **nền riêng của chính bệnh nhân đó** — trung vị
+  của các mẫu đo được trong 60 giây đầu sau khi kẹp cảm biến
 * Cảm biến **đang hoạt động rồi mất tín hiệu**
 
 **Kêu sau khi giữ liên tục 11 giây** — các tín hiệu do AI phát hiện:
@@ -170,6 +170,20 @@ dụng cho một ca tụt oxy.
 đó là thật thì giường trống cũng kêu "SpO2 0% — nguy kịch". Kênh chưa cắm hiện
 `--`, còn kênh **đã cắm rồi mất tín hiệu** thì đẩy sang cảnh báo — vì cảm biến
 chết **không phải** là bệnh nhân khoẻ.
+
+**Chưa kẹp cảm biến thì KHÔNG chốt nền nhịp tim.** Nền phải là số **đo được** từ
+chính bệnh nhân đó. Nếu hết 60 giây mà chưa thu đủ 20 mẫu thật, thiết bị **khởi
+động lại cửa sổ** thay vì chốt một con số không ai đo:
+
+```
+[HR] Only 0/20 samples in 60s - sensor not attached? Restarting the baseline window.
+```
+
+Chuyện này phát hiện được khi chạy thật: trước đó thiết bị chốt luôn giá trị mặc
+định 80 bpm ngay cả khi chưa cắm cảm biến, rồi **không bao giờ thử lại**. Y tá bật
+máy trước rồi mới kẹp cảm biến — tức là thứ tự bình thường — sẽ khiến mọi bệnh
+nhân có nhịp nghỉ khác 80 bị so với một con số bịa. Một bệnh nhân 131 bpm trông
+như lệch 64% khỏi "nền của họ" và làm nổ luật cứng.
 
 **Nhịp tim nghỉ 55 và 95 đều là bình thường, chỉ khác người.** Cả luật cứng lẫn
 Model 3 đều so với nền riêng của bệnh nhân đó. Bản đầu của Model 3 dùng nhịp tim

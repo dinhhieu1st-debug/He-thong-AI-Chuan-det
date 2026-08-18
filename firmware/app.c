@@ -69,6 +69,50 @@ static uint32_t now_ms(void)
 static bool     calib_done      = false;
 static uint32_t calib_start_ms  = 0;
 
+/* --- Samples collected during the calibration window ----------------------
+ *
+ * Two things were wrong here and both showed up only on real hardware.
+ *
+ * 1. The baseline used to be locked UNCONDITIONALLY at the 60 s mark, even
+ *    with no sensor attached - and sh_hr() returns a fill value in that case.
+ *    The board's own boot log read "HR baseline locked at 80 bpm", a number
+ *    nobody measured, and calib_done was then set so it never retried. Every
+ *    later reading was judged against it: a patient at 131 bpm looked 64% off
+ *    "their" baseline and tripped the hard rule. A nurse who powers the device
+ *    on before clipping the sensor - the normal order - would get this every
+ *    time.
+ *
+ * 2. It took a SINGLE instantaneous sample at the deadline, while the docs
+ *    described a median over the window. One PPG reading is noisy enough that
+ *    a bad instant becomes the patient's reference for the whole infusion.
+ *
+ * So: samples are collected once per second, only while the channel really has
+ * signal, and the baseline is the MEDIAN of them. Too few samples at the
+ * deadline means the sensor was not on the patient, and the window simply
+ * restarts rather than inventing a number. */
+#define HR_CALIB_MIN_SAMPLES  20U
+#define HR_CALIB_MAX_SAMPLES  64U
+static float    hr_calib_buf[HR_CALIB_MAX_SAMPLES];
+static uint8_t  hr_calib_n       = 0;
+static uint32_t hr_calib_last_ms = 0;
+
+/* Median, by insertion sort on a copy. n is at most 64, once per calibration
+ * window - the cost is irrelevant and the code stays obvious. */
+static float hr_calib_median(void)
+{
+  float v[HR_CALIB_MAX_SAMPLES];
+  for (uint8_t i = 0; i < hr_calib_n; i++) { v[i] = hr_calib_buf[i]; }
+  for (uint8_t i = 1; i < hr_calib_n; i++) {
+    float key = v[i];
+    int j = (int)i - 1;
+    while (j >= 0 && v[j] > key) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = key;
+  }
+  return (hr_calib_n & 1u)
+         ? v[hr_calib_n / 2u]
+         : 0.5f * (v[hr_calib_n / 2u - 1u] + v[hr_calib_n / 2u]);
+}
+
 /* Persistent count of completed HR baseline calibrations (never resets) -
  * exists alongside the one-shot hr_baseline_just_completed pulse for the
  * same reason as sensor_hub.c's tare_event_count: a transient pulse can be
@@ -84,8 +128,10 @@ static uint8_t  hr_baseline_event_count = 0;
  * "recalibrate HR baseline" command from the HIS Server). */
 static void app_trigger_hr_recalibration(void)
 {
-  calib_start_ms = now_ms();
-  calib_done     = false;
+  calib_start_ms   = now_ms();
+  calib_done       = false;
+  hr_calib_n       = 0;      /* discard whatever the previous window collected */
+  hr_calib_last_ms = 0;
   printf("[HR] Recalibrating baseline - measuring for the next 60s...\r\n");
 }
 
@@ -595,21 +641,41 @@ void app_process_action(void)
 
   uint32_t now = now_ms();
 
-  /* 2) Calibrate the HR baseline during the first 60s after boot OR after a
-   *    remote recalibration trigger (only meaningful when HR_ENABLED=1).
-   *    While the HR channel isn't connected, sh_hr() returns the baseline
-   *    value so the baseline stays at the default. calib_done/calib_start_ms
-   *    are file-scope (see above) so app_trigger_hr_recalibration() can
-   *    re-arm this window at any time, not just once at boot. */
+  /* 2) Calibrate the patient's own HR baseline over a 60 s window, at boot or
+   *    whenever app_trigger_hr_recalibration() re-arms it. See the notes on
+   *    hr_calib_buf above for the two bugs this shape exists to prevent. */
   static bool hr_baseline_just_completed = false;
-  if (!calib_done && (now - calib_start_ms) < HR_CALIB_MS) {
-    /* Waiting for the settling window; currently HR is DISABLED so this is safely skipped. */
-  } else if (!calib_done) {
-    ai_fusion_set_hr_baseline(sh_hr());  // lock in the baseline after 60s
-    calib_done = true;
-    hr_baseline_just_completed = true;   // one-shot pulse, consumed below in the same tick it fires
-    hr_baseline_event_count++;           // persistent, wraps 255->0 harmlessly - see comment above
-    printf("[HR] 60s baseline sample complete.\r\n");
+  if (!calib_done) {
+    /* Collect one sample per second, and ONLY when the channel really has a
+     * fresh reading. sh_hr() returns a fill value otherwise, and averaging in
+     * fill values would quietly drag the baseline toward a constant. */
+    if ((now - hr_calib_last_ms) >= 1000U && sh_hr_state() == CH_OK
+        && hr_calib_n < HR_CALIB_MAX_SAMPLES) {
+      hr_calib_last_ms = now;
+      hr_calib_buf[hr_calib_n++] = sh_hr();
+    }
+
+    if ((now - calib_start_ms) >= HR_CALIB_MS) {
+      if (hr_calib_n >= HR_CALIB_MIN_SAMPLES) {
+        ai_fusion_set_hr_baseline(hr_calib_median());
+        calib_done = true;
+        hr_baseline_just_completed = true;  /* one-shot, consumed this same tick */
+        hr_baseline_event_count++;          /* persistent, wraps 255->0 harmlessly */
+        printf("[HR] Baseline locked from %u samples over 60s.\r\n",
+               (unsigned)hr_calib_n);
+      } else {
+        /* Not enough real readings - the sensor was not on the patient. Start
+         * the window again instead of locking a number nobody measured. The
+         * device keeps running on the default meanwhile; what it must NOT do is
+         * treat that default as this patient's measured baseline. */
+        printf("[HR] Only %u/%u samples in 60s - sensor not attached? "
+               "Restarting the baseline window.\r\n",
+               (unsigned)hr_calib_n, (unsigned)HR_CALIB_MIN_SAMPLES);
+        calib_start_ms   = now;
+        hr_calib_n       = 0;
+        hr_calib_last_ms = 0;
+      }
+    }
   }
 
   /* 3) Every AI_PERIOD_MS: run the AI + print status. */

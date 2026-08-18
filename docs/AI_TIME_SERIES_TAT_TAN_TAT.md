@@ -200,6 +200,33 @@ nhau **không thể** biểu diễn được hàng đầu tiên của bảng tr�
 Trên dữ liệu thật: gắn cờ **0,16%** số giây bình thường, bắt **99,75%** số giây
 bất thường.
 
+### Nền nhịp tim phải là số ĐO ĐƯỢC
+
+Model 3 và luật cứng đều so với nền riêng của bệnh nhân, nên cơ chế chốt nền
+phải đúng. Chạy trên phần cứng thật lộ ra hai lỗi:
+
+1. Nền bị chốt **vô điều kiện** ở mốc 60 giây, kể cả khi chưa cắm cảm biến — lúc
+   đó `sh_hr()` trả về giá trị mặc định. Log của board ghi
+   `[AI] HR baseline locked at 80 bpm`, một con số không ai đo, rồi `calib_done`
+   được đặt nên **không bao giờ thử lại**. Hệ quả đo được ngay trên bàn: một
+   người thật 131 bpm trông như lệch **64%** khỏi "nền của họ" và làm nổ luật
+   cứng. Y tá bật máy trước rồi mới kẹp cảm biến — thứ tự bình thường — sẽ dính
+   lỗi này mọi lần.
+2. Nó lấy **một mẫu tức thời** ở mốc 60 giây, trong khi tài liệu mô tả là trung
+   vị cả cửa sổ. Một nhịp PPG nhiễu đủ để một khoảnh khắc xấu trở thành mốc tham
+   chiếu cho cả ca truyền.
+
+Nay: thu mẫu mỗi giây và **chỉ khi kênh thật sự có tín hiệu** (`CH_OK`), nền là
+**trung vị** của chúng. Hết 60 giây mà chưa đủ 20 mẫu thật thì **khởi động lại
+cửa sổ** thay vì bịa ra một con số:
+
+```
+[HR] Only 0/20 samples in 60s - sensor not attached? Restarting the baseline window.
+```
+
+Thiết bị vẫn chạy trên giá trị mặc định trong lúc chờ; thứ nó **không** được làm
+là coi giá trị mặc định đó là nền đã đo của bệnh nhân này.
+
 ---
 
 ## 6. Bộ hợp nhất trên chip
