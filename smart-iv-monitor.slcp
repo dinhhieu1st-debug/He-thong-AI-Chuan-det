@@ -102,6 +102,24 @@ component:
   id: zigbee_network_steering
 - package: simplicity_sdk
   vendor: silabs
+  id: zigbee_ota_client
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_debug_print
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_ota_client_policy
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_ota_storage_simple_eeprom
+- package: simplicity_sdk
+  vendor: silabs
+  id: zigbee_ota_storage_simple
+- package: simplicity_sdk
+  vendor: silabs
+  id: bootloader_app_properties
+- package: simplicity_sdk
+  vendor: silabs
   id: zigbee_pro_stack
 - package: simplicity_sdk
   vendor: silabs

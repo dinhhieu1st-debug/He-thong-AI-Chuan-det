@@ -1,7 +1,6 @@
 /***************************************************************************//**
- * @file  zap-event.c
- * @brief Generated file for zcl events using ZAP. Do not update file manually.
- *******************************************************************************
+ * @brief Zigbee OTA Bootload Cluster Storage Common Code component configuration header.
+ *\n*******************************************************************************
  * # License
  * <b>Copyright 2020 Silicon Laboratories Inc. www.silabs.com</b>
  *******************************************************************************
@@ -15,14 +14,16 @@
  *
  ******************************************************************************/
 
-#include "zap-event.h"
+// <<< Use Configuration Wizard in Context Menu >>>
 
-#ifdef SL_CATALOG_ZIGBEE_ZCL_FRAMEWORK_CORE_PRESENT
+// <h>Zigbee OTA Bootload Cluster Storage Common Code configuration
 
-WEAK(void sl_zigbee_af_ota_bootload_cluster_client_tick_cb(uint8_t endpoint))
-{
-	(void)endpoint;
-}
+// <o SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_COMMON_MAX_TAGS_IN_OTA_FILE> Max Tags In OTA File <1-16>
+// <i> Default: 6
+// <i> Maximum amount of tags embedded within an OTA file. Most images will include an Upgrade Image tag, a certificate tag and a signature tag. The default max should be more than enough.
+#define SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_COMMON_MAX_TAGS_IN_OTA_FILE   6
 
+// </h>
 
-#endif // SL_CATALOG_ZIGBEE_ZCL_FRAMEWORK_CORE_PRESENT
+// <<< end of configuration section >>>
+

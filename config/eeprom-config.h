@@ -1,7 +1,6 @@
 /***************************************************************************//**
- * @file sl_cluster_service_gen.h
- * @brief Cluster Service generated code.
- *******************************************************************************
+ * @brief Eeprom driver component configuration header.
+ *\n*******************************************************************************
  * # License
  * <b>Copyright 2021 Silicon Laboratories Inc. www.silabs.com</b>
  *******************************************************************************
@@ -15,16 +14,16 @@
  *
  ******************************************************************************/
 
-#ifndef __SL_CLUSTER_SERVICE_GEN__
-#define __SL_CLUSTER_SERVICE_GEN__ 1
+// <<< Use Configuration Wizard in Context Menu >>>
 
-// This template contains a pre-generated header for the cluster service.
-#include "sl_service_function.h"
+// <h>Eeprom configuration
 
-// Refers to a pregenerated cluster service entries block
-extern sl_service_function_entry_t sli_cluster_service_entries[];
+// <o EMBER_AF_PLUGIN_EEPROM_PARTIAL_WORD_STORAGE_COUNT> Max cache entries <1-64>
+// <i> Default: 8
+// <i> The number of partial words that are stored by this plugin for writing later.  If a subsequent write to the following address of the partial word is made, or a call to sl_zigbee_af_eeprom_flush_saved_partial_writes() is made, then the partial words are written out.
+#define EMBER_AF_PLUGIN_EEPROM_PARTIAL_WORD_STORAGE_COUNT   8
 
-// Number of items in the cluster service entries block
-#define SL_CLUSTER_SERVICE_ENTRY_COUNT (2)
+// </h>
 
-#endif // __SL_CLUSTER_SERVICE_GEN__
+// <<< end of configuration section >>>
+

@@ -21,10 +21,22 @@
 #include "af.h"
 
 
+void sl_zigbee_af_ota_bootload_cluster_client_init_cb (uint8_t endpoint);
+void sl_zigbee_af_ota_bootload_cluster_client_default_response_cb (uint8_t endpoint, uint8_t commandId, sl_zigbee_af_status_t status);
 
 // Array of cluster function (aka cluster action callbacks) structures.
 // Last entry is a dummy, otherwise an empty array would fail IAR builds.
 #define GENERATED_FUNCTION_STRUCTURES_ARRAY  { \
+  {\
+    25u,\
+    (CLUSTER_MASK_CLIENT | CLUSTER_MASK_INIT_FUNCTION),\
+    (sl_zigbee_af_generic_cluster_function_t)sl_zigbee_af_ota_bootload_cluster_client_init_cb\
+  },\
+  {\
+    25u,\
+    (CLUSTER_MASK_CLIENT | CLUSTER_MASK_DEFAULT_RESPONSE_FUNCTION),\
+    (sl_zigbee_af_generic_cluster_function_t)sl_zigbee_af_ota_bootload_cluster_client_default_response_cb\
+  },\
   { 0x8000u,\
     0x00u,\
     (sl_zigbee_af_generic_cluster_function_t)((void *)0)\
@@ -38,4 +50,9 @@
 // can exist for a given cluster and side (client/server).
 // A compilation error in this structure indicates a duplicate "cluster_functions"
 // template contribution.
+
+struct unused_structure {
+int clust_25_client_init_function; 
+int clust_25_client_default_response_function;
+};
 

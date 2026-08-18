@@ -122,6 +122,9 @@ extern "C" {
  ******************************************************************************/
 
 // Provide function declarations
+void sli_eeprom_data_print_command(sl_cli_command_arg_t *arguments);
+void sli_eeprom_status_command(sl_cli_command_arg_t *arguments);
+void sli_eeprom_info_command(sl_cli_command_arg_t *arguments);
 void sli_zigbee_af_cli_info_command(sl_cli_command_arg_t *arguments);
 void printAllLibraryStatus(sl_cli_command_arg_t *arguments);
 void sli_zigbee_af_cli_bsend_command(sl_cli_command_arg_t *arguments);
@@ -143,6 +146,11 @@ void enableDisableEndpoint(sl_cli_command_arg_t *arguments);
 void printEvents(sl_cli_command_arg_t *arguments);
 void getSetMfgToken(sl_cli_command_arg_t *arguments);
 void getSetMfgToken(sl_cli_command_arg_t *arguments);
+void sli_zigbee_debug_print_enable_stack_type_command(sl_cli_command_arg_t *arguments);
+void sli_zigbee_debug_print_enable_core_type_command(sl_cli_command_arg_t *arguments);
+void sli_zigbee_debug_print_enable_app_type_command(sl_cli_command_arg_t *arguments);
+void sli_zigbee_debug_print_enable_zcl_type_command(sl_cli_command_arg_t *arguments);
+void sli_zigbee_debug_print_enable_legacy_af_debug_type_command(sl_cli_command_arg_t *arguments);
 void sl_zigbee_af_network_steering_status_command(sl_cli_command_arg_t *arguments);
 void sl_zigbee_af_network_steering_start_command(sl_cli_command_arg_t *arguments);
 void sl_zigbee_af_network_steering_stop_command(sl_cli_command_arg_t *arguments);
@@ -150,6 +158,23 @@ void sl_zigbee_af_network_steering_set_preconfigured_key_command(sl_cli_command_
 void sl_zigbee_af_network_steering_channel_set_command(sl_cli_command_arg_t *arguments);
 void sl_zigbee_af_network_steering_channel_add_or_subtract_command(sl_cli_command_arg_t *arguments);
 void sl_zigbee_af_network_steering_channel_add_or_subtract_command(sl_cli_command_arg_t *arguments);
+void otaCliBootload(sl_cli_command_arg_t *arguments);
+void otaCliVerify(sl_cli_command_arg_t *arguments);
+void otaPrintClientInfo(sl_cli_command_arg_t *arguments);
+void otaStartClientCommand(sl_cli_command_arg_t *arguments);
+void otaStopClientCommand(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_client_print_state(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_send_image_block_request_test(sl_cli_command_arg_t *arguments);
+void setPageRequest(sl_cli_command_arg_t *arguments);
+void otaSendUpgradeRequest(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_client_disable_downgrades(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_client_enable_downgrades(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_print_all_images(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_image_delete(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_reload_storage_device(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_storage_info_print_command(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_storage_data_print(sl_cli_command_arg_t *arguments);
+void sli_zigbee_af_ota_wipe_storage_device_command(sl_cli_command_arg_t *arguments);
 void sli_zigbee_af_reporting_cli_print(sl_cli_command_arg_t *arguments);
 void sli_zigbee_af_reporting_cli_clear(sl_cli_command_arg_t *arguments);
 void sli_zigbee_af_reporting_cli_remove(sl_cli_command_arg_t *arguments);
@@ -236,6 +261,24 @@ void printTimeCommand(sl_cli_command_arg_t *arguments);
 // Command structs. Names are in the format : cli_cmd_{command group name}_{command name}
 // In order to support hyphen in command and group name, every occurence of it while
 // building struct names will be replaced by "_hyphen_"
+static const sl_cli_command_info_t cli_cmd_eeprom_data_hyphen_print = \
+  SL_CLI_COMMAND(sli_eeprom_data_print_command,
+                 "",
+                  "offset" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT32, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_eeprom_status = \
+  SL_CLI_COMMAND(sli_eeprom_status_command,
+                 "",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_eeprom_info = \
+  SL_CLI_COMMAND(sli_eeprom_info_command,
+                 "",
+                  "",
+                 {SL_CLI_ARG_END, });
+
 static const sl_cli_command_info_t cli_cmd__info = \
   SL_CLI_COMMAND(sli_zigbee_af_cli_info_command,
                  "Prints information about the network state, clusters, and endpoints.",
@@ -362,6 +405,36 @@ static const sl_cli_command_info_t cli_cmd_mfg_hyphen_token_set = \
                   "",
                  {SL_CLI_ARG_END, });
 
+static const sl_cli_command_info_t cli_cmd_enable_type_stack = \
+  SL_CLI_COMMAND(sli_zigbee_debug_print_enable_stack_type_command,
+                 "Enable/disable debug `stack` print type.",
+                  "Enable/disable" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_enable_type_core = \
+  SL_CLI_COMMAND(sli_zigbee_debug_print_enable_core_type_command,
+                 "Enable/disable debug `core` print type.",
+                  "Enable/disable" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_enable_type_app = \
+  SL_CLI_COMMAND(sli_zigbee_debug_print_enable_app_type_command,
+                 "Enable/disable debug `app` print type.",
+                  "Enable/disable" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_enable_type_zcl = \
+  SL_CLI_COMMAND(sli_zigbee_debug_print_enable_zcl_type_command,
+                 "Enable/disable debug `zcl` print type.",
+                  "Enable/disable" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_enable_type_legacy_af_debug = \
+  SL_CLI_COMMAND(sli_zigbee_debug_print_enable_legacy_af_debug_type_command,
+                 "Enable/disable debug `legacy app framework debug` print type.",
+                  "Enable/disable" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
 static const sl_cli_command_info_t cli_cmd_network_hyphen_steering_status = \
   SL_CLI_COMMAND(sl_zigbee_af_network_steering_status_command,
                  "Displays the current status of the network steering process.",
@@ -403,6 +476,108 @@ static const sl_cli_command_info_t cli_cmd_shell_mask_1_subtract = \
                  "Subtracts a channel from either the primary or secondary channel mask of the network-steering component.",
                   "The channel mask to subtract the channel from" SL_CLI_UNIT_SEPARATOR "The channel to subtract the mask from" SL_CLI_UNIT_SEPARATOR,
                  {SL_CLI_ARG_UINT8, SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_bootload = \
+  SL_CLI_COMMAND(otaCliBootload,
+                 "Bootloads the image at the specified index by calling the OTA bootload callback.",
+                  "The index at which to begin bootloading the image" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_verify = \
+  SL_CLI_COMMAND(otaCliVerify,
+                 "Performs signature verification on the image at the specified index.",
+                  "The index at which to begin verification of the image" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_info = \
+  SL_CLI_COMMAND(otaPrintClientInfo,
+                 "Prints the manufacturer ID, Image Type ID, and Version information that are used when a query next image is sent to the server by the client.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_start = \
+  SL_CLI_COMMAND(otaStartClientCommand,
+                 "Starts the OTA client state machine. The state machine discovers the OTA server, queries for new images, downloads the images and waits for the server command to upgrade.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_stop = \
+  SL_CLI_COMMAND(otaStopClientCommand,
+                 "Stops the OTA state machine.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_status = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_client_print_state,
+                 "Prints information on the current state of the OTA client download.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_block_hyphen_test = \
+  SL_CLI_COMMAND(sli_zigbee_af_send_image_block_request_test,
+                 "Sends an image block request for a file the server should not have.  Test harness only (test case 9.5.6 - Missing File)",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_page_hyphen_request = \
+  SL_CLI_COMMAND(setPageRequest,
+                 "Can be used to dynamically turn off sending page requests on the client side, if the server doesn't support this feature.",
+                  "Boolean value turning on (1) or off (0) the page request flag" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_upgrade_hyphen_request = \
+  SL_CLI_COMMAND(otaSendUpgradeRequest,
+                 "Sends an UpgradeEndRequest to an OTA server.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_disable_hyphen_downgrades = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_client_disable_downgrades,
+                 "Disables OTA downgrades.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_client_enable_hyphen_downgrades = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_client_enable_downgrades,
+                 "Enables OTA downgrades.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_storage_hyphen_common_printImages = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_print_all_images,
+                 "Prints the images.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_storage_hyphen_common_delete = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_image_delete,
+                 "Deletes the image at the specified index.",
+                  "The index at which to begin deleting the image" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_storage_hyphen_common_reload = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_reload_storage_device,
+                 "Reload the storage device.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_storage_hyphen_common_storage_hyphen_info = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_storage_info_print_command,
+                 "Prints information about the storage device.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_storage_hyphen_common_data_hyphen_print = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_storage_data_print,
+                 "Prints arbitrary bytes of the OTA image on disk.",
+                  "The index of the image to print its data" SL_CLI_UNIT_SEPARATOR "The offset into the OTA image that will be printed" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT8, SL_CLI_ARG_UINT32, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_ota_hyphen_storage_hyphen_eeprom_wipe = \
+  SL_CLI_COMMAND(sli_zigbee_af_ota_wipe_storage_device_command,
+                 "Wipes all data in the storage device.",
+                  "",
+                 {SL_CLI_ARG_END, });
 
 static const sl_cli_command_info_t cli_cmd_reporting_print = \
   SL_CLI_COMMAND(sli_zigbee_af_reporting_cli_print,
@@ -900,6 +1075,15 @@ static const sl_cli_command_info_t cli_cmd_print_time = \
 // Create group command tables and structs if cli_groups given
 // in template. Group name is suffixed with _group_table for tables
 // and group commands are cli_cmd_grp_( group name )
+static const sl_cli_command_entry_t eeprom_group_table[] = {
+  { "data-print", &cli_cmd_eeprom_data_hyphen_print, false },
+  { "status", &cli_cmd_eeprom_status, false },
+  { "info", &cli_cmd_eeprom_info, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_eeprom = \
+  SL_CLI_COMMAND_GROUP(eeprom_group_table, "eeprom utility related commands");
+
 static const sl_cli_command_entry_t endpoints_group_table[] = {
   { "print", &cli_cmd_endpoints_print, false },
   { "enable", &cli_cmd_endpoints_enable, false },
@@ -936,6 +1120,24 @@ static const sl_cli_command_entry_t security_group_table[] = {
 static const sl_cli_command_info_t cli_cmd_grp_security = \
   SL_CLI_COMMAND_GROUP(security_group_table, "security related commands");
 
+static const sl_cli_command_entry_t enable_type_group_table[] = {
+  { "stack", &cli_cmd_enable_type_stack, false },
+  { "core", &cli_cmd_enable_type_core, false },
+  { "app", &cli_cmd_enable_type_app, false },
+  { "zcl", &cli_cmd_enable_type_zcl, false },
+  { "legacy_af_debug", &cli_cmd_enable_type_legacy_af_debug, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_enable_type = \
+  SL_CLI_COMMAND_GROUP(enable_type_group_table, "");
+
+static const sl_cli_command_entry_t zigbee_print_group_table[] = {
+  { "enable_type", &cli_cmd_grp_enable_type, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_zigbee_print = \
+  SL_CLI_COMMAND_GROUP(zigbee_print_group_table, "");
+
 static const sl_cli_command_entry_t shell_mask_1_group_table[] = {
   { "set", &cli_cmd_shell_mask_1_set, false },
   { "add", &cli_cmd_shell_mask_1_add, false },
@@ -955,6 +1157,41 @@ static const sl_cli_command_entry_t network_hyphen_steering_group_table[] = {
 };
 static const sl_cli_command_info_t cli_cmd_grp_network_hyphen_steering = \
   SL_CLI_COMMAND_GROUP(network_hyphen_steering_group_table, "network-steering related commands.");
+
+static const sl_cli_command_entry_t ota_hyphen_client_group_table[] = {
+  { "bootload", &cli_cmd_ota_hyphen_client_bootload, false },
+  { "verify", &cli_cmd_ota_hyphen_client_verify, false },
+  { "info", &cli_cmd_ota_hyphen_client_info, false },
+  { "start", &cli_cmd_ota_hyphen_client_start, false },
+  { "stop", &cli_cmd_ota_hyphen_client_stop, false },
+  { "status", &cli_cmd_ota_hyphen_client_status, false },
+  { "block-test", &cli_cmd_ota_hyphen_client_block_hyphen_test, false },
+  { "page-request", &cli_cmd_ota_hyphen_client_page_hyphen_request, false },
+  { "upgrade-request", &cli_cmd_ota_hyphen_client_upgrade_hyphen_request, false },
+  { "disable-downgrades", &cli_cmd_ota_hyphen_client_disable_hyphen_downgrades, false },
+  { "enable-downgrades", &cli_cmd_ota_hyphen_client_enable_hyphen_downgrades, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_ota_hyphen_client = \
+  SL_CLI_COMMAND_GROUP(ota_hyphen_client_group_table, "ota-client related commands.");
+
+static const sl_cli_command_entry_t ota_hyphen_storage_hyphen_common_group_table[] = {
+  { "printImages", &cli_cmd_ota_hyphen_storage_hyphen_common_printImages, false },
+  { "delete", &cli_cmd_ota_hyphen_storage_hyphen_common_delete, false },
+  { "reload", &cli_cmd_ota_hyphen_storage_hyphen_common_reload, false },
+  { "storage-info", &cli_cmd_ota_hyphen_storage_hyphen_common_storage_hyphen_info, false },
+  { "data-print", &cli_cmd_ota_hyphen_storage_hyphen_common_data_hyphen_print, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_ota_hyphen_storage_hyphen_common = \
+  SL_CLI_COMMAND_GROUP(ota_hyphen_storage_hyphen_common_group_table, "ota-storage-common related commands");
+
+static const sl_cli_command_entry_t ota_hyphen_storage_hyphen_eeprom_group_table[] = {
+  { "wipe", &cli_cmd_ota_hyphen_storage_hyphen_eeprom_wipe, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_ota_hyphen_storage_hyphen_eeprom = \
+  SL_CLI_COMMAND_GROUP(ota_hyphen_storage_hyphen_eeprom_group_table, "ota-storage-eeprom related commands.");
 
 static const sl_cli_command_entry_t reporting_group_table[] = {
   { "print", &cli_cmd_reporting_print, false },
@@ -990,6 +1227,9 @@ static const sl_cli_command_info_t cli_cmd_grp_update_hyphen_tc_hyphen_link_hyph
 
 static const sl_cli_command_entry_t plugin_group_table[] = {
   { "network-steering", &cli_cmd_grp_network_hyphen_steering, false },
+  { "ota-client", &cli_cmd_grp_ota_hyphen_client, false },
+  { "ota-storage-common", &cli_cmd_grp_ota_hyphen_storage_hyphen_common, false },
+  { "ota-storage-eeprom", &cli_cmd_grp_ota_hyphen_storage_hyphen_eeprom, false },
   { "reporting", &cli_cmd_grp_reporting, false },
   { "idle-sleep", &cli_cmd_grp_idle_hyphen_sleep, false },
   { "update-tc-link-key", &cli_cmd_grp_update_hyphen_tc_hyphen_link_hyphen_key, false },
@@ -1172,8 +1412,10 @@ const sl_cli_command_entry_t sl_cli_default_command_table[] = {
   { "version", &cli_cmd__version, false },
   { "events", &cli_cmd__events, false },
   { "energy-scan", &cli_cmd__energy_hyphen_scan, false },
+  { "eeprom", &cli_cmd_grp_eeprom, false },
   { "endpoints", &cli_cmd_grp_endpoints, false },
   { "security", &cli_cmd_grp_security, false },
+  { "zigbee_print", &cli_cmd_grp_zigbee_print, false },
   { "plugin", &cli_cmd_grp_plugin, false },
   { "network", &cli_cmd_grp_network, false },
   { "net", &cli_cmd_grp_network, true },

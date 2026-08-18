@@ -12,17 +12,21 @@
 // values and externally saved values. Separate block is generated for
 // big-endian and little-endian cases.
 
-#define ZCL_GENERATED_DEFAULTS_COUNT (2)
+#define ZCL_GENERATED_DEFAULTS_COUNT (4)
 
 #if BIGENDIAN_CPU
 #define ZCL_GENERATED_DEFAULTS { \
   0x04, 'I', 'C', 'T', 'U', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0,DEFAULT value for cluster: Basic, attribute: manufacturer name, side: server */ \
   0x0E, 'S', 'm', 'a', 'r', 't', 'I', 'V', '-', 'S', 'e', 'n', 's', 'o', 'r', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 33,DEFAULT value for cluster: Basic, attribute: model identifier, side: server */ \
+  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* 66,DEFAULT value for cluster: Over the Air Bootloading, attribute: OTA Upgrade Server ID, side: client */ \
+  0xFF, 0xFF, 0xFF, 0xFF, /* 74,DEFAULT value for cluster: Over the Air Bootloading, attribute: Offset (address) into the file, side: client */ \
 }
 #else //!BIGENDIAN_CPU
 #define ZCL_GENERATED_DEFAULTS { \
   0x04, 'I', 'C', 'T', 'U', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0,DEFAULT value for cluster: Basic, attribute: manufacturer name, side: server */ \
   0x0E, 'S', 'm', 'a', 'r', 't', 'I', 'V', '-', 'S', 'e', 'n', 's', 'o', 'r', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 33,DEFAULT value for cluster: Basic, attribute: model identifier, side: server */ \
+  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* 66,DEFAULT value for cluster: Over the Air Bootloading, attribute: OTA Upgrade Server ID, side: client */ \
+  0xFF, 0xFF, 0xFF, 0xFF, /* 74,DEFAULT value for cluster: Over the Air Bootloading, attribute: Offset (address) into the file, side: client */ \
 }
 #endif
 
@@ -33,7 +37,7 @@
 	#define ZCL_GENERATED_MIN_MAX_DEFAULTS { { { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 } } }
 
 
-#define ZCL_GENERATED_ATTRIBUTE_COUNT (29)
+#define ZCL_GENERATED_ATTRIBUTE_COUNT (33)
 
 // This is an array of sl_zigbee_af_attribute_metadata_t structures.
 #define ZCL_GENERATED_ATTRIBUTES { \
@@ -42,40 +46,45 @@
 	  { 0x0005, ZCL_CHAR_STRING_ATTRIBUTE_TYPE, 33, (ATTRIBUTE_MASK_SINGLETON), { (uint8_t*)&(generatedDefaults[33]) } }, /* 2 Cluster: Basic, Attribute: model identifier, Side: server*/ \
 	  { 0x0007, ZCL_ENUM8_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_SINGLETON), { (uint8_t*)0x00  } }, /* 3 Cluster: Basic, Attribute: power source, Side: server*/ \
 		  { 0xFFFD, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_SINGLETON), { (uint8_t*)3  } }, /* 4 Cluster: Basic, Attribute: cluster revision, Side: server*/ \
-		  { 0x0000, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 5 Cluster: Smart IV Vitals, Attribute: HeartRate, Side: server*/ \
-		  { 0x0001, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 6 Cluster: Smart IV Vitals, Attribute: Spo2, Side: server*/ \
-		  { 0x0002, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 7 Cluster: Smart IV Vitals, Attribute: FlowRatio, Side: server*/ \
-		  { 0x0003, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 8 Cluster: Smart IV Vitals, Attribute: DropRatio, Side: server*/ \
-		  { 0x0004, ZCL_BITMAP16_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 9 Cluster: Smart IV Vitals, Attribute: AlarmBitmap, Side: server*/ \
-		  { 0x0005, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 10 Cluster: Smart IV Vitals, Attribute: WeightG, Side: server*/ \
-		  { 0x0006, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 11 Cluster: Smart IV Vitals, Attribute: DropsPerMin, Side: server*/ \
-		  { 0x0007, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0064  } }, /* 12 Cluster: Smart IV Vitals, Attribute: TargetFlowMlH, Side: server*/ \
-		  { 0x0008, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0014  } }, /* 13 Cluster: Smart IV Vitals, Attribute: TargetDropsPerMin, Side: server*/ \
-		  { 0x0009, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 14 Cluster: Smart IV Vitals, Attribute: TareCommand, Side: server*/ \
-		  { 0x000A, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 15 Cluster: Smart IV Vitals, Attribute: HrRecalibrateCommand, Side: server*/ \
-		  { 0x000B, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 16 Cluster: Smart IV Vitals, Attribute: HrBaselineSecondsRemaining, Side: server*/ \
-		  { 0x000C, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 17 Cluster: Smart IV Vitals, Attribute: HrBaselineBpm, Side: server*/ \
-		  { 0x000D, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 18 Cluster: Smart IV Vitals, Attribute: TareEventCount, Side: server*/ \
-		  { 0x000E, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 19 Cluster: Smart IV Vitals, Attribute: HrBaselineEventCount, Side: server*/ \
-		  { 0x000F, ZCL_BITMAP16_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 20 Cluster: Smart IV Vitals, Attribute: TsFlags, Side: server*/ \
-		  { 0x0010, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 21 Cluster: Smart IV Vitals, Attribute: HrForecast16s, Side: server*/ \
-		  { 0x0011, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 22 Cluster: Smart IV Vitals, Attribute: Spo2Forecast16s, Side: server*/ \
-		  { 0x0012, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 23 Cluster: Smart IV Vitals, Attribute: HrTrendBpmPerMin, Side: server*/ \
-		  { 0x0013, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 24 Cluster: Smart IV Vitals, Attribute: TsAnomalyScoreX100, Side: server*/ \
-		  { 0x0014, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 25 Cluster: Smart IV Vitals, Attribute: DropsForecast16s, Side: server*/ \
-		  { 0x0015, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 26 Cluster: Smart IV Vitals, Attribute: DropsTrendDpmPerMin, Side: server*/ \
-		  { 0x0016, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 27 Cluster: Smart IV Vitals, Attribute: RemainingMl, Side: server*/ \
-		  { 0x0017, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } } /* 28 Cluster: Smart IV Vitals, Attribute: RemainingMin, Side: server*/ \
+		  { 0x0000, ZCL_IEEE_ADDRESS_ATTRIBUTE_TYPE, 8, (ATTRIBUTE_MASK_CLIENT), { (uint8_t*)&(generatedDefaults[66]) } }, /* 5 Cluster: Over the Air Bootloading, Attribute: OTA Upgrade Server ID, Side: client*/ \
+	  { 0x0001, ZCL_INT32U_ATTRIBUTE_TYPE, 4, (ATTRIBUTE_MASK_CLIENT), { (uint8_t*)&(generatedDefaults[74]) } }, /* 6 Cluster: Over the Air Bootloading, Attribute: Offset (address) into the file, Side: client*/ \
+	  { 0x0006, ZCL_ENUM8_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_CLIENT), { (uint8_t*)0x00  } }, /* 7 Cluster: Over the Air Bootloading, Attribute: OTA Upgrade Status, Side: client*/ \
+		  { 0xFFFD, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_CLIENT), { (uint8_t*)4  } }, /* 8 Cluster: Over the Air Bootloading, Attribute: cluster revision, Side: client*/ \
+		  { 0x0000, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 9 Cluster: Smart IV Vitals, Attribute: HeartRate, Side: server*/ \
+		  { 0x0001, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 10 Cluster: Smart IV Vitals, Attribute: Spo2, Side: server*/ \
+		  { 0x0002, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 11 Cluster: Smart IV Vitals, Attribute: FlowRatio, Side: server*/ \
+		  { 0x0003, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 12 Cluster: Smart IV Vitals, Attribute: DropRatio, Side: server*/ \
+		  { 0x0004, ZCL_BITMAP16_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 13 Cluster: Smart IV Vitals, Attribute: AlarmBitmap, Side: server*/ \
+		  { 0x0005, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 14 Cluster: Smart IV Vitals, Attribute: WeightG, Side: server*/ \
+		  { 0x0006, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 15 Cluster: Smart IV Vitals, Attribute: DropsPerMin, Side: server*/ \
+		  { 0x0007, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0064  } }, /* 16 Cluster: Smart IV Vitals, Attribute: TargetFlowMlH, Side: server*/ \
+		  { 0x0008, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0014  } }, /* 17 Cluster: Smart IV Vitals, Attribute: TargetDropsPerMin, Side: server*/ \
+		  { 0x0009, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 18 Cluster: Smart IV Vitals, Attribute: TareCommand, Side: server*/ \
+		  { 0x000A, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 19 Cluster: Smart IV Vitals, Attribute: HrRecalibrateCommand, Side: server*/ \
+		  { 0x000B, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 20 Cluster: Smart IV Vitals, Attribute: HrBaselineSecondsRemaining, Side: server*/ \
+		  { 0x000C, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 21 Cluster: Smart IV Vitals, Attribute: HrBaselineBpm, Side: server*/ \
+		  { 0x000D, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 22 Cluster: Smart IV Vitals, Attribute: TareEventCount, Side: server*/ \
+		  { 0x000E, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 23 Cluster: Smart IV Vitals, Attribute: HrBaselineEventCount, Side: server*/ \
+		  { 0x000F, ZCL_BITMAP16_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 24 Cluster: Smart IV Vitals, Attribute: TsFlags, Side: server*/ \
+		  { 0x0010, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 25 Cluster: Smart IV Vitals, Attribute: HrForecast16s, Side: server*/ \
+		  { 0x0011, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 26 Cluster: Smart IV Vitals, Attribute: Spo2Forecast16s, Side: server*/ \
+		  { 0x0012, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 27 Cluster: Smart IV Vitals, Attribute: HrTrendBpmPerMin, Side: server*/ \
+		  { 0x0013, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 28 Cluster: Smart IV Vitals, Attribute: TsAnomalyScoreX100, Side: server*/ \
+		  { 0x0014, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 29 Cluster: Smart IV Vitals, Attribute: DropsForecast16s, Side: server*/ \
+		  { 0x0015, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 30 Cluster: Smart IV Vitals, Attribute: DropsTrendDpmPerMin, Side: server*/ \
+		  { 0x0016, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 31 Cluster: Smart IV Vitals, Attribute: RemainingMl, Side: server*/ \
+		  { 0x0017, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } } /* 32 Cluster: Smart IV Vitals, Attribute: RemainingMin, Side: server*/ \
 		 }
 
  
 
-#define ZCL_GENERATED_CLUSTER_COUNT (2)
+#define ZCL_GENERATED_CLUSTER_COUNT (3)
 	
 // This is an array of sl_zigbee_af_cluster_t structures.
 #define ZCL_GENERATED_CLUSTERS { \
   { 0x0000, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[0]), 5, 0, CLUSTER_MASK_SERVER, NULL }, /* 0, Endpoint Id: 1, Cluster: Basic, Side: server*/ \
-	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 24, 43, CLUSTER_MASK_SERVER, NULL } /* 1, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
+	  { 0x0019, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 4, 15, CLUSTER_MASK_CLIENT, NULL }, /* 1, Endpoint Id: 1, Cluster: Over the Air Bootloading, Side: client*/ \
+	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[9]), 24, 43, CLUSTER_MASK_SERVER, NULL } /* 2, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
 	 }
 
  
@@ -83,8 +92,8 @@
 
 // This is an array of sl_zigbee_af_endpoint_type_t structures.
 #define ZCL_GENERATED_ENDPOINT_TYPES { \
-  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[0])), 1, 0 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[1])), 1, 43 }, \
+  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[0])), 2, 15 }, \
+	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[2])), 1, 43 }, \
 	 } 
 // Largest attribute size is needed for various buffers
 #define ZCL_ATTRIBUTE_LARGEST (33)
@@ -93,7 +102,7 @@
 #define ZCL_ATTRIBUTE_SINGLETONS_SIZE (70)
 
 // Total size of attribute storage
-#define ZCL_ATTRIBUTE_MAX_SIZE (43)
+#define ZCL_ATTRIBUTE_MAX_SIZE (58)
 
 // Number of fixed endpoints	
 #define ZCL_FIXED_ENDPOINT_COUNT (2)
@@ -137,26 +146,30 @@
 
 // Array of sl_zigbee_af_command_metadata_t structs.
 #define ZCL_ZAP_COMMAND_MASK(mask) COMMAND_MASK_ ## mask
-	#define SL_ZIGBEE_ZCL_GENERATED_COMMAND_COUNT (0)
-	#define ZCL_GENERATED_COMMANDS { }
-
+#define SL_ZIGBEE_ZCL_GENERATED_COMMAND_COUNT  (7)
+#define ZCL_GENERATED_COMMANDS { \
+  { 0x0019, 0x00, COMMAND_MASK_INCOMING_CLIENT }, /* 0, Cluster: Over the Air Bootloading, Command: ImageNotify*/ \
+	  { 0x0019, 0x01, COMMAND_MASK_OUTGOING_CLIENT }, /* 1, Cluster: Over the Air Bootloading, Command: QueryNextImageRequest*/ \
+	  { 0x0019, 0x02, COMMAND_MASK_INCOMING_CLIENT }, /* 2, Cluster: Over the Air Bootloading, Command: QueryNextImageResponse*/ \
+	  { 0x0019, 0x03, COMMAND_MASK_OUTGOING_CLIENT }, /* 3, Cluster: Over the Air Bootloading, Command: ImageBlockRequest*/ \
+	  { 0x0019, 0x05, COMMAND_MASK_INCOMING_CLIENT }, /* 4, Cluster: Over the Air Bootloading, Command: ImageBlockResponse*/ \
+	  { 0x0019, 0x06, COMMAND_MASK_OUTGOING_CLIENT }, /* 5, Cluster: Over the Air Bootloading, Command: UpgradeEndRequest*/ \
+	  { 0x0019, 0x07, COMMAND_MASK_INCOMING_CLIENT }, /* 6, Cluster: Over the Air Bootloading, Command: UpgradeEndResponse*/ \
+	 } 
 // Array of sl_zigbee_af_manufacturer_code_entry_t structures for commands.
 #define ZCL_GENERATED_COMMAND_MANUFACTURER_CODE_COUNT (0)
-#define ZCL_GENERATED_COMMAND_MANUFACTURER_CODES { }
-
+#define ZCL_GENERATED_COMMAND_MANUFACTURER_CODES { \
+  { 0x00, 0x00 }  \
+							 } 
 // This is an array of sl_zigbee_af_manufacturer_code_entry_t structures for clusters.
 #define ZCL_GENERATED_CLUSTER_MANUFACTURER_CODE_COUNT (1)
 #define ZCL_GENERATED_CLUSTER_MANUFACTURER_CODES { \
-	  { 1, 0x1049 },  \
+		  { 2, 0x1049 },  \
 	 } 
 // This is an array of sl_zigbee_af_manufacturer_code_entry_t structures for attributes.
 #define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (24)
 #define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODES { \
-					  { 5, 0x1049 },  \
-	  { 6, 0x1049 },  \
-	  { 7, 0x1049 },  \
-	  { 8, 0x1049 },  \
-	  { 9, 0x1049 },  \
+									  { 9, 0x1049 },  \
 	  { 10, 0x1049 },  \
 	  { 11, 0x1049 },  \
 	  { 12, 0x1049 },  \
@@ -176,6 +189,10 @@
 	  { 26, 0x1049 },  \
 	  { 27, 0x1049 },  \
 	  { 28, 0x1049 },  \
+	  { 29, 0x1049 },  \
+	  { 30, 0x1049 },  \
+	  { 31, 0x1049 },  \
+	  { 32, 0x1049 },  \
 	 } 
 // Array of sl_zigbee_af_plugin_reporting_entry_t structures.
 #define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS_TABLE_SIZE (22)
@@ -209,10 +226,12 @@
 
 // All Enabled Clusters
 #define ZCL_USING_BASIC_CLUSTER_SERVER
+#define ZCL_USING_OTA_BOOTLOAD_CLUSTER_CLIENT
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_SERVER
 
 // Cluster Counts
 #define SL_ZIGBEE_ZCL_BASIC_CLUSTER_SERVER_ENDPOINT_COUNT (1)
+#define SL_ZIGBEE_ZCL_OTA_BOOTLOAD_CLUSTER_CLIENT_ENDPOINT_COUNT (1)
 #define SL_ZIGBEE_ZCL_SMART_IV_VITALS_CLUSTER_SERVER_ENDPOINT_COUNT (1)
 
 // All Enabled Cluster Attributes
@@ -221,6 +240,10 @@
 #define ZCL_USING_BASIC_CLUSTER_MODEL_IDENTIFIER_ATTRIBUTE
 #define ZCL_USING_BASIC_CLUSTER_POWER_SOURCE_ATTRIBUTE
 #define ZCL_USING_BASIC_CLUSTER_CLUSTER_REVISION_SERVER_ATTRIBUTE
+#define ZCL_USING_OTA_BOOTLOAD_CLUSTER_UPGRADE_SERVER_ID_ATTRIBUTE
+#define ZCL_USING_OTA_BOOTLOAD_CLUSTER_FILE_OFFSET_ATTRIBUTE
+#define ZCL_USING_OTA_BOOTLOAD_CLUSTER_IMAGE_UPGRADE_STATUS_ATTRIBUTE
+#define ZCL_USING_OTA_BOOTLOAD_CLUSTER_CLUSTER_REVISION_CLIENT_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_HEART_RATE_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_SPO2_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_FLOW_RATIO_ATTRIBUTE

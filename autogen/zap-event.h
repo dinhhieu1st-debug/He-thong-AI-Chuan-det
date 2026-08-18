@@ -24,12 +24,17 @@
 #include "app/framework/include/af.h"
 
 #define SL_ZIGBEE_AF_GENERATED_UC_EVENTS_DEF \
+sl_zigbee_af_event_t sl_zigbee_af_ota_bootload_cluster_client_tick_cbEvent1; \
 
 
 #define SL_ZIGBEE_AF_GENERATED_UC_EVENTS_INIT \
+extern void sl_zigbee_af_ota_bootload_cluster_client_tick_cb(uint8_t endpoint); \
+sl_zigbee_af_endpoint_event_init(&sl_zigbee_af_ota_bootload_cluster_client_tick_cbEvent1, (void *)sl_zigbee_af_ota_bootload_cluster_client_tick_cb, 1); \
 
 // sl_zigbee_event_context_t structs used to populate the sli_zigbee_app_event_context table
 #define SL_ZIGBEE_AF_GENERATED_UC_EVENT_CONTEXT \
+{ 1, 0x19, true, SL_ZIGBEE_AF_LONG_POLL, SL_ZIGBEE_AF_OK_TO_SLEEP, &sl_zigbee_af_ota_bootload_cluster_client_tick_cbEvent1 },     \
 
 
 #endif // SL_CATALOG_ZIGBEE_ZCL_FRAMEWORK_CORE_PRESENT
+#define SL_ZIGBEE_AF_GENERATED_UC_EVENT_CONTEXT_COUNT 1

@@ -1,8 +1,15 @@
 #CRC Codes for initially generated config files -- do not modify!
+app_properties_config.h=-1164457435
+btl_interface_cfg.h=528443054
 dmadrv_config.h=1721329697
+eeprom-config.h=-118846514
 legacy_hal_config.h=813287532
 network-steering-config.h=-2116578458
 nvm3_default_config.h=2103899018
+ota-client-config.h=-1663262864
+ota-client-policy-config.h=-1952977543
+ota-storage-common-config.h=630641984
+ota-storage-simple-eeprom-config.h=-1684277080
 prioconf/priority_config.prioconf=207881807
 psa_crypto_config.h=508311426
 reporting-config.h=1961559678
@@ -38,6 +45,7 @@ sl_rail_util_sequencer_config.h=-1403550863
 sl_sleeptimer_config.h=1108469985
 sl_tflite_micro_config.h=1197656093
 sl_token_manager_config.h=1759393914
+sl_zigbee_debug_print_config.h=-1234828960
 sl_zigbee_pro_stack_config.h=2094128865
 update-tc-link-key-config.h=-1177564625
 zcl-framework-core-config.h=528643418

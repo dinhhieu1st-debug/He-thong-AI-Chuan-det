@@ -153,6 +153,10 @@ void sli_zigbee_af_network_steering_stack_status_callback(
       // Stack status
       sl_status_t status)
 ;
+void sl_zigbee_af_ota_client_stack_status_cb(
+      // Stack status
+      sl_status_t status)
+;
 void sli_zigbee_af_reporting_stack_status_callback(
       // Stack status
       sl_status_t status)
@@ -445,6 +449,10 @@ void sli_zigbee_af_dsa_sign(
 
 // Dsa Verify
 void sli_zigbee_af_dsa_verify(
+      // The result of the DSA verification operation.
+      sl_status_t status)
+;
+void sli_zigbee_af_dsa_verify_callback(
       // The result of the DSA verification operation.
       sl_status_t status)
 ;

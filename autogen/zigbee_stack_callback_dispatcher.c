@@ -231,6 +231,8 @@ sli_zigbee_af_stack_status_callback(status);
 
 sli_zigbee_af_network_steering_stack_status_callback(status);
 
+sl_zigbee_af_ota_client_stack_status_cb(status);
+
 sli_zigbee_af_reporting_stack_status_callback(status);
 
 sli_zigbee_af_update_tc_link_key_stack_status_callback(status);
@@ -707,6 +709,8 @@ void sli_zigbee_af_dsa_verify(
 {
 
 
+
+sli_zigbee_af_dsa_verify_callback(status);
 (void)status;
 }
 
