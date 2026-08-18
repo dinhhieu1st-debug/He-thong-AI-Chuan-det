@@ -134,26 +134,58 @@ const DevicesTab = (() => {
       </div>`;
   }
 
+  /* Which device the detail panel is currently BUILT for.
+   *
+   * A bedside sensor reports about once a second, and every report used to
+   * rebuild this whole panel: the log flashed back to "Loading…" once a
+   * second, and anything half-typed in the form below it was wiped. So the
+   * panel is built once per selected device, and the handful of fields that
+   * really do change are written in place afterwards. */
+  let builtDetailId = null;
+
+  function detailVolatileHtml(device) {
+    return {
+      detailBattery: UiUtils.formatMetric(device.batteryPercent, "%"),
+      detailRssi:    UiUtils.formatMetric(device.rssi, " dBm"),
+      detailLastSeen:`Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}`,
+      detailLastData:`Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}`,
+      detailSignal:  `Signal: ${linkLabel(device.linkQuality)}`,
+    };
+  }
+
   function renderDetail() {
     const panel = document.getElementById("deviceDetailPanel");
     const device = selectedDeviceId ? State.devices.get(selectedDeviceId) : null;
     if (!device) {
       panel.style.display = "none";
+      builtDetailId = null;
       return;
     }
 
+    /* Same device as last time: touch only the live numbers and leave the log,
+     * the form and the caret exactly where they are. */
+    if (builtDetailId === device.deviceId) {
+      const fields = detailVolatileHtml(device);
+      for (const [id, text] of Object.entries(fields)) {
+        const el = document.getElementById(id);
+        if (el && el.textContent !== text) el.textContent = text;
+      }
+      return;
+    }
+
+    builtDetailId = device.deviceId;
     panel.style.display = "block";
     panel.innerHTML = `
       <h3>${UiUtils.escapeHtml(device.deviceId)}</h3>
       <div class="sub">${UiUtils.escapeHtml(device.deviceType.toUpperCase())} · ${UiUtils.escapeHtml((device.status || "").toUpperCase())}</div>
       <div class="metric-row">
-        <div class="metric"><b>${UiUtils.formatMetric(device.batteryPercent, "%")}</b><span>Battery</span></div>
-        <div class="metric"><b>${UiUtils.formatMetric(device.rssi, " dBm")}</b><span>RSSI</span></div>
+        <div class="metric"><b id="detailBattery">${UiUtils.formatMetric(device.batteryPercent, "%")}</b><span>Battery</span></div>
+        <div class="metric"><b id="detailRssi">${UiUtils.formatMetric(device.rssi, " dBm")}</b><span>RSSI</span></div>
       </div>
       <div class="bed-updated">EUI-64: ${UiUtils.escapeHtml(device.eui64 || "--")}</div>
-      <div class="bed-updated">Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}</div>
-      <div class="bed-updated">Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}</div>
-      <div class="bed-updated">Signal: ${linkLabel(device.linkQuality)}</div>
+      <div class="bed-updated" id="detailLastSeen">Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}</div>
+      <div class="bed-updated" id="detailLastData">Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}</div>
+      <div class="bed-updated" id="detailSignal">Signal: ${linkLabel(device.linkQuality)}</div>
       ${device.channelsLost
         ? `<div class="bed-updated device-fault-line">No signal from: ${UiUtils.escapeHtml(device.channelsLost)}</div>`
         : ""}
@@ -310,7 +342,13 @@ const DevicesTab = (() => {
     if (!host) return;
     try {
       const events = await Api.getDeviceEvents(deviceId);
-      host.innerHTML = events.length === 0
+
+      /* The panel may have been closed, or another device selected, while this
+       * request was in flight. Writing the answer now would drop one device's
+       * log into another device's panel. */
+      if (selectedDeviceId !== deviceId) return;
+
+      const html = events.length === 0
         ? `<span class="muted">No events recorded yet.</span>`
         : events.map((e) => `
             <div class="device-event">
@@ -318,10 +356,30 @@ const DevicesTab = (() => {
               <span class="muted">${UiUtils.formatDateTime(e.occurredAt)}</span>
               ${e.detail ? `<div class="muted">${UiUtils.escapeHtml(e.detail)}</div>` : ""}
             </div>`).join("");
+
+      /* Only touch the DOM when the log actually changed. A periodic refresh
+       * that rewrites identical HTML still kills the user's text selection and
+       * restarts any CSS transition - which is exactly what "nháy nháy" is. */
+      if (host.innerHTML !== html) host.innerHTML = html;
     } catch (err) {
-      host.innerHTML = `<span class="muted">Could not load the device log.</span>`;
+      if (selectedDeviceId !== deviceId) return;
+      /* Keep whatever is already on screen; replacing a log the technician is
+       * reading with an error because one poll failed is worse than a log that
+       * is a few seconds stale. */
+      if (!host.querySelector(".device-event")) {
+        host.innerHTML = `<span class="muted">Could not load the device log.</span>`;
+      }
     }
   }
+
+  /* The log still needs to pick up new events on its own - just not at the rate
+   * the sensor reports. Every 15 seconds, and silently. */
+  const DEVICE_LOG_REFRESH_MS = 15000;
+  setInterval(() => {
+    if (selectedDeviceId && builtDetailId === selectedDeviceId) {
+      loadDeviceEvents(selectedDeviceId);
+    }
+  }, DEVICE_LOG_REFRESH_MS);
 
   function render() {
     const devices = Array.from(State.devices.values()).filter(matchesFilters).sort((a, b) => a.deviceId.localeCompare(b.deviceId));

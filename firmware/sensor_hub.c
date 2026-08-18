@@ -18,6 +18,7 @@
  *      for details.
  * ========================================================================== */
 #include "sensor_hub.h"
+#include "drop_filter.h"
 #include "em_cmu.h"
 #include "em_gpio.h"
 #include "em_core.h"
@@ -30,7 +31,10 @@
 /* ---- Drop sensor pin (BRD2709A, mikroBUS "AN" = PD02) ---- */
 #define SENSOR_PORT   gpioPortD
 #define SENSOR_PIN    2
-#define DEBOUNCE_MS   200U
+
+/* Noise rejection for the drop sensor lives in drop_filter.c - kept separate
+ * from this file so it can be replayed against recorded noise on a PC. See
+ * tools/drop_filter_test.c. */
 
 /* Baseline value (= scaler.mean) for a channel that is NOT CONNECTED -> normalizes
  * to ~0 -> lets the autoencoder reconstruct it cleanly. When a channel is
@@ -39,10 +43,9 @@
 #define HR_BASE_FILL    81.68f
 #define SPO2_BASE_FILL  97.80f
 
-static uint32_t total_drops  = 0;
-static uint32_t last_drop_ms = 0;
-static uint32_t last_interval= 0;
-static int      last_state   = 1;
+#if DROPS_ENABLED
+static drop_filter_t drop_filter;
+#endif
 
 static uint32_t now_ms(void)
 {
@@ -1049,6 +1052,33 @@ static void alert_poll(void)
   }
 }
 
+#if DROPS_ENABLED
+/* Works out whether a clear beam reads HIGH or LOW, by watching it for a
+ * second and taking whichever level it spends most of its time at.
+ *
+ * Measured rather than assumed: which level means "clear" depends on how the
+ * photodiode board is wired, and hard-coding the wrong one turns the detector
+ * into an inverted one that times the gaps between drops instead of the drops.
+ *
+ * Sound because drops are rare and brief - even at 200 dpm with a generous
+ * 50 ms shadow, the beam is clear for over 80% of the second. */
+static void drop_calibrate_idle(void)
+{
+  uint32_t high = 0, low = 0;
+  uint32_t start = now_ms();
+
+  while (now_ms() - start < 1000U) {
+    if (GPIO_PinInGet(SENSOR_PORT, SENSOR_PIN)) high++; else low++;
+  }
+
+  int idle = (high >= low) ? 1 : 0;
+  drop_filter_init(&drop_filter, idle);
+
+  printf("[Drop] Beam calibrated: idle = %s (high %lu / low %lu samples)\r\n",
+         idle ? "HIGH" : "LOW", (unsigned long)high, (unsigned long)low);
+}
+#endif /* DROPS_ENABLED */
+
 /* ============================================================================
  *  Public API
  * ========================================================================== */
@@ -1062,7 +1092,7 @@ void sensor_hub_init(void)
   targets_load();
 #if DROPS_ENABLED
   GPIO_PinModeSet(SENSOR_PORT, SENSOR_PIN, gpioModeInput, 0);
-  last_state = GPIO_PinInGet(SENSOR_PORT, SENSOR_PIN);
+  drop_calibrate_idle();   /* also initialises the filter */
 #endif
 #if FLOW_ENABLED
   hx711_gpio_init();
@@ -1076,16 +1106,9 @@ void sensor_hub_init(void)
 void sensor_hub_poll(void)
 {
 #if DROPS_ENABLED
-  int      cur = GPIO_PinInGet(SENSOR_PORT, SENSOR_PIN);
-  uint32_t now = now_ms();
-  if (cur != last_state) {
-    if (now - last_drop_ms > DEBOUNCE_MS) {
-      total_drops++;
-      last_interval = (total_drops > 1) ? (now - last_drop_ms) : 0;
-      last_drop_ms  = now;
-    }
-    last_state = cur;
-  }
+  drop_filter_step(&drop_filter,
+                   GPIO_PinInGet(SENSOR_PORT, SENSOR_PIN),
+                   now_ms());
 #endif
 #if FLOW_ENABLED
   tare_button_poll();
@@ -1239,11 +1262,9 @@ uint8_t sh_flow_tare_event_count(void)
 float sh_drops_per_min(void)
 {
 #if DROPS_ENABLED
-  uint32_t now = now_ms();
-  uint32_t gap = now - last_drop_ms;
-  uint32_t eff = (last_interval > gap) ? last_interval : gap;  /* no drop for a while -> rate drops */
-  if (eff == 0) return 0.0f;
-  return 60000.0f / (float)eff;
+  /* Median-smoothed, and still decaying toward zero through a silence.
+   * Both rules live in drop_filter.c. */
+  return drop_filter_rate_dpm(&drop_filter, now_ms());
 #else
   return target_drops_per_min;
 #endif
@@ -1261,7 +1282,14 @@ ch_state_t sh_drops_state(void)
 #endif
 }
 
-uint32_t sh_total_drops(void) { return total_drops; }
+uint32_t sh_total_drops(void)
+{
+#if DROPS_ENABLED
+  return drop_filter.total_drops;
+#else
+  return 0U;
+#endif
+}
 
 /* Current doctor-set target drop rate, drops/min. */
 float sh_target_drops_per_min(void)

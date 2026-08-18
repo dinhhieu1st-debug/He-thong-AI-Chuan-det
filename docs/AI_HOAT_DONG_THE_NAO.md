@@ -61,6 +61,56 @@ thống quy được trách nhiệm cho đúng nguồn, và trả lời được
 | Số giọt | cảm biến quang ở buồng đếm giọt | giọt/phút so với y lệnh |
 | Trọng lượng bình | loadcell HX711 | gam, để biết dịch **có thật sự chảy ra không** |
 
+### Trước khi tới AI: lọc nhiễu ở cảm biến giọt
+
+Model nhỏ giọt chỉ tốt bằng con số nó được cho ăn. Bản đầu tiên đếm **mọi cạnh
+tín hiệu** trên chân cảm biến, với một khoảng chết 200 ms duy nhất — sai hai lần:
+một giọt đi qua tia sáng tạo **hai** cạnh (chắn tia, rồi thông tia), nên giọt nào
+có bóng dài hơn khoảng chết bị **đếm thành hai**; và vì khoảng chết tính từ lần
+đếm gần nhất, một chùm nhiễu điện có thể **nuốt mất giọt thật** ngay sau nó. Trên
+một ca truyền đều, tốc độ báo về nhảy 193 → 100 → 51 → 32 giọt/phút trong vài
+giây.
+
+Nay dùng **máy trạng thái bốn bước** (`firmware/drop_filter.c`):
+
+```
+CHỜ ──tia bị chắn──► XÁC NHẬN ──giữ đủ 12 ms──► ĐẾM MỘT GIỌT
+ ▲                      │
+ │                 thông lại ngay = nhiễu, bỏ
+ │
+XÁC NHẬN THÔNG ◄──tia thông── CHỜ THÔNG
+ └── thông đủ 25 ms ──► sẵn sàng nhận giọt kế
+```
+
+| Tham số | Giá trị | Lý do |
+|---|---|---|
+| Thời gian xác nhận | 12 ms | giọt thật che tia vài ms; xung nhiễu điện chỉ vài µs |
+| Thời gian thông tia | 25 ms | một giọt bám rồi mới rơi tạo hai bóng liền nhau — vẫn phải là **một** giọt |
+| Khoảng cách tối thiểu | 250 ms | = 240 giọt/phút. Không y lệnh nào nhanh vậy, nên gần hơn thế là đếm trùng |
+
+Ba điểm tinh tế, mỗi điểm đều có bài kiểm thử riêng:
+
+- **Giọt được đánh dấu thời gian lúc tia BẮT ĐẦU bị chắn**, không phải lúc xác
+  nhận xong — nếu không, 12 ms kia sẽ lẫn vào khoảng cách đo được.
+- **Xung bị loại KHÔNG được đặt lại đồng hồ.** Nếu cho phép, khoảng cách thật
+  đang đo bị cắt đôi và tốc độ báo về **gấp đôi** — tức là báo nhiễu thành truyền
+  nhanh.
+- **Tốc độ hiển thị lấy TRUNG VỊ 5 khoảng gần nhất**, không phải trung bình. Một
+  giọt trễ kéo trung bình đi 20%, kéo trung vị đi **0**.
+
+Trạng thái nền của tia (thông = mức cao hay mức thấp) được **đo lúc khởi động**
+chứ không đoán, vì nó phụ thuộc cách đấu module quang; đoán sai là biến máy đếm
+giọt thành máy đếm **khoảng trống giữa các giọt**.
+
+Luật *"im lặng là bằng chứng"* giữ nguyên: không có giọt nào thì tốc độ **tụt dần
+về 0**, chứ không đứng ở con số cũ. Việc làm mượt tuyệt đối không được che luật
+này — có bài kiểm thử riêng cho đúng điều đó.
+
+```bash
+cc -I firmware -o /tmp/drop_filter_test tools/drop_filter_test.c \
+   firmware/drop_filter.c -lm && /tmp/drop_filter_test     # 13 phép thử
+```
+
 Ba model:
 
 | | Nhìn gì | Trả lời câu hỏi |

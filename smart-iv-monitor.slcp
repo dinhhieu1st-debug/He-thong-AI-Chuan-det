@@ -21,6 +21,7 @@ readme:
 source:
 - path: firmware/app.c
 - path: firmware/sensor_hub.c
+- path: firmware/drop_filter.c
 - path: firmware/oled_display.c
 - path: firmware/ai_fusion.c
 - path: firmware/ai_engine.cpp
