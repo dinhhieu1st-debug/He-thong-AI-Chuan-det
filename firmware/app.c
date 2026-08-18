@@ -222,6 +222,11 @@ static void zb_configure_reporting(void)
     { ZCL_DROP_RATIO_ATTRIBUTE_ID,                  5,  5 },   /* units of 1% */
     { ZCL_WEIGHT_G_ATTRIBUTE_ID,                   10,  5 },   /* grams */
     { ZCL_DROPS_PER_MIN_ATTRIBUTE_ID,               5,  1 },   /* drops/min */
+    /* Còn bao nhiêu dịch / còn bao nhiêu phút. Nhịp chậm (30 giây) và deadband
+     * rộng: đây là con số y tá liếc qua để biết bao giờ phải chuẩn bị chai mới,
+     * không phải thứ cần theo dõi từng giây. Báo dày hơn chỉ tốn sóng. */
+    { ZCL_REMAINING_ML_ATTRIBUTE_ID,               30, 10 },   /* mL */
+    { ZCL_REMAINING_MIN_ATTRIBUTE_ID,              30,  2 },   /* phút */
 
     /* Settings + event counters: only move when a doctor acts -> instant. */
     { ZCL_TARGET_FLOW_ML_H_ATTRIBUTE_ID,            1,  1 },
@@ -408,6 +413,25 @@ static void zb_report_ts_result(const fusion_result_t *f)
   sl_zigbee_af_write_manufacturer_specific_server_attribute(
       ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE_ID,
       SMART_IV_MFG_CODE, (uint8_t *)&drops_slope, ZCL_INT16S_ATTRIBUTE_TYPE);
+
+  /* Ước lượng dịch còn lại. 0xFFFF = chưa ước lượng được, KHÔNG phải 0.
+   *
+   * Cân chưa đủ 60 giây để có xu hướng, hoặc dịch chảy quá chậm để chia ra
+   * thời gian, thì phải nói "chưa biết". Báo "còn 0 phút" cho một bình chưa
+   * treo là loại sai lệch khiến y tá thôi tin cái máy. */
+  uint16_t remaining_ml = (f->line.valid && f->line.remaining_ml >= 0.0f)
+                          ? (uint16_t)(f->line.remaining_ml + 0.5f)
+                          : TS_FORECAST_INVALID;
+  uint16_t remaining_min = (f->line.valid && f->line.remaining_min >= 0)
+                           ? (uint16_t)f->line.remaining_min
+                           : TS_FORECAST_INVALID;
+
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_REMAINING_ML_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&remaining_ml, ZCL_INT16U_ATTRIBUTE_TYPE);
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_REMAINING_MIN_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, (uint8_t *)&remaining_min, ZCL_INT16U_ATTRIBUTE_TYPE);
 }
 
 /** @brief Post Attribute Change

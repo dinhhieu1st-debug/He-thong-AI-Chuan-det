@@ -38,5 +38,12 @@
     <attribute side="server" code="0x0013" define="TS_ANOMALY_SCORE_X100" type="int16u" writable="true" default="0x0000" optional="false">TsAnomalyScoreX100</attribute>
     <attribute side="server" code="0x0014" define="DROPS_FORECAST_16S" type="int16u" writable="true" default="0xFFFF" optional="false">DropsForecast16s</attribute>
     <attribute side="server" code="0x0015" define="DROPS_TREND_DPM_PER_MIN" type="int16s" writable="true" default="0x0000" optional="false">DropsTrendDpmPerMin</attribute>
+    <!-- Uoc luong luong dich con lai va thoi gian con lai, tu loadcell.
+         0xFFFF = chua uoc luong duoc (can chua on dinh, hoac dich chay qua cham
+         de tinh). Dung 0xFFFF chu khong dung 0, vi "chua biet" va "het sach"
+         phai phan biet duoc - bao nham "con 0 phut" cho mot binh chua treo la
+         thu khien y ta thoi tin cai may. -->
+    <attribute side="server" code="0x0016" define="REMAINING_ML" type="int16u" writable="true" default="0xFFFF" optional="false">RemainingMl</attribute>
+    <attribute side="server" code="0x0017" define="REMAINING_MIN" type="int16u" writable="true" default="0xFFFF" optional="false">RemainingMin</attribute>
   </cluster>
 </configurator>

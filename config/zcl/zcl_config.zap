@@ -544,6 +544,38 @@
               "minInterval": 1,
               "maxInterval": 60,
               "reportableChange": 0
+            },
+            {
+              "name": "RemainingMl",
+              "code": 22,
+              "mfgCode": 4169,
+              "side": "server",
+              "type": "int16u",
+              "included": 1,
+              "storageOption": "RAM",
+              "singleton": 0,
+              "bounded": 0,
+              "defaultValue": "0xFFFF",
+              "reportable": 1,
+              "minInterval": 1,
+              "maxInterval": 60,
+              "reportableChange": 0
+            },
+            {
+              "name": "RemainingMin",
+              "code": 23,
+              "mfgCode": 4169,
+              "side": "server",
+              "type": "int16u",
+              "included": 1,
+              "storageOption": "RAM",
+              "singleton": 0,
+              "bounded": 0,
+              "defaultValue": "0xFFFF",
+              "reportable": 1,
+              "minInterval": 1,
+              "maxInterval": 60,
+              "reportableChange": 0
             }
           ]
         }

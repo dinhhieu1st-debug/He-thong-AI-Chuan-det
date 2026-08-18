@@ -201,6 +201,18 @@ const fzSmartIv = {
                 const lineState = (ts >> TS_LINE_STATE_SHIFT) & 0x7;
                 result.line_state = lineState === 0 ? null : lineState - 1;
             }
+            /* Con bao nhieu dich, con bao nhieu phut. 0xFFFF = chua uoc luong
+             * duoc, va phai ra null chu khong phai 0: "chua biet" khac "het
+             * sach", va bao "con 0 phut" cho mot binh chua treo la thu khien y
+             * ta thoi tin cai may. */
+            if (msg.data.remainingMl !== undefined) {
+                result.remaining_ml = msg.data.remainingMl === TS_FORECAST_INVALID
+                    ? null : msg.data.remainingMl;
+            }
+            if (msg.data.remainingMin !== undefined) {
+                result.remaining_min = msg.data.remainingMin === TS_FORECAST_INVALID
+                    ? null : msg.data.remainingMin;
+            }
             if (msg.data.hrForecast16s !== undefined) {
                 result.hr_forecast_16s = msg.data.hrForecast16s === TS_FORECAST_INVALID
                     ? null : msg.data.hrForecast16s;
@@ -292,6 +304,8 @@ const definition = {
                 // fallback gateway, so the dashboard's "AI forecast (on-chip)"
                 // card never left "Collecting the first 64 seconds..." on a bed
                 // running through the Pi.
+                remainingMl:          {name: 'remainingMl',          ID: 0x0016, type: 0x21}, // int16u
+                remainingMin:         {name: 'remainingMin',         ID: 0x0017, type: 0x21}, // int16u
                 tsFlags:              {name: 'tsFlags',              ID: 0x000F, type: 0x19}, // bitmap16
                 hrForecast16s:        {name: 'hrForecast16s',        ID: 0x0010, type: 0x21}, // int16u
                 spo2Forecast16s:      {name: 'spo2Forecast16s',      ID: 0x0011, type: 0x21}, // int16u
@@ -417,6 +431,8 @@ const definition = {
         e.binary('line_branch', ea.STATE, true, false).withDescription('The infusion line is at fault'),
         e.binary('patient_branch', ea.STATE, true, false).withDescription('The patient is at fault'),
         e.numeric('line_state', ea.STATE).withDescription('Load cell verdict: 0 ok, 1 running low, 2 occlusion, 3 free flow, 4 drop-sensor fault, 5 empty'),
+        e.numeric('remaining_ml', ea.STATE).withUnit('mL').withDescription('Estimated fluid left in the bag'),
+        e.numeric('remaining_min', ea.STATE).withUnit('min').withDescription('Estimated minutes left at the current rate'),
         e.numeric('ts_trend', ea.STATE).withDescription('Heart-rate trend: 0 steady, 1 rising, 2 falling'),
         e.numeric('drops_trend', ea.STATE).withDescription('Drop-rate trend: 0 steady, 1 rising, 2 falling'),
         e.numeric('hr_forecast_16s', ea.STATE).withUnit('bpm').withDescription('Forecast heart rate 16s ahead'),

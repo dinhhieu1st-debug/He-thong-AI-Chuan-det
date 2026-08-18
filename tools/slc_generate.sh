@@ -12,7 +12,7 @@
 #   2. XOÁ BẢN CACHE CŨ CỦA smart-iv-vitals.xml TRONG ~/.zap. Đây là cái bẫy đã
 #      mất nhiều thời gian để tìm ra — xem mục dưới.
 #
-#   3. Kiểm tra sau khi sinh xong: 7 attribute ZCL tuỳ biến có còn không. Nếu
+#   3. Kiểm tra sau khi sinh xong: 9 attribute ZCL tuỳ biến có còn không. Nếu
 #      mất thì dừng ngay với thông báo rõ ràng, thay vì để lỗi lộ ra ở bước
 #      biên dịch dưới dạng "ZCL_TS_FLAGS_ATTRIBUTE_ID undeclared".
 #
@@ -84,7 +84,9 @@ for a in ZCL_TS_FLAGS_ATTRIBUTE_ID \
          ZCL_HR_TREND_BPM_PER_MIN_ATTRIBUTE_ID \
          ZCL_TS_ANOMALY_SCORE_X100_ATTRIBUTE_ID \
          ZCL_DROPS_FORECAST_16S_ATTRIBUTE_ID \
-         ZCL_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE_ID; do
+         ZCL_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE_ID \
+         ZCL_REMAINING_ML_ATTRIBUTE_ID \
+         ZCL_REMAINING_MIN_ATTRIBUTE_ID; do
   grep -q "$a" autogen/zap-id.h || MISSING="$MISSING $a"
 done
 
@@ -99,5 +101,5 @@ if [ -n "$MISSING" ]; then
 fi
 
 echo
-echo "Sinh code xong. Cluster ZCL tuỳ biến còn đủ 7/7 attribute."
+echo "Sinh code xong. Cluster ZCL tuỳ biến còn đủ 9/9 attribute."
 echo "Build: cd cmake_gcc/build && ninja"
