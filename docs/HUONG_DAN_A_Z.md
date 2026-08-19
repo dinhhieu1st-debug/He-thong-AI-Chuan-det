@@ -574,6 +574,34 @@ mức cảnh báo **chỉ sáng đúng một đèn**; cấp nguy cấp nhất d�
 chứ không phải đỏ + vàng cùng lúc. Nhịp còi khác nhau theo mức (1 s / 0,3 s /
 0,15 s) và chạy **không chặn** vòng lặp chính.
 
+Chân trên mikroBUS (BRD2709A):
+
+| Bộ phận | Chân | Nhãn trên board |
+|---|---|---|
+| Đèn xanh | PA07 | PWM |
+| Đèn vàng | PA04 | TX |
+| Đèn đỏ | PA05 | RX |
+| **Còi** | **PC02** | **MOSI** |
+| HX711 DT | PC01 | MISO |
+| HX711 SCK | PC03 | SCK |
+| Cảm biến giọt | PD02 | AN |
+| I2C (OLED + MAX30102) | PC05 / PC07 | SCL / SDA |
+
+> **Cảnh báo về nhãn MOSI/MISO.** Còi từng nằm ở CS/PC04, sau đó chuyển sang
+> MOSI/PC02, và trong lúc code còn trỏ PC04 thì **còi im hoàn toàn mà không có
+> lỗi nào hiện ra ở đâu** — chip đẩy tín hiệu ra một chân không có gì cắm.
+>
+> Đừng suy MOSI/MISO từ `sl_spidrv_usart_mikroe_config.h`: file đó chỉ ghi
+> `TX = PC01, RX = PC02`, và suy "SPI master thì TX = MOSI" ra kết quả **ngược
+> với sơ đồ chân thật của board**. Đã suy sai một lần theo hướng đó. **Tra sơ
+> đồ chân.**
+
+Từ nay hai thiết bị trùng chân là **build hỏng ngay**, kèm tên cả hai
+(`_Static_assert` trong `sensor_hub.c`). Riêng OLED và MAX30102 **được phép**
+chung PC05/PC07: I2C là bus, mỗi thiết bị có địa chỉ riêng, và đường dây là
+open-drain nên không thiết bị nào kéo cao đè lên thiết bị khác. Còi thì không
+có địa chỉ và cần chip đẩy tín hiệu ra, nên nó không chung chân với ai được.
+
 Mỗi lần bật nguồn có **tự kiểm tra**: sáng lần lượt xanh → vàng → đỏ rồi kêu một
 tiếng ngắn, chưa tới một giây. Đây là cách duy nhất phân biệt *"bộ báo động
 hỏng"* với *"ca trực yên bình"* — hai thứ trông giống hệt nhau cho tới đúng lúc

@@ -84,14 +84,9 @@ static uint32_t now_us(void)
  *  hx711_test.ino the user already tested against).
  * ========================================================================== */
 #define HX711_DOUT_PORT   gpioPortC
-#define HX711_DOUT_PIN    1   /* PC01 - FINALIZED to match the user's actual
-                                * wiring (differs from the default MOSI/TX
-                                * name in the SDK's SPI mikroe config file -
-                                * this signal does not go through the SPI
-                                * driver, it's a dedicated point-to-point
-                                * wire from the module straight to this pin,
-                                * so the "MOSI" name in the SPI docs does not
-                                * apply). DO NOT change back to PC02. */
+#define HX711_DOUT_PIN    1   /* PC01 = mikroBUS MISO theo sơ đồ chân board.
+                                * Khớp đúng dây thật, đừng đổi sang PC02 —
+                                * PC02 là MOSI và đang có CÒI ở đó. */
 #define HX711_SCK_PORT    gpioPortC
 #define HX711_SCK_PIN     3   /* mikroBUS SCK/CLK - confirmed correct via the BRD2709A source */
 
@@ -976,7 +971,7 @@ static void max30102_poll(void)
 #define LED_RED_PORT     gpioPortA
 #define LED_RED_PIN      5        /* mikroBUS RX  = PA05 */
 #define BUZZER_PORT      gpioPortC
-#define BUZZER_PIN_NUM   4        /* mikroBUS CS  = PC04 */
+#define BUZZER_PIN_NUM   2        /* mikroBUS MOSI = PC02 (đã đổi từ CS/PC04) */
 
 /* --- No two peripherals may share a pin ------------------------------------
  *
@@ -994,8 +989,13 @@ static void max30102_poll(void)
  *     RST = PD03      INT  = PA06
  *     CS  = PC04      RX   = PA05
  *     SCK = PC03      TX   = PA04
- *     MISO= PC02      SCL  = PC05
- *     MOSI= PC01      SDA  = PC07
+ *     MISO= PC01      SCL  = PC05
+ *     MOSI= PC02      SDA  = PC07
+ *
+ * MISO/MOSI ở đây lấy theo SƠ ĐỒ CHÂN CỦA BOARD, và nó NGƯỢC với cách đọc
+ * "SPI master thì TX = MOSI" từ sl_spidrv_usart_mikroe_config.h (file đó ghi
+ * TX = PC01, RX = PC02). Đã suy luận sai một lần theo hướng kia rồi: SDK chỉ
+ * nói TX/RX, không nói MOSI/MISO, nên đừng suy ra — tra sơ đồ chân.
  *
  * A collision now fails the build with the two names in the message, instead
  * of failing on a bench with neither. */
@@ -1007,14 +1007,19 @@ static void max30102_poll(void)
 _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
                               HX711_DOUT_PORT, HX711_DOUT_PIN),
                "Buzzer and HX711 DOUT are on the same pin. On BRD2709A the "
-               "load cell data line is PC01 = mikroBUS MOSI; the buzzer "
-               "belongs on PC04 = mikroBUS CS. Move the wire, or move the "
-               "scale.");
+               "load cell data line is PC01 = mikroBUS MISO; the buzzer is on "
+               "PC02 = mikroBUS MOSI. Move the wire, or move the scale.");
 _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
                               HX711_SCK_PORT, HX711_SCK_PIN),
                "Buzzer and HX711 SCK are on the same pin (PC03 = mikroBUS SCK).");
 _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM, SENSOR_PORT, SENSOR_PIN),
                "Buzzer and the drop sensor are on the same pin (PD02 = mikroBUS AN).");
+_Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM, I2CBB_SCL_PORT, I2CBB_SCL_PIN)
+               && SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM, I2CBB_SDA_PORT, I2CBB_SDA_PIN),
+               "Buzzer is on an I2C line (PC05/PC07) shared by the OLED and the "
+               "MAX30102. Those two may share with each other - I2C is a bus with "
+               "addresses - but a buzzer has no address and would be driven by "
+               "every transaction on it.");
 _Static_assert(SH_PINS_DIFFER(LED_GREEN_PORT, LED_GREEN_PIN,
                               LED_YELLOW_PORT, LED_YELLOW_PIN)
                && SH_PINS_DIFFER(LED_GREEN_PORT, LED_GREEN_PIN,
