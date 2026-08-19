@@ -17,7 +17,7 @@ public sealed class BedRepository
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync(
-            "SELECT bed_id, room, status, spo2, heart_rate, temperature, drip_rate, flow_rate, " +
+            "SELECT bed_id, room, status, spo2, heart_rate, drip_rate, flow_rate, " +
             "heart_rate_signal, spo2_signal, flow_signal, drip_rate_signal, line_blocked, ae_alarm, " +
             "weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min, tare_in_progress, " +
             "tare_just_completed, hr_baseline_just_completed, hr_baseline_seconds_remaining, " +
@@ -34,7 +34,6 @@ public sealed class BedRepository
             Status = Enum.Parse<BedStatus>((string)row.status, ignoreCase: true),
             Spo2 = row.spo2,
             HeartRate = row.heart_rate,
-            Temperature = (double?)row.temperature,
             DripRate = row.drip_rate,
             FlowRate = row.flow_rate,
             HeartRateSignal = row.heart_rate_signal,
@@ -109,14 +108,14 @@ public sealed class BedRepository
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
-            INSERT INTO beds (bed_id, room, status, spo2, heart_rate, temperature, drip_rate, flow_rate,
+            INSERT INTO beds (bed_id, room, status, spo2, heart_rate, drip_rate, flow_rate,
               heart_rate_signal, spo2_signal, flow_signal, drip_rate_signal, line_blocked, ae_alarm,
               weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min, tare_in_progress,
               tare_just_completed, hr_baseline_just_completed, hr_baseline_seconds_remaining,
               hr_baseline_bpm, hr_baseline_captured_at, last_tare_completed_at,
               last_seen_tare_event_count, last_seen_hr_baseline_event_count,
               alert_message, device_id, last_data_at)
-            VALUES (@BedId, @Room, @Status, @Spo2, @HeartRate, @Temperature, @DripRate, @FlowRate,
+            VALUES (@BedId, @Room, @Status, @Spo2, @HeartRate, @DripRate, @FlowRate,
               @HeartRateSignal, @Spo2Signal, @FlowSignal, @DripRateSignal, @LineBlocked, @AeAlarm,
               @WeightG, @DropsPerMin, @TargetFlowMlH, @TargetDropsPerMin, @TareInProgress, @TareJustCompleted,
               @HrBaselineJustCompleted, @HrBaselineSecondsRemaining, @HrBaselineBpm, @HrBaselineCapturedAt,
@@ -127,7 +126,6 @@ public sealed class BedRepository
               status = VALUES(status),
               spo2 = VALUES(spo2),
               heart_rate = VALUES(heart_rate),
-              temperature = VALUES(temperature),
               drip_rate = VALUES(drip_rate),
               flow_rate = VALUES(flow_rate),
               heart_rate_signal = VALUES(heart_rate_signal),
@@ -160,7 +158,6 @@ public sealed class BedRepository
                 Status = bed.Status.ToString().ToUpperInvariant(),
                 bed.Spo2,
                 bed.HeartRate,
-                bed.Temperature,
                 bed.DripRate,
                 bed.FlowRate,
                 bed.HeartRateSignal,

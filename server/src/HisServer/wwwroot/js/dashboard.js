@@ -1,6 +1,10 @@
 const DashboardTab = (() => {
   const recentAlerts = [];
   const MAX_RECENT_ALERTS = 3;
+  // render() runs synchronously before loadRecentAlerts() resolves, so without
+  // this the box reads "No recent alerts" for the first moment on every page
+  // load - indistinguishable from "checked, there really are none".
+  let alertsLoaded = false;
 
   function bedCardHtml(bed) {
     const color = UiUtils.statusColor(bed.status);
@@ -89,7 +93,9 @@ const DashboardTab = (() => {
       : beds.map(bedCardHtml).join("");
 
     const alertsBox = document.getElementById("dashboardAlerts");
-    alertsBox.innerHTML = recentAlerts.length === 0
+    alertsBox.innerHTML = !alertsLoaded
+      ? `<div class="empty-state">Loading…</div>`
+      : recentAlerts.length === 0
       ? `<div class="empty-state">No recent alerts.</div>`
       : recentAlerts.map(alertRowHtml).join("");
 
@@ -111,13 +117,19 @@ const DashboardTab = (() => {
     try {
       const result = await Api.getAlerts({ ack: "false", page: "1", pageSize: String(MAX_RECENT_ALERTS) });
       recentAlerts.splice(0, recentAlerts.length, ...result.items);
+      alertsLoaded = true;
       render();
     } catch (err) {
       console.error("Failed to load recent alerts:", err);
+      alertsLoaded = true; // stop showing "Loading…" forever - fall through to "No recent alerts"
+      render();
     }
   }
 
   function init() {
+    document.getElementById("viewAllAlertsBtn")?.addEventListener("click", () => {
+      document.querySelector('.nav-btn[data-tab="alerts"]').click();
+    });
     State.on("beds-changed", render);
     State.on("alert-created", (alert) => {
       recentAlerts.unshift(alert);

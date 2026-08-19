@@ -20,7 +20,6 @@ public static class BedDataParser
         var room = ReadString(root, "phong", "room") ?? "Unknown room";
         var spo2 = ReadInt(root, 0, "spo2", "SpO2", "SpO₂");
         var heartRate = ReadInt(root, 0, "nhipTim", "heartRate", "heart_rate", "bpm");
-        var temperature = ReadDouble(root, 0, "nhietDo", "temperature", "temp");
         var dripRate = ReadInt(root, 0, "tocDoNhoGiot", "dripRate", "drip_rate", "dropRate");
         var flowRate = ReadInt(root, 0, "flowRate", "flow_rate", "flow");
 
@@ -98,7 +97,7 @@ public static class BedDataParser
         if (remainingMin is < 0) remainingMin = null;
 
         return new BedReading(
-            bedId, room, spo2, heartRate, temperature, dripRate, DateTime.UtcNow,
+            bedId, room, spo2, heartRate, dripRate, DateTime.UtcNow,
             flowRate, heartRateSignal, spo2Signal, flowSignal, dripRateSignal,
             lineBlocked, aeAlarm, weightG, dropsPerMin, targetFlowMlH, targetDropsPerMin,
             tareInProgress, tareJustCompleted, hrBaselineJustCompleted, hrBaselineSecondsRemaining,
@@ -133,9 +132,21 @@ public static class BedDataParser
                 continue;
             }
 
-            if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value))
+            if (property.ValueKind == JsonValueKind.Number)
             {
-                return value;
+                // A whole number parses directly; a decimal (a sensor reporting
+                // 98.3, say) fails TryGetInt32 - round it instead of falling
+                // through to the string branch below, which silently returns
+                // defaultValue for "98.3" and used to turn a real reading into a
+                // fake 0 (read by VitalsStatusEvaluator as "Critical").
+                if (property.TryGetInt32(out var value))
+                {
+                    return value;
+                }
+                if (property.TryGetDouble(out var real))
+                {
+                    return (int)Math.Round(real, MidpointRounding.AwayFromZero);
+                }
             }
 
             if (int.TryParse(property.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
@@ -156,9 +167,16 @@ public static class BedDataParser
                 continue;
             }
 
-            if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value))
+            if (property.ValueKind == JsonValueKind.Number)
             {
-                return value;
+                if (property.TryGetInt32(out var value))
+                {
+                    return value;
+                }
+                if (property.TryGetDouble(out var real))
+                {
+                    return (int)Math.Round(real, MidpointRounding.AwayFromZero);
+                }
             }
 
             if (int.TryParse(property.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
@@ -168,29 +186,6 @@ public static class BedDataParser
         }
 
         return null;
-    }
-
-    private static double ReadDouble(JsonElement root, double defaultValue, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (!TryGetProperty(root, name, out var property))
-            {
-                continue;
-            }
-
-            if (property.ValueKind == JsonValueKind.Number && property.TryGetDouble(out var value))
-            {
-                return value;
-            }
-
-            if (double.TryParse(property.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
-            {
-                return parsed;
-            }
-        }
-
-        return defaultValue;
     }
 
     private static bool ReadBool(JsonElement root, bool defaultValue, params string[] names)

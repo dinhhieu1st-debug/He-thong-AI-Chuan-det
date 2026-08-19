@@ -16,7 +16,9 @@
  * alert card, pulsing charts); this banner is only the "look up NOW" signal.
  */
 const CriticalAlarm = (() => {
-  // Beds the user has already acknowledged, cleared when the bed recovers.
+  // Beds whose banner the user has already dismissed, cleared when the bed
+  // recovers. Dismissing the banner is NOT the same as acknowledging the
+  // alert - see the button labels/titles below.
   const dismissed = new Set();
   // What we last saw, so we can spot the Stable/Warning -> Critical edge.
   const wasCritical = new Set();
@@ -63,8 +65,9 @@ const CriticalAlarm = (() => {
           <button type="button" class="btn ca-open" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
             Open ${UiUtils.escapeHtml(bed.bedId)}
           </button>
-          <button type="button" class="btn ca-ack" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
-            Acknowledge
+          <button type="button" class="btn ca-ack" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}"
+                  title="Hides this full-screen banner only - the alert stays unacknowledged in the Alerts tab until you acknowledge it there.">
+            Dismiss banner
           </button>
         </div>
       </div>`;
@@ -94,7 +97,10 @@ const CriticalAlarm = (() => {
           ${queue.map(bedBlockHtml).join("")}
         </div>
         <div class="ca-foot">
-          <button type="button" class="btn ca-ack-all">Acknowledge all</button>
+          <button type="button" class="btn ca-ack-all"
+                  title="Hides these banners only - the alerts still need acknowledging in the Alerts tab.">
+            Dismiss all banners
+          </button>
         </div>
       </div>`;
     overlay.classList.remove("hidden");
@@ -102,22 +108,22 @@ const CriticalAlarm = (() => {
     overlay.querySelectorAll(".ca-open").forEach((btn) => {
       btn.addEventListener("click", () => {
         const bedId = btn.getAttribute("data-bed-id");
-        acknowledge(bedId);
+        dismiss(bedId);
         document.querySelector('.nav-btn[data-tab="beds"]').click();
         BedsTab.openBed(bedId);
       });
     });
 
     overlay.querySelectorAll(".ca-ack").forEach((btn) => {
-      btn.addEventListener("click", () => acknowledge(btn.getAttribute("data-bed-id")));
+      btn.addEventListener("click", () => dismiss(btn.getAttribute("data-bed-id")));
     });
 
     overlay.querySelector(".ca-ack-all").addEventListener("click", () => {
-      queue.slice().forEach((bed) => acknowledge(bed.bedId));
+      queue.slice().forEach((bed) => dismiss(bed.bedId));
     });
   }
 
-  function acknowledge(bedId) {
+  function dismiss(bedId) {
     dismissed.add(bedId);
     queue = queue.filter((b) => b.bedId !== bedId);
     render();
@@ -169,10 +175,11 @@ const CriticalAlarm = (() => {
   function init() {
     State.on("beds-changed", onBedsChanged);
 
-    // Escape acknowledges everything, so a keyboard user is never trapped.
+    // Escape dismisses every banner, so a keyboard user is never trapped -
+    // the underlying alerts still need real acknowledgement in the Alerts tab.
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && queue.length > 0) {
-        queue.slice().forEach((bed) => acknowledge(bed.bedId));
+        queue.slice().forEach((bed) => dismiss(bed.bedId));
       }
     });
 

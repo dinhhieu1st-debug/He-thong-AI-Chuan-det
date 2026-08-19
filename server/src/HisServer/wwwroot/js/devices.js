@@ -683,5 +683,13 @@ const DevicesTab = (() => {
     renderOtaLibrary();
   }
 
-  return { init, render };
+  /* Public jump-to-device, mirroring BedsTab.openBed - used by global search
+   * so it does not need to duplicate the selection/render logic. */
+  function openDevice(deviceId) {
+    if (!State.devices.has(deviceId)) return;
+    selectedDeviceId = deviceId;
+    renderDetail();
+  }
+
+  return { init, render, openDevice };
 })();

@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS beds (
   status ENUM('STABLE', 'WARNING', 'CRITICAL', 'OFFLINE') NOT NULL DEFAULT 'OFFLINE',
   spo2 INT NULL,
   heart_rate INT NULL,
-  temperature DECIMAL(4,1) NULL,
   drip_rate INT NULL,
   flow_rate INT NULL,
   heart_rate_signal BOOLEAN NOT NULL DEFAULT TRUE,
@@ -114,7 +113,6 @@ CREATE TABLE IF NOT EXISTS vital_samples (
   device_id VARCHAR(80) NULL,
   spo2 INT NULL,
   heart_rate INT NULL,
-  temperature DECIMAL(4,1) NULL,
   drip_rate INT NULL,                    -- drops ratio vs target, %
   flow_rate INT NULL,                    -- flow ratio vs target, %
   weight_g INT NULL,                     -- IV bag weight, grams
@@ -142,7 +140,6 @@ CREATE TABLE IF NOT EXISTS alerts (
   message VARCHAR(512) NOT NULL,
   spo2 INT NULL,
   heart_rate INT NULL,
-  temperature DECIMAL(4,1) NULL,
   drip_rate INT NULL,
   acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
   acknowledged_at DATETIME NULL,

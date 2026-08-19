@@ -28,7 +28,6 @@ public sealed record BedDto(
     string Status,
     int? Spo2,
     int? HeartRate,
-    double? Temperature,
     int? DripRate,
     int? FlowRate,
     bool HeartRateSignal,
@@ -82,7 +81,6 @@ public sealed record BedDto(
         bed.Status.ToString(),
         bed.Spo2,
         bed.HeartRate,
-        bed.Temperature,
         bed.DripRate,
         bed.FlowRate,
         bed.HeartRateSignal,
@@ -143,7 +141,9 @@ public sealed record AlertDto(
     int? DripRate,
     DateTime CreatedAt,
     bool Acknowledged,
-    DateTime? AcknowledgedAt)
+    DateTime? AcknowledgedAt,
+    string? AcknowledgedBy,
+    string? AcknowledgementNote)
 {
     public static AlertDto From(AlertRecord alert) => new(
         alert.AlertId,
@@ -157,7 +157,9 @@ public sealed record AlertDto(
         alert.DripRate,
         alert.CreatedAt,
         alert.Acknowledged,
-        alert.AcknowledgedAt);
+        alert.AcknowledgedAt,
+        alert.AcknowledgedBy,
+        alert.AcknowledgementNote);
 }
 
 public sealed record DeviceDto(

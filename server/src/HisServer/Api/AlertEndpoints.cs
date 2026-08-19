@@ -8,6 +8,8 @@ namespace HisServer.Api;
 
 public static class AlertEndpoints
 {
+    public sealed record AckRequest(string? Note);
+
     public static void MapAlertEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/alerts")
@@ -52,6 +54,7 @@ public static class AlertEndpoints
 
         group.MapPost("/{id:long}/ack", async (
             long id,
+            AckRequest? request,
             AlertRepository repository,
             IHubContext<MonitoringHub, IMonitoringClient> hub,
             HttpContext http) =>
@@ -62,9 +65,12 @@ public static class AlertEndpoints
                 return Results.NotFound();
             }
 
+            var note = string.IsNullOrWhiteSpace(request?.Note) ? null : request.Note.Trim();
+            if (note is { Length: > 500 }) note = note[..500];
+
             // Taken from the signed-in session, never from the request body:
             // a client-supplied name would make the audit trail worthless.
-            var acknowledgedAt = await repository.AcknowledgeAsync(id, http.User.Identity?.Name);
+            var acknowledgedAt = await repository.AcknowledgeAsync(id, http.User.Identity?.Name, note);
             await hub.Clients.Group(MonitoringHub.WardGroup).AlertAcknowledged(id, acknowledgedAt);
             return Results.Ok(new { ok = true, acknowledgedAt });
         }).RequireAuthorization(Capabilities.AckAlerts);

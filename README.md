@@ -184,21 +184,62 @@ rồi chạy lại `slc generate`.
 
 ## Tài liệu
 
+Các file vẫn nằm nguyên tại `docs/` (không di chuyển — xem lý do bên dưới), chỉ gom
+lại theo mục đích đọc ở đây cho dễ tìm.
+
+> **Vì sao không chia `docs/` thành thư mục con?** Nhiều file trong `docs/` được
+> tham chiếu bằng **văn bản thuần** (không phải link) từ các file khác — ví dụ
+> `Script.md` nhắc tới `docs/OTA.md`, `docs/Quay_Ky_Thuat.md` nhắc tới bốn file
+> `docs/images/*.svg`. Di chuyển sẽ âm thầm làm sai những tham chiếu đó mà không
+> có gì báo lỗi. Ngoài ra `docs/slc-project-readme.md` được `smart-iv-monitor.slcp`
+> trỏ đích danh — Simplicity Studio đọc đúng đường dẫn đó, giống cách `config/`,
+> `autogen/` phải nằm ở gốc repo (xem mục trên). Gom theo mục lục là cách an toàn
+> hơn nhiều so với xáo trộn vị trí file.
+
+### Bắt đầu từ đây
 | File | Nội dung |
 |---|---|
 | [`docs/HUONG_DAN_A_Z.md`](docs/HUONG_DAN_A_Z.md) | **Đọc file này trước.** Toàn bộ hệ thống từ chip tới web, giải thích cả *vì sao* thiết kế như vậy, kèm bảng lỗi thường gặp |
+| [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |
+| [`docs/PHAN_QUYEN_VA_VAI_TRO.md`](docs/PHAN_QUYEN_VA_VAI_TRO.md) | Vì sao 3 vai (điều dưỡng/kỹ thuật/quản trị) được chia quyền như hiện tại — phân tích nghiệp vụ, không phải code |
+
+### AI / Machine Learning
+| File | Nội dung |
+|---|---|
 | [`docs/AI_HOAT_DONG_THE_NAO.md`](docs/AI_HOAT_DONG_THE_NAO.md) | AI làm gì, **khi nào báo động và khi nào cố tình không báo**, kèm 4 kịch bản diễn biến **theo từng giây** — viết cho người không đọc code |
-| [`ml/models/`](ml/models/) | Ba file `.tflite` đang chạy thật trên chip, mở bằng Netron được |
 | [`docs/AI_TIME_SERIES_TAT_TAN_TAT.md`](docs/AI_TIME_SERIES_TAT_TAN_TAT.md) | Tất tần tật phần AI: kiến trúc, huấn luyện, đánh giá, bộ hợp nhất, nhúng vào firmware |
 | [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset, cách chia tập, và **những gì nhóm không chứng minh được** |
 | [`docs/MLTK_AUTOGEN.md`](docs/MLTK_AUTOGEN.md) | Luồng `.tflite` → tool MLTK của Silicon Labs → chip, kèm hai cái bẫy |
-| [`docs/TRIEN_KHAI_PI.md`](docs/TRIEN_KHAI_PI.md) | **Đọc trước khi sửa `gateway/`.** Hai file đó chạy trên Pi chứ không phải máy bạn — kèm ba kiểu hỏng đã gặp thật và cách cứu hộ |
-| [`docs/BAO_CAO_KIEM_THU_WEB.md`](docs/BAO_CAO_KIEM_THU_WEB.md) | **Báo cáo kiểm thử web:** 70 ca chạy thật trên ba vai trò, kèm mã HTTP thực tế và hai chức năng còn thiếu |
-| [`docs/OTA.md`](docs/OTA.md) | **Cập nhật firmware từ xa.** Ai được thao tác, bấm gì trên giao diện, và các bước phát hành một bản firmware mới từ đầu tới cuối |
 | [`docs/AI_V2_PLAN.md`](docs/AI_V2_PLAN.md) | Lý do đằng sau từng quyết định của bản AI v2, **kèm cả những lần đi sai** |
-| [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI (bản cũ, giữ để tham chiếu) |
-| [`docs/AI_SYSTEM_SPECIFICATION.md`](docs/AI_SYSTEM_SPECIFICATION.md) | **Bản đặc tả đề xuất ban đầu — KHÔNG phải hệ thống đang chạy.** Giữ lại để đối chiếu; bốn điểm khác biệt ghi ngay đầu file |
-| [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |
+| [`ml/models/`](ml/models/) | Ba file `.tflite` đang chạy thật trên chip, mở bằng Netron được |
+
+<details>
+<summary>AI — tài liệu lịch sử/đề xuất (không mô tả bản đang chạy)</summary>
+
+| File | Nội dung |
+|---|---|
+| [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu dẫn tới AI v1 — v1 đã bị thay thế, file mã nó nhắc tới không còn tồn tại |
+| [`docs/AI_SYSTEM_SPECIFICATION.md`](docs/AI_SYSTEM_SPECIFICATION.md) | **Bản đặc tả đề xuất ban đầu — KHÔNG phải hệ thống đang chạy.** Bốn điểm khác biệt ghi ngay đầu file |
+
+</details>
+
+### Vận hành & triển khai
+| File | Nội dung |
+|---|---|
+| [`docs/TRIEN_KHAI_PI.md`](docs/TRIEN_KHAI_PI.md) | **Đọc trước khi sửa `gateway/`.** Hai file đó chạy trên Pi chứ không phải máy bạn — kèm ba kiểu hỏng đã gặp thật và cách cứu hộ |
+| [`docs/OTA.md`](docs/OTA.md) | **Cập nhật firmware từ xa.** Ai được thao tác, bấm gì trên giao diện, và các bước phát hành một bản firmware mới từ đầu tới cuối |
+
+### Kiểm thử
+| File | Nội dung |
+|---|---|
+| [`docs/BAO_CAO_KIEM_THU_WEB.md`](docs/BAO_CAO_KIEM_THU_WEB.md) | **Báo cáo kiểm thử web:** các ca chạy thật trên ba vai trò, kèm mã HTTP thực tế và các chức năng còn thiếu tại thời điểm kiểm |
+
+### Video demo (thi đấu)
+| File | Nội dung |
+|---|---|
+| [`docs/Script.md`](docs/Script.md) | Kịch bản quay đầy đủ, theo cảnh |
+| [`docs/Quay_Ky_Thuat.md`](docs/Quay_Ky_Thuat.md) | Shot list kỹ thuật tách riêng từ Script — chỉ phần quay thật + sơ đồ, bỏ hoạt hình |
+| [`docs/images/`](docs/images/) | Sơ đồ `.svg` dựng sẵn dùng trong video (kiến trúc, pipeline AI, Zigbee cluster...) |
 
 ---
 

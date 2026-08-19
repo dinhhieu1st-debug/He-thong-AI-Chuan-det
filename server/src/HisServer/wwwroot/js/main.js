@@ -1,3 +1,24 @@
+/* Toggle wired outside main()'s async body and run immediately (not awaited
+ * behind Session.load()) so it works even before login - the button is
+ * visible on every page including login.html's equivalent, and a nurse
+ * should not have to sign in just to fix a blinding white screen. */
+(function initThemeToggle() {
+  const btn = document.getElementById("themeToggleBtn");
+  if (!btn) return;
+
+  function currentTheme() {
+    const saved = localStorage.getItem("theme");
+    if (saved === "dark" || saved === "light") return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  btn.addEventListener("click", () => {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    localStorage.setItem("theme", next);
+    document.documentElement.setAttribute("data-theme", next);
+  });
+})();
+
 (async function main() {
   const titles = {
     dashboard: "Dashboard",
@@ -66,6 +87,8 @@
   Session.renderIdentity();
   Session.applyTo(document);
   document.getElementById("logoutBtn")?.addEventListener("click", () => Session.logout());
+  GlobalSearch.init();
+  NotificationHistory.init();
 
   /* Bed data comes from one of two endpoints depending on the role: the full
    * one with vitals for the ward, or the directory (identifiers and rooms
@@ -80,6 +103,11 @@
     }
   } catch (err) {
     console.error("Failed to load initial bed data:", err);
+    // A silent console.error here used to leave the whole ward view blank
+    // with no clue why - the tab modules below still init() and render an
+    // empty grid, which reads exactly like "no beds exist" instead of "the
+    // request failed". Surface it, and say what to do about it.
+    UiUtils.toast("Could not load bed data — check your connection and reload the page.", true);
   }
 
   /* Ward modules only exist for roles that can see the ward - their DOM is

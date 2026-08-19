@@ -12,6 +12,68 @@
   --warning: #e69119;
   --stable: #1ea050;
   --offline: #8a97a8;
+  /* Tinted backgrounds for severity badges/chips/notice boxes (culprit badge,
+   * forecast flags, line-state pills, OTA notice...). rgba over the base
+   * color rather than a flat hex, so the SAME declaration works as a subtle
+   * wash on a white panel and on a dark one - no separate dark override
+   * needed, which is what made these easy to miss the first pass at dark
+   * mode: they were hand-picked light hex values instead of derived from
+   * --warning/--critical/--stable, so they didn't move when the theme did. */
+  --warning-tint: rgba(230, 145, 25, 0.14);
+  --critical-tint: rgba(220, 60, 60, 0.12);
+  --stable-tint: rgba(30, 160, 80, 0.12);
+  /* Role-pill text colors (Users tab). Unlike the severity trio above, these
+   * three hues (nurse/admin/technician) aren't semantically load-bearing -
+   * nothing depends on "nurse = blue" the way it depends on "critical = red"
+   * - so they get real per-theme values rather than a one-size rgba tint:
+   * a light-mode-tuned hex is too dim on a dark panel and vice versa. */
+  --role-nurse: #35507a;
+  --role-admin: #5b2ea6;
+  --role-tech: #14666f;
+}
+
+/* A ward runs a night shift; a pure-white #f6f8fb console at 3am is glare
+ * for the nurse and light spilling onto a sleeping patient. Every surface
+ * color below is already a CSS variable, so redefining them here is enough -
+ * no component needs to know which theme it's in. Status colors (critical/
+ * warning/stable/offline) are left as-is on purpose: they're semantic, read
+ * fine on a dark ground too, and changing them would make a "Critical" chip
+ * mean a different red on a phone set to dark mode than on the ward's fixed
+ * monitor - the opposite of what a color code for urgency should do. */
+@media (prefers-color-scheme: dark) {
+  /* :not([data-theme="light"]) so an explicit "Light" choice from the toggle
+   * (stored in localStorage, applied by main.js before first paint) wins even
+   * when the OS itself is set to dark. */
+  :root:not([data-theme="light"]) {
+    --bg: #0f1620;
+    --panel: #182233;
+    --border: #2a3548;
+    --text: #e4eaf2;
+    --text-dim: #93a3b8;
+    --sidebar: #0c1420;
+    --sidebar-hover: #1c2a3f;
+    --accent: #4c93e0;
+    --accent-soft: #1c3350;
+    --role-nurse: #7bb0ea;
+    --role-admin: #c3a3f0;
+    --role-tech: #5fd0dc;
+  }
+}
+
+/* Explicit "Dark" choice from the toggle wins even when the OS is light. */
+:root[data-theme="dark"] {
+  --bg: #0f1620;
+  --panel: #182233;
+  --border: #2a3548;
+  --text: #e4eaf2;
+  --text-dim: #93a3b8;
+  --sidebar: #0c1420;
+  --sidebar-hover: #1c2a3f;
+  --accent: #4c93e0;
+  --accent-soft: #1c3350;
+  --role-nurse: #7bb0ea;
+  --role-admin: #c3a3f0;
+  --role-tech: #5fd0dc;
 }
 
 * { box-sizing: border-box; }
@@ -24,7 +86,7 @@ html, body {
 }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: #d3dae4; border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 button { font-family: inherit; }
@@ -62,6 +124,24 @@ button { font-family: inherit; }
 .nav-btn.disabled { opacity: .4; cursor: default; }
 .nav-btn.disabled:hover { background: transparent; color: #c7d3e3; }
 
+/* Icon-only rail below the tablet breakpoint. The nurse/technician target
+ * devices are tablet and desktop (phone is explicitly out of scope), so this
+ * only needs to fold the 210px sidebar down enough to leave room for content
+ * on an iPad-class screen - not shrink further into a bottom bar. Labels
+ * move to `title` tooltips (set in index.html) so nothing is lost, just
+ * denser. */
+@media (max-width: 1024px) {
+  .sidebar { width: 60px; padding: 14px 8px; align-items: center; }
+  .brand { padding: 4px 0 18px; justify-content: center; }
+  .brand-title, .brand-sub { display: none; }
+  .nav-btn { justify-content: center; padding: 10px; }
+  .nav-btn span:not(.nav-badge) { display: none; }
+  .nav-badge { position: absolute; margin-left: 0; transform: translate(10px, -10px); }
+  .nav-btn { position: relative; }
+  .sidebar-footer { flex-direction: column; padding: 8px 4px; }
+  .sidebar-footer-info { display: none; }
+}
+
 .sidebar-footer {
   margin-top: auto; display: flex; align-items: center; gap: 9px;
   background: #26436b; border-radius: 10px; padding: 8px;
@@ -86,6 +166,74 @@ button { font-family: inherit; }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--stable); }
 .conn-dot.stale { background: var(--offline); }
 
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.theme-toggle {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); cursor: pointer;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+/* Sun/moon icon swap: the CURRENT theme's icon is shown (sun visible in light
+ * mode = "click to go dark", matching the near-universal convention of
+ * showing the mode you'd switch TO... except every major app actually shows
+ * the CURRENT mode's icon, so we follow that instead - sun showing means
+ * "it's light right now". */
+.theme-toggle .icon-moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .icon-sun { display: none; }
+  :root:not([data-theme="light"]) .theme-toggle .icon-moon { display: block; }
+}
+
+/* Global search: one box, results from whatever the signed-in role already
+ * has loaded client-side (State.beds / State.devices) - no backend search
+ * endpoint exists, and at ward scale (tens of beds, not thousands) a
+ * client-side filter is instant and needs nothing new on the server. */
+.global-search {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+  padding: 0 10px; width: 220px; color: var(--text-dim);
+}
+.global-search input {
+  border: none; background: transparent; color: var(--text); font-size: 13px;
+  padding: 7px 0; width: 100%; outline: none;
+}
+.global-search-results {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(10, 25, 45, .18); max-height: 320px; overflow-y: auto;
+  z-index: 200;
+}
+.global-search-result {
+  display: flex; flex-direction: column; gap: 1px; padding: 8px 12px; cursor: pointer;
+  font-size: 12.5px; color: var(--text); border-bottom: 1px solid var(--border);
+}
+.global-search-result:last-child { border-bottom: none; }
+.global-search-result:hover { background: var(--accent-soft); }
+.global-search-result .gsr-sub { font-size: 11px; color: var(--text-dim); }
+.global-search-empty { padding: 12px; font-size: 12.5px; color: var(--text-dim); text-align: center; }
+
+/* Notification bell + history */
+.notification-dot {
+  position: absolute; top: 4px; right: 4px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--critical); border: 1.5px solid var(--panel);
+}
+.theme-toggle { position: relative; }
+.notification-panel {
+  position: absolute; top: 54px; right: 24px; width: 320px; max-height: 400px;
+  overflow-y: auto; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 14px 34px rgba(10, 25, 45, .2); z-index: 200;
+}
+.notification-panel-head {
+  padding: 10px 14px; font-size: 12px; font-weight: 700; color: var(--text-dim);
+  border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .04em;
+}
+.notification-row { padding: 9px 14px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.notification-row:last-child { border-bottom: none; }
+.notification-row.is-error { color: var(--critical); }
+.notification-row .nr-time { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+
 .content { flex: 1 1 auto; padding: 20px 24px; overflow-y: auto; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
@@ -103,8 +251,25 @@ button { font-family: inherit; }
 .stat-tile.offline .value { color: var(--offline); }
 
 .section-title { font-size: 13px; font-weight: 700; margin: 22px 0 10px; color: var(--text); }
+.section-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.section-title-row .section-title { margin: 22px 0 10px; }
+.link-btn {
+  background: none; border: none; color: var(--accent); font-size: 12.5px; font-weight: 600;
+  cursor: pointer; padding: 0; font-family: inherit;
+}
+.link-btn:hover { text-decoration: underline; }
 
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+
+.bulk-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 8px 14px; margin-bottom: 14px; font-size: 13px;
+}
+.bulk-select-all { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#alertsSelectedCount { color: var(--text-dim); flex: 1 1 auto; }
+.alert-item-select { display: flex; align-items: flex-start; padding-top: 2px; }
+.alert-item-select input { margin: 0; cursor: pointer; }
 .search-input {
   flex: 1 1 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
   font-size: 13px; background: var(--panel); color: var(--text);
@@ -163,7 +328,7 @@ button { font-family: inherit; }
 .vital { font-size: 11px; color: var(--text-dim); }
 .vital b { display: block; font-size: 15px; color: var(--text); font-family: 'IBM Plex Mono', monospace; }
 .bed-message { margin-top: 8px; font-size: 11.5px; color: var(--text-dim); }
-.bed-updated { margin-top: 6px; font-size: 10.5px; color: #9aa6b5; }
+.bed-updated { margin-top: 6px; font-size: 10.5px; color: var(--text-dim); }
 
 .signal-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .signal-dot {
@@ -175,7 +340,7 @@ button { font-family: inherit; }
 
 table.data-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 table.data-table th, table.data-table td { padding: 9px 12px; text-align: left; font-size: 12.5px; border-bottom: 1px solid var(--border); }
-table.data-table th { background: #f0f3f8; color: var(--text-dim); font-weight: 600; }
+table.data-table th { background: var(--bg); color: var(--text-dim); font-weight: 600; }
 table.data-table tr:last-child td { border-bottom: none; }
 
 .alert-item {
@@ -185,7 +350,7 @@ table.data-table tr:last-child td { border-bottom: none; }
 .alert-item .stripe { width: 4px; border-radius: 4px; flex: 0 0 auto; }
 .alert-item .title { font-size: 12.5px; font-weight: 700; }
 .alert-item .desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
-.alert-item .time { font-size: 10.5px; color: #9aa6b5; margin-top: 4px; }
+.alert-item .time { font-size: 10.5px; color: var(--text-dim); margin-top: 4px; }
 .alert-item .actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 
 .empty-state { color: var(--text-dim); font-size: 13px; padding: 30px; text-align: center; }
@@ -334,12 +499,12 @@ body.no-scroll { overflow: hidden; }
    critical, so the tile and its trace always agree. */
 .bd-vital.sev-warning {
   --vital-color: var(--warning);
-  background: #fffaf2; border-color: var(--warning);
+  background: var(--warning-tint); border-color: var(--warning);
 }
 .bd-vital.sev-warning .v { color: var(--warning); }
 .bd-vital.sev-critical {
   --vital-color: var(--critical);
-  background: #fdeaea; border-color: var(--critical);
+  background: var(--critical-tint); border-color: var(--critical);
   animation: alarm-card-pulse 1.1s ease-in-out infinite;
 }
 .bd-vital.sev-critical .v {
@@ -364,12 +529,12 @@ body.no-scroll { overflow: hidden; }
 .bd-channel-state.is-lost { color: var(--offline); }
 
 .bd-card-alert.sev-critical {
-  border-color: var(--critical); background: #fdeaea;
+  border-color: var(--critical); background: var(--critical-tint);
   animation: alarm-card-pulse 1.1s ease-in-out infinite;
 }
 .bd-card-alert.sev-critical > h4,
 .bd-card-alert.sev-critical .bd-alert-list { color: var(--critical); }
-.bd-card-alert.sev-warning { border-color: var(--warning); background: #fffaf2; }
+.bd-card-alert.sev-warning { border-color: var(--warning); background: var(--warning-tint); }
 .bd-card-alert.sev-warning > h4,
 .bd-card-alert.sev-warning .bd-alert-list { color: var(--warning); }
 @media (prefers-reduced-motion: reduce) {
@@ -701,9 +866,9 @@ body.no-scroll { overflow: hidden; }
 .fc-flag {
   padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; cursor: help;
 }
-.fc-warn  { background: #fdf1de; color: var(--warning); border: 1px solid var(--warning); }
-.fc-alarm { background: #fdeaea; color: var(--critical); border: 1px solid var(--critical); }
-.fc-card.fc-untrusted { border-color: var(--warning); background: #fffaf2; }
+.fc-warn  { background: var(--warning-tint); color: var(--warning); border: 1px solid var(--warning); }
+.fc-alarm { background: var(--critical-tint); color: var(--critical); border: 1px solid var(--critical); }
+.fc-card.fc-untrusted { border-color: var(--warning); background: var(--warning-tint); }
 .fc-note {
   margin-top: 10px; padding: 8px 10px; border-radius: 6px;
   background: var(--accent-soft); color: var(--text-dim);
@@ -724,26 +889,42 @@ body.no-scroll { overflow: hidden; }
 .sidebar-footer { display: flex; align-items: center; gap: 9px; }
 .role-pill {
   display: inline-block; padding: 2px 8px; border-radius: 20px;
-  font-size: 11px; font-weight: 600; background: #e8eef7; color: #35507a;
+  font-size: 11px; font-weight: 600; background: rgba(36, 112, 200, .14); color: var(--role-nurse);
 }
-.role-pill.admin { background: #efe4fb; color: #5b2ea6; }
-.role-pill.technician { background: #e2f2f4; color: #14666f; }
+.role-pill.admin { background: rgba(139, 92, 214, .16); color: var(--role-admin); }
+.role-pill.technician { background: rgba(20, 130, 145, .16); color: var(--role-tech); }
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(14, 27, 45, .55);
   display: flex; align-items: center; justify-content: center; z-index: 900;
 }
 .modal-card {
-  background: #fff; border-radius: 11px; padding: 22px; width: 100%;
+  background: var(--panel); color: var(--text); border-radius: 11px; padding: 22px; width: 100%;
   max-width: 380px; box-shadow: 0 16px 40px rgba(10, 25, 45, .28);
 }
 .modal-card h3 { margin: 0 0 14px; font-size: 15.5px; }
-.modal-card label { display: block; font-size: 12px; font-weight: 600; color: #43566f; margin: 10px 0 4px; }
+.modal-card label { display: block; font-size: 12px; font-weight: 600; color: var(--text-dim); margin: 10px 0 4px; }
 .modal-card input, .modal-card select {
   width: 100%; padding: 8px 10px; font-size: 13.5px;
-  border: 1px solid #cfd9e5; border-radius: 7px;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text);
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
-.form-error { color: #b3261e; font-size: 12.5px; margin-top: 10px; display: none; }
+
+/* Acknowledge dialog: wider than the default 380px modal when it is listing
+ * several alerts, one note field each - a single-width column of bed-id +
+ * note pairs needs the room, and a bulk dialog capped at 380px would wrap
+ * every message onto its own line. */
+.ack-modal { max-width: 460px; }
+.ack-rows { max-height: 320px; overflow-y: auto; margin-top: 6px; }
+.ack-row { padding: 10px 0; border-top: 1px dashed var(--border); }
+.ack-row:first-child { border-top: none; padding-top: 0; }
+.ack-row label {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 5px; font-size: 12.5px;
+  font-weight: 600; color: var(--text);
+}
+.ack-row label .chip { font-size: 9.5px; padding: 1px 6px; }
+.ack-row label .muted { font-weight: 400; }
+.ack-row input { margin: 0; }
+.form-error { color: var(--critical); font-size: 12.5px; margin-top: 10px; display: none; }
 .bd-patient-name { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
 .bd-patient-form { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .bd-patient-form input {
@@ -753,18 +934,18 @@ body.no-scroll { overflow: hidden; }
 .bd-patient-actions { display: flex; gap: 6px; }
 .bd-patient-actions .btn { flex: 1; justify-content: center; }
 .pending-devices {
-  border: 1px solid #f0d5a8; background: #fffaf0;
+  border: 1px solid var(--warning); background: var(--warning-tint);
   border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
 }
-.pending-devices .data-table { background: #fff; }
+.pending-devices .data-table { background: var(--panel); }
 .fault-status {
   display: inline-block; padding: 2px 8px; border-radius: 20px;
   font-size: 11px; font-weight: 600;
 }
-.fault-open { background: #fdecec; color: #b3261e; }
-.fault-in_progress { background: #fff3e0; color: #a35b00; }
-.fault-resolved { background: #e7f6ec; color: #1c6b39; }
-.device-fault-line { color: #a35b00; font-weight: 600; }
+.fault-open { background: var(--critical-tint); color: var(--critical); }
+.fault-in_progress { background: var(--warning-tint); color: var(--warning); }
+.fault-resolved { background: var(--stable-tint); color: var(--stable); }
+.device-fault-line { color: var(--warning); font-weight: 600; }
 .device-event { padding: 5px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
 .device-event-type { font-weight: 700; margin-right: 8px; }
 
@@ -786,8 +967,8 @@ body.no-scroll { overflow: hidden; }
   font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
   cursor: help; white-space: nowrap;
 }
-.culprit-line     { background: #fdf1de; color: var(--warning);  border: 1px solid var(--warning); }
-.culprit-patient  { background: #fdeaea; color: var(--critical); border: 1px solid var(--critical); }
+.culprit-line     { background: var(--warning-tint); color: var(--warning);  border: 1px solid var(--warning); }
+.culprit-patient  { background: var(--critical-tint); color: var(--critical); border: 1px solid var(--critical); }
 /* Both failing at once is its own category, not a louder version of one of
  * them - solid fill so it separates at a glance across a ward screen. */
 .culprit-critical {
@@ -806,10 +987,10 @@ body.no-scroll { overflow: hidden; }
   padding: 9px 11px; border-radius: 6px;
   font-size: 12.5px; font-weight: 600; line-height: 1.45;
 }
-.ls-ok    { background: #eaf7ef; color: var(--stable);   border: 1px solid var(--stable); }
+.ls-ok    { background: var(--stable-tint); color: var(--stable);   border: 1px solid var(--stable); }
 .ls-info  { background: var(--accent-soft); color: var(--text-dim); }
-.ls-warn  { background: #fdf1de; color: var(--warning);  border: 1px solid var(--warning); }
-.ls-alarm { background: #fdeaea; color: var(--critical); border: 1px solid var(--critical); }
+.ls-warn  { background: var(--warning-tint); color: var(--warning);  border: 1px solid var(--warning); }
+.ls-alarm { background: var(--critical-tint); color: var(--critical); border: 1px solid var(--critical); }
 
 .ls-remaining {
   margin-top: 10px; padding: 9px 11px; border-radius: 6px;
@@ -895,7 +1076,7 @@ body.no-scroll { overflow: hidden; }
 
 .ota-warn {
   margin-top: 6px; padding: 6px 8px; border-radius: 6px;
-  background: #fdf1de; color: var(--warning);
+  background: var(--warning-tint); color: var(--warning);
   font-size: 11.5px; font-weight: 600;
 }
 
@@ -904,7 +1085,7 @@ body.no-scroll { overflow: hidden; }
 /* Sự kiện firmware trong nhật ký thiết bị: nổi lên giữa một danh sách phần lớn
    là join/fault, vì sau một lần cập nhật hỏng thì đây là dòng người ta tìm. */
 .device-event-fw {
-  background: #eef4ff;
-  border-left: 3px solid #2f6fed;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
   padding-left: 6px;
 }

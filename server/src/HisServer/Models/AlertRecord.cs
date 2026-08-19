@@ -13,9 +13,10 @@ public sealed class AlertRecord
     public required string Message { get; init; }
     public int? Spo2 { get; init; }
     public int? HeartRate { get; init; }
-    public double? Temperature { get; init; }
     public int? DripRate { get; init; }
     public bool Acknowledged { get; set; }
     public DateTime? AcknowledgedAt { get; set; }
+    public string? AcknowledgedBy { get; set; }
+    public string? AcknowledgementNote { get; set; }
     public DateTime CreatedAt { get; init; }
 }

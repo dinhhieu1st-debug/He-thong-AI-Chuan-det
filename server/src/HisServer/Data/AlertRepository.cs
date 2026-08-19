@@ -27,8 +27,8 @@ public sealed class AlertRepository
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         var id = await connection.ExecuteScalarAsync<long>(
             """
-            INSERT INTO alerts (bed_id, device_id, alert_level, alert_type, message, spo2, heart_rate, temperature, drip_rate, created_at)
-            VALUES (@BedId, @DeviceId, @Level, @AlertType, @Message, @Spo2, @HeartRate, @Temperature, @DripRate, @CreatedAt);
+            INSERT INTO alerts (bed_id, device_id, alert_level, alert_type, message, spo2, heart_rate, drip_rate, created_at)
+            VALUES (@BedId, @DeviceId, @Level, @AlertType, @Message, @Spo2, @HeartRate, @DripRate, @CreatedAt);
             SELECT LAST_INSERT_ID();
             """,
             new
@@ -40,7 +40,6 @@ public sealed class AlertRepository
                 alert.Message,
                 alert.Spo2,
                 alert.HeartRate,
-                alert.Temperature,
                 alert.DripRate,
                 alert.CreatedAt
             });
@@ -76,7 +75,8 @@ public sealed class AlertRepository
         var rows = await connection.QueryAsync(
             """
             SELECT a.alert_id, a.bed_id, b.room, a.device_id, a.alert_level, a.alert_type, a.message,
-                   a.spo2, a.heart_rate, a.temperature, a.drip_rate, a.acknowledged, a.acknowledged_at, a.created_at
+                   a.spo2, a.heart_rate, a.drip_rate, a.acknowledged, a.acknowledged_at,
+                   a.acknowledged_by, a.acknowledgement_note, a.created_at
             FROM alerts a
             LEFT JOIN beds b ON b.bed_id = a.bed_id
             """ + where + " " + """
@@ -95,7 +95,8 @@ public sealed class AlertRepository
         var row = await connection.QuerySingleOrDefaultAsync(
             """
             SELECT a.alert_id, a.bed_id, b.room, a.device_id, a.alert_level, a.alert_type, a.message,
-                   a.spo2, a.heart_rate, a.temperature, a.drip_rate, a.acknowledged, a.acknowledged_at, a.created_at
+                   a.spo2, a.heart_rate, a.drip_rate, a.acknowledged, a.acknowledged_at,
+                   a.acknowledged_by, a.acknowledgement_note, a.created_at
             FROM alerts a
             LEFT JOIN beds b ON b.bed_id = a.bed_id
             WHERE a.alert_id = @alertId
@@ -108,15 +109,17 @@ public sealed class AlertRepository
     /// keeps the FIRST acknowledgement: a second click, or another nurse
     /// arriving moments later, must not overwrite who actually responded.</param>
     public async Task<DateTime?> AcknowledgeAsync(long alertId, string? acknowledgedBy = null,
+                                                  string? note = null,
                                                   CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             "UPDATE alerts SET acknowledged = TRUE, " +
             "acknowledged_at = COALESCE(acknowledged_at, NOW()), " +
-            "acknowledged_by = COALESCE(acknowledged_by, @acknowledgedBy) " +
+            "acknowledged_by = COALESCE(acknowledged_by, @acknowledgedBy), " +
+            "acknowledgement_note = COALESCE(@note, acknowledgement_note) " +
             "WHERE alert_id = @alertId",
-            new { alertId, acknowledgedBy });
+            new { alertId, acknowledgedBy, note });
 
         var acknowledgedAt = await connection.ExecuteScalarAsync<DateTime?>(
             "SELECT acknowledged_at FROM alerts WHERE alert_id = @alertId", new { alertId });
@@ -134,10 +137,11 @@ public sealed class AlertRepository
         Message = row.message,
         Spo2 = row.spo2,
         HeartRate = row.heart_rate,
-        Temperature = (double?)row.temperature,
         DripRate = row.drip_rate,
         Acknowledged = row.acknowledged,
         AcknowledgedAt = row.acknowledged_at,
+        AcknowledgedBy = row.acknowledged_by,
+        AcknowledgementNote = row.acknowledgement_note,
         CreatedAt = row.created_at
     };
 }

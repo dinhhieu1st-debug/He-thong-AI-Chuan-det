@@ -37,11 +37,11 @@ public sealed class VitalSampleRepository
         await connection.ExecuteAsync(
             """
             INSERT INTO vital_samples
-              (bed_id, device_id, spo2, heart_rate, temperature, drip_rate, flow_rate,
+              (bed_id, device_id, spo2, heart_rate, drip_rate, flow_rate,
                weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
                line_blocked, ae_alarm, status, recorded_at)
             VALUES
-              (@bedId, @deviceId, @spo2, @heartRate, @temperature, @dripRate, @flowRate,
+              (@bedId, @deviceId, @spo2, @heartRate, @dripRate, @flowRate,
                @weightG, @dropsPerMin, @targetFlowMlH, @targetDropsPerMin,
                @lineBlocked, @aeAlarm, @status, @recordedAt)
             """,
@@ -51,7 +51,6 @@ public sealed class VitalSampleRepository
                 deviceId,
                 spo2 = reading.Spo2Signal ? reading.Spo2 : (int?)null,
                 heartRate = reading.HeartRateSignal ? reading.HeartRate : (int?)null,
-                temperature = reading.Temperature,
                 dripRate = reading.DripRateSignal ? reading.DripRate : (int?)null,
                 flowRate = reading.FlowSignal ? reading.FlowRate : (int?)null,
                 weightG = reading.WeightG,

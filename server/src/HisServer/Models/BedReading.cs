@@ -6,7 +6,6 @@ public sealed record BedReading(
     string Room,
     int Spo2,
     int HeartRate,
-    double Temperature,
     int DripRate,
     DateTime ReceivedAt,
     int FlowRate = 0,

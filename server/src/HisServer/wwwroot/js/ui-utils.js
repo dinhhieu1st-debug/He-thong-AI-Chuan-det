@@ -69,10 +69,28 @@ const UiUtils = (() => {
     ).join("")}</div>`;
   }
 
+  // Every toast shown this session, newest first - a toast itself vanishes
+  // after 4s, and a message glimpsed out of the corner of an eye while looking
+  // at a patient is easy to miss entirely. The bell icon in the topbar reads
+  // this. Session-only (no localStorage/backend): this is a "what just
+  // happened" scratchpad, not an audit trail - System Log already is that.
+  const MAX_TOAST_HISTORY = 30;
+  const toastHistory = [];
+  let unseenErrorCount = 0;
+
+  function toastHistoryChanged() {
+    document.dispatchEvent(new CustomEvent("toast-history-changed"));
+  }
+
   // Small dismissable notification for the result of an action button (e.g.
   // "target flow rate set", "tare command sent"). Falls back to console.log
   // if the toast container isn't present in the page yet.
   function toast(message, isError) {
+    toastHistory.unshift({ message, isError: !!isError, at: new Date() });
+    toastHistory.length = Math.min(toastHistory.length, MAX_TOAST_HISTORY);
+    if (isError) unseenErrorCount += 1;
+    toastHistoryChanged();
+
     const container = document.getElementById("toastContainer");
     if (!container) {
       console.log(`[toast] ${message}`);
@@ -91,5 +109,21 @@ const UiUtils = (() => {
     }, 4000);
   }
 
-  return { statusColor, culpritBadgeHtml, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast };
+  function getToastHistory() {
+    return toastHistory;
+  }
+
+  function getUnseenErrorCount() {
+    return unseenErrorCount;
+  }
+
+  function markToastHistorySeen() {
+    unseenErrorCount = 0;
+    toastHistoryChanged();
+  }
+
+  return {
+    statusColor, culpritBadgeHtml, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast,
+    getToastHistory, getUnseenErrorCount, markToastHistorySeen
+  };
 })();

@@ -10,7 +10,6 @@ public sealed class BedState
     public BedStatus Status { get; set; } = BedStatus.Offline;
     public int? Spo2 { get; set; }
     public int? HeartRate { get; set; }
-    public double? Temperature { get; set; }
     public int? DripRate { get; set; }
     public int? FlowRate { get; set; }
     public bool HeartRateSignal { get; set; } = true;

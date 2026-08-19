@@ -561,14 +561,16 @@ public sealed class BedTcpIngestionService : BackgroundService
 
     private async Task ProcessReadingAsync(BedReading reading, CancellationToken cancellationToken)
     {
-        var status = VitalsStatusEvaluator.Evaluate(reading);
-        var previousStatus = bedStateStore.Get(reading.BedId)?.Status ?? BedStatus.Offline;
+        var previousBed = bedStateStore.Get(reading.BedId);
+        var previousStatus = previousBed?.Status ?? BedStatus.Offline;
+        var status = VitalsStatusEvaluator.Evaluate(reading, previousBed?.Spo2, previousBed?.HeartRate);
 
         string? alertMessage = null;
         string alertType = string.Empty;
         if (status is BedStatus.Warning or BedStatus.Critical)
         {
-            (alertType, alertMessage) = VitalsStatusEvaluator.DescribeAlert(reading);
+            (alertType, alertMessage) = VitalsStatusEvaluator.DescribeAlert(
+                reading, previousBed?.Spo2, previousBed?.HeartRate);
         }
 
         var bed = bedStateStore.Upsert(reading.BedId, state =>
@@ -577,7 +579,6 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.Status = status;
             state.Spo2 = reading.Spo2;
             state.HeartRate = reading.HeartRate;
-            state.Temperature = reading.Temperature;
             state.DripRate = reading.DripRate;
             state.FlowRate = reading.FlowRate;
             state.HeartRateSignal = reading.HeartRateSignal;
@@ -676,7 +677,6 @@ public sealed class BedTcpIngestionService : BackgroundService
                 Message = alertMessage ?? string.Empty,
                 Spo2 = reading.Spo2,
                 HeartRate = reading.HeartRate,
-                Temperature = reading.Temperature,
                 DripRate = reading.DripRate,
                 CreatedAt = reading.ReceivedAt
             }, cancellationToken);

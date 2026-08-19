@@ -48,7 +48,7 @@ const Api = (() => {
       request("GET", `/api/beds/${encodeURIComponent(bedId)}/history?minutes=${encodeURIComponent(minutes)}`),
 
     getAlerts: (params) => request("GET", `/api/alerts?${new URLSearchParams(params)}`),
-    ackAlert: (id) => request("POST", `/api/alerts/${id}/ack`),
+    ackAlert: (id, note) => request("POST", `/api/alerts/${id}/ack`, { note: note || null }),
 
     getDevices: () => request("GET", "/api/devices"),
     createDevice: (device) => request("POST", "/api/devices", device),

@@ -26,7 +26,30 @@ public static class VitalsStatusEvaluator
     private const int LowHeartRate = 60;
     private const int HighHeartRate = 110;
 
-    public static BedStatus Evaluate(BedReading reading)
+    /// <summary>
+    /// How far a reading has to recover past a threshold before the bed is
+    /// allowed to drop back to a less severe status. Applied only on the way
+    /// DOWN - a reading that gets worse crosses the plain threshold instantly,
+    /// same as before.
+    ///
+    /// Without this, a value sitting within sensor noise of a threshold (SpO2
+    /// bouncing 94/95/94...) flips the bed's status every reading, and
+    /// AlertTransitionTracker - which only raises an alert ON a transition -
+    /// then raises a fresh alert on every single flip. Observed live: 4
+    /// duplicate alerts on one bed in about two minutes of otherwise-normal
+    /// sensor jitter. This is the textbook cause of alarm fatigue in a ward.
+    ///
+    /// Judged PER METRIC (previousSpo2/previousHeartRate below), not off the
+    /// bed's overall previous status. An earlier version keyed the buffer off
+    /// previousStatus, which meant a bed that was Warning because of SpO2
+    /// would ALSO buffer a borderline heart rate that had never itself been
+    /// abnormal - the two channels have nothing to do with each other and
+    /// must not borrow each other's hysteresis.
+    /// </summary>
+    private const int Spo2Hysteresis = 2;
+    private const int HeartRateHysteresis = 2;
+
+    public static BedStatus Evaluate(BedReading reading, int? previousSpo2, int? previousHeartRate)
     {
         // The device's own four-level verdict comes first when it is available.
         // It is decided on-chip from three independent models plus the hard
@@ -82,7 +105,7 @@ public static class VitalsStatusEvaluator
         // deviation straight to Critical, which meant every bag that ran low,
         // every kinked line and every miscounted drop looked exactly like a
         // patient in trouble.
-        if (IsCriticalSpo2(reading))
+        if (IsCriticalSpo2(reading, previousSpo2))
         {
             return BedStatus.Critical;
         }
@@ -100,8 +123,8 @@ public static class VitalsStatusEvaluator
             // A line fault from a device too old to classify it itself. Warning,
             // not Critical - see above.
             || (reading.LineBlocked && !deviceJudgedTheLine)
-            || IsWarningSpo2(reading)
-            || IsAbnormalHeartRate(reading)
+            || IsWarningSpo2(reading, previousSpo2)
+            || IsAbnormalHeartRate(reading, previousHeartRate)
             || reading.AeAlarm
             || HasLostSignal(reading))
         {
@@ -122,7 +145,8 @@ public static class VitalsStatusEvaluator
     /// reflects the single most severe cause, since it keys the alert
     /// history and the mobile push category.
     /// </summary>
-    public static (string AlertType, string Message) DescribeAlert(BedReading reading)
+    public static (string AlertType, string Message) DescribeAlert(
+        BedReading reading, int? previousSpo2, int? previousHeartRate)
     {
         var causes = new List<(string Type, string Text)>();
 
@@ -140,7 +164,7 @@ public static class VitalsStatusEvaluator
                 "Infusion line AND patient vitals both abnormal — suspected fluid overload"));
         }
 
-        if (IsCriticalSpo2(reading))
+        if (IsCriticalSpo2(reading, previousSpo2))
         {
             causes.Add(("SPO2_LOW_CRITICAL", $"Critically low SpO2: {reading.Spo2}%"));
         }
@@ -163,12 +187,12 @@ public static class VitalsStatusEvaluator
             causes.Add(("LINE_BLOCKED", "IV line blocked or free-flowing — check tubing immediately"));
         }
 
-        if (IsWarningSpo2(reading))
+        if (IsWarningSpo2(reading, previousSpo2))
         {
             causes.Add(("SPO2_LOW", $"Low SpO2: {reading.Spo2}%"));
         }
 
-        if (IsAbnormalHeartRate(reading))
+        if (IsAbnormalHeartRate(reading, previousHeartRate))
         {
             var direction = reading.HeartRate < LowHeartRate ? "Low" : "High";
             causes.Add(("HEART_RATE_ABNORMAL", $"{direction} heart rate: {reading.HeartRate} bpm"));
@@ -277,15 +301,39 @@ public static class VitalsStatusEvaluator
         _ => "Infusion line needs checking — patient vitals are normal",
     };
 
-    private static bool IsCriticalSpo2(BedReading reading) =>
-        reading.Spo2Signal && reading.Spo2 < CriticalSpo2;
+    private static bool IsCriticalSpo2(BedReading reading, int? previousSpo2)
+    {
+        // Already critical (judged from the PREVIOUS SpO2 reading, not the
+        // bed's overall previous status): require the reading to climb past
+        // the buffered threshold before letting go, instead of the moment it
+        // touches 90.
+        var wasCritical = previousSpo2 is int p && p < CriticalSpo2;
+        var threshold = wasCritical ? CriticalSpo2 + Spo2Hysteresis : CriticalSpo2;
+        return reading.Spo2Signal && reading.Spo2 < threshold;
+    }
 
-    private static bool IsWarningSpo2(BedReading reading) =>
-        reading.Spo2Signal && reading.Spo2 >= CriticalSpo2 && reading.Spo2 < WarningSpo2;
+    private static bool IsWarningSpo2(BedReading reading, int? previousSpo2)
+    {
+        if (IsCriticalSpo2(reading, previousSpo2))
+        {
+            return false;
+        }
+        var wasAbnormal = previousSpo2 is int p && p < WarningSpo2;
+        var threshold = wasAbnormal ? WarningSpo2 + Spo2Hysteresis : WarningSpo2;
+        return reading.Spo2Signal && reading.Spo2 < threshold;
+    }
 
-    private static bool IsAbnormalHeartRate(BedReading reading) =>
-        reading.HeartRateSignal
-        && (reading.HeartRate < LowHeartRate || reading.HeartRate > HighHeartRate);
+    private static bool IsAbnormalHeartRate(BedReading reading, int? previousHeartRate)
+    {
+        if (!reading.HeartRateSignal)
+        {
+            return false;
+        }
+        var wasAbnormal = previousHeartRate is int p && (p < LowHeartRate || p > HighHeartRate);
+        var low = wasAbnormal ? LowHeartRate + HeartRateHysteresis : LowHeartRate;
+        var high = wasAbnormal ? HighHeartRate - HeartRateHysteresis : HighHeartRate;
+        return reading.HeartRate < low || reading.HeartRate > high;
+    }
 
     private static bool HasLostSignal(BedReading reading) =>
         !reading.HeartRateSignal || !reading.Spo2Signal || !reading.FlowSignal || !reading.DripRateSignal;

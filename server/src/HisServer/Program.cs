@@ -201,7 +201,6 @@ using (var scope = app.Services.CreateScope())
                 state.AdmittedAt = bed.AdmittedAt;
                 state.Spo2 = bed.Spo2;
                 state.HeartRate = bed.HeartRate;
-                state.Temperature = bed.Temperature;
                 state.DripRate = bed.DripRate;
                 state.FlowRate = bed.FlowRate;
                 state.HeartRateSignal = bed.HeartRateSignal;

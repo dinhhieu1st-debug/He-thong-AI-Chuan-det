@@ -27,7 +27,12 @@ public static class AuthEndpoints
             ILoggerFactory loggerFactory) =>
         {
             var logger = loggerFactory.CreateLogger("Auth");
-            var user = await users.FindByUsernameAsync(request.Username ?? string.Empty);
+            // Trim server-side too - not every caller of this endpoint is the
+            // browser form (mobile app, curl), so the fix can't live in login.js
+            // alone. Password is left untouched: whitespace there could be
+            // intentional.
+            var username = (request.Username ?? string.Empty).Trim();
+            var user = await users.FindByUsernameAsync(username);
 
             /* One message for every failure - unknown username, wrong password,
              * disabled account. Saying which one is wrong tells an attacker

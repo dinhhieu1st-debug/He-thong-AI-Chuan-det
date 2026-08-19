@@ -2,6 +2,16 @@
  * is a session, so it must not depend on api.js/state.js or anything else that
  * assumes one. */
 (() => {
+  const themeBtn = document.getElementById("themeToggleBtn");
+  themeBtn?.addEventListener("click", () => {
+    const saved = localStorage.getItem("theme");
+    const isDark = saved === "dark"
+      || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const next = isDark ? "light" : "dark";
+    localStorage.setItem("theme", next);
+    document.documentElement.setAttribute("data-theme", next);
+  });
+
   const form = document.getElementById("loginForm");
   const errorBox = document.getElementById("loginError");
   const button = document.getElementById("loginBtn");
@@ -34,7 +44,10 @@
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({
-          username: document.getElementById("username").value,
+          // A trailing/leading space (autofill, a fumbled tap on a tablet
+          // keyboard) must not turn a correct password into "wrong password"
+          // with no clue why - trim the username the same way the server does.
+          username: document.getElementById("username").value.trim(),
           password: document.getElementById("password").value
         })
       });
