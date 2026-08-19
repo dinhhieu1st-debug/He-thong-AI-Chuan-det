@@ -26,7 +26,17 @@
 // <o SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_QUERY_DELAY_MINUTES> Query OTA Server Delay (minutes) <1-65535>
 // <i> Default: 5
 // <i> How often the client queries the OTA server for a new upgrade image.
-#define SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_QUERY_DELAY_MINUTES   5
+/* How often the client asks the server "is there a new image?" once it is
+ * running. 1 minute rather than the default 5, so a device also finds an
+ * update by itself reasonably soon, not only when a technician pushes one.
+ *
+ * NOTE, because this was mistaken for it once: this is NOT the delay after
+ * boot. That one is hardcoded in the SDK as a random 0-255 seconds
+ * (MAXIMUM_RANDOM_DELAY_SECONDS_MASK in ota-client.c) and cannot be
+ * configured. Until it expires the device does not answer OTA requests at all,
+ * and zigbee2mqtt reports only "Device didn't respond to OTA request" - so
+ * after any reboot, wait about five minutes before expecting OTA to work. */
+#define SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_QUERY_DELAY_MINUTES   1
 
 // <o SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_QUERY_ERROR_THRESHOLD> Query Error Rediscovery Threshold <1-255>
 // <i> Default: 10

@@ -31,7 +31,24 @@
 // <USE_SPECIFIC_SLOT=> Use specific slot
 // <i> Default: DO_NOT_USE_SLOTS
 // <i> This option dictates the method for saving OTA images to slots. This is only applicable if a Gecko storage bootloader is running on the chip. The Slot Manager plugin must be selected in order for slots to be used. If a Gecko storage bootloader is not present on the chip, the offsets entered below will be used. If "Do not use slots" is selected, then the offsets entered below will be used to determine where to save the image. This is not recommended, as using set offsets to addresses with a Gecko storage bootloader requires knowledge of storage slot addresses and boundaries. A mismatch in addresses will cause OTA to not work.
-#define SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_GECKO_BOOTLOADER_STORAGE_SUPPORT   DO_NOT_USE_SLOTS
+/* USE_FIRST_SLOT, not the default DO_NOT_USE_SLOTS.
+ *
+ * With DO_NOT_USE_SLOTS the OTA client ignores the Gecko bootloader's storage
+ * slot entirely and writes into the raw address window STORAGE_START..
+ * STORAGE_END below - which defaulted to 256 KB. Our application image is
+ * 430 KB, so the device answered every offer with
+ *
+ *     ERROR: Next Image is too big to store (0x0006927E > 0x0003F800)
+ *
+ * and simply never requested a block. zigbee2mqtt saw only a silent device and
+ * timed out after 150 s with "did not start/finish firmware download", which
+ * says nothing about the actual cause - the reason had to be read off the
+ * board's own serial output.
+ *
+ * Slot 0 is 0x184000 (1.58 MB), sized in the bootloader project, so using the
+ * slot both fixes the limit and keeps ONE definition of where a downloaded
+ * image lives. See docs/OTA.md section 4.1 for the memory map. */
+#define SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_GECKO_BOOTLOADER_STORAGE_SUPPORT   USE_FIRST_SLOT
 
 // <o SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_SLOT_TO_USE> Storage Slot To Save Images To <0-255>
 // <i> Default: 0

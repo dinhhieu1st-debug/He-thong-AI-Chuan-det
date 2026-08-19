@@ -73,3 +73,37 @@ Firmware `smart-iv-monitor` hiện **chưa có** thành phần OTA client — ki
 bằng `grep -i ota smart-iv-monitor.slcp`. Thêm nó vào là đổi bố cục bộ nhớ (ứng
 dụng phải dời lên trên bootloader), nên **phải nạp qua dây một lần** trước khi
 OTA dùng được lần đầu.
+
+---
+
+## Slot tải ảnh có thể chứa sẵn firmware của người khác — XOÁ TRƯỚC KHI BẬT
+
+Đã xảy ra thật, và mất firmware AI một lần.
+
+Bật `USE_FIRST_SLOT` cho OTA storage xong nạp lại chip, thiết bị khởi động lên
+chạy **một firmware hoàn toàn khác**: `[BOOT] Smart IV firmware v4 - nhay 4 lan`,
+một autoencoder 6 đặc trưng — tức bản AI **đời cũ**, không phải ba model hiện tại.
+
+Nguyên nhân: slot 0 **đã có sẵn một ảnh GBL hoàn chỉnh** từ những lần thử OTA
+trước đó (đọc `0x8190000` thấy `EB 17 A6 03` = magic GBL). Chừng nào OTA storage
+còn đặt `DO_NOT_USE_SLOTS` thì không ai đụng tới nó. Ngay khi chuyển sang dùng
+slot, OTA client thấy một ảnh đầy đủ và hợp lệ nằm đó, coi như **vừa tải xong**,
+và bảo bootloader cài đặt.
+
+Đúng cái bẫy mã nhà sản xuất ở mục trên, nhưng đến từ **bộ nhớ của chính thiết
+bị** chứ không phải từ index — nên không có luật nào ở phía server chặn được.
+
+**Trước khi bật OTA storage theo slot trên một board đã từng dùng để thử OTA,
+xoá slot:**
+
+```bash
+C=~/.silabs/slt/installs/archive/commander/commander
+
+$C readmem --range 0x8190000:+16      # EB 17 A6 03 = có ảnh nằm sẵn
+$C device pageerase --range 0x8190000:0x8314000
+$C readmem --range 0x8190000:+16      # phải toàn FF
+$C flash <firmware đúng>.s37
+```
+
+Xoá slot **trước** khi nạp firmware, không phải sau: nạp trước thì thiết bị khởi
+động, OTA client lại thấy ảnh cũ và cài đè lần nữa.

@@ -193,13 +193,35 @@ static void format_reading(char out[4], bool valid, uint16_t value)
  * Screens
  * ------------------------------------------------------------------------- */
 
+/* Set by the application at boot so the splash can show it. A firmware
+ * version that only exists in a serial log is a version nobody can check:
+ * after a remote update the person who needs to know which image is running is
+ * standing at the bed, not at a terminal. */
+static uint8_t splash_version = 0U;
+
+void oled_display_set_version(uint8_t version)
+{
+  splash_version = version;
+}
+
 bool oled_display_show_splash(oled_display_t *display)
 {
   if (display == NULL || !display->initialized) return false;
   clear(display);
-  draw_text_centered(display, 12U, "SMART IV", 2U);
-  draw_text_centered(display, 34U, "ICTU", 2U);
-  draw_text_centered(display, 54U, "STARTING UP", 1U);
+  draw_text_centered(display, 8U, "SMART IV", 2U);
+  draw_text_centered(display, 30U, "ICTU", 2U);
+
+  if (splash_version > 0U && splash_version < 100U) {
+    char v[8];
+    uint8_t i = 0U;
+    v[i++] = 'F'; v[i++] = 'W'; v[i++] = ' '; v[i++] = 'V';
+    if (splash_version >= 10U) v[i++] = (char)('0' + splash_version / 10U);
+    v[i++] = (char)('0' + splash_version % 10U);
+    v[i] = '\0';
+    draw_text_centered(display, 48U, v, 1U);
+  }
+
+  draw_text_centered(display, 56U, "STARTING UP", 1U);
   return refresh(display);
 }
 

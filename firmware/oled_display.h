@@ -116,6 +116,10 @@ bool oled_display_init(oled_display_t *display, const oled_bus_t *bus);
 bool oled_display_show_vitals(oled_display_t *display,
                               const oled_vitals_t *vitals);
 
+/* Firmware version to print on the splash. Call before oled_display_init().
+ * 0 (the default) prints no version line. */
+void oled_display_set_version(uint8_t version);
+
 /* "SMART IV / ICTU" splash, shown at boot until the first reading arrives. */
 bool oled_display_show_splash(oled_display_t *display);
 

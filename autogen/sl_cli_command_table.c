@@ -122,6 +122,11 @@ extern "C" {
  ******************************************************************************/
 
 // Provide function declarations
+void sli_slot_manager_cli_bootload_slot(sl_cli_command_arg_t *arguments);
+void sli_slot_manager_cli_erase_slot(sl_cli_command_arg_t *arguments);
+void sli_slot_manager_cli_print_external_flash_info(sl_cli_command_arg_t *arguments);
+void sli_slot_manager_cli_read_ext_flash(sl_cli_command_arg_t *arguments);
+void sli_slot_manager_cli_print_slots_info(sl_cli_command_arg_t *arguments);
 void sli_eeprom_data_print_command(sl_cli_command_arg_t *arguments);
 void sli_eeprom_status_command(sl_cli_command_arg_t *arguments);
 void sli_eeprom_info_command(sl_cli_command_arg_t *arguments);
@@ -261,6 +266,36 @@ void printTimeCommand(sl_cli_command_arg_t *arguments);
 // Command structs. Names are in the format : cli_cmd_{command group name}_{command name}
 // In order to support hyphen in command and group name, every occurence of it while
 // building struct names will be replaced by "_hyphen_"
+static const sl_cli_command_info_t cli_cmd_slot_hyphen_manager_boot_hyphen_slot = \
+  SL_CLI_COMMAND(sli_slot_manager_cli_bootload_slot,
+                 "Boots the image in the specified slot ID.",
+                  "Storage slot number" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT32, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_slot_hyphen_manager_erase_hyphen_slot = \
+  SL_CLI_COMMAND(sli_slot_manager_cli_erase_slot,
+                 "Erases the specified slot ID.",
+                  "Storage slot number" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT32, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_slot_hyphen_manager_ext_hyphen_flash_hyphen_info = \
+  SL_CLI_COMMAND(sli_slot_manager_cli_print_external_flash_info,
+                 "Prints flash storage information.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_slot_hyphen_manager_read = \
+  SL_CLI_COMMAND(sli_slot_manager_cli_read_ext_flash,
+                 "Reads raw data from flash storage.",
+                  "Address to read" SL_CLI_UNIT_SEPARATOR "Number of bytes to read" SL_CLI_UNIT_SEPARATOR,
+                 {SL_CLI_ARG_UINT32, SL_CLI_ARG_UINT8, SL_CLI_ARG_END, });
+
+static const sl_cli_command_info_t cli_cmd_slot_hyphen_manager_slots_hyphen_info = \
+  SL_CLI_COMMAND(sli_slot_manager_cli_print_slots_info,
+                 "Prints information for all available slots.",
+                  "",
+                 {SL_CLI_ARG_END, });
+
 static const sl_cli_command_info_t cli_cmd_eeprom_data_hyphen_print = \
   SL_CLI_COMMAND(sli_eeprom_data_print_command,
                  "",
@@ -1075,6 +1110,17 @@ static const sl_cli_command_info_t cli_cmd_print_time = \
 // Create group command tables and structs if cli_groups given
 // in template. Group name is suffixed with _group_table for tables
 // and group commands are cli_cmd_grp_( group name )
+static const sl_cli_command_entry_t slot_hyphen_manager_group_table[] = {
+  { "boot-slot", &cli_cmd_slot_hyphen_manager_boot_hyphen_slot, false },
+  { "erase-slot", &cli_cmd_slot_hyphen_manager_erase_hyphen_slot, false },
+  { "ext-flash-info", &cli_cmd_slot_hyphen_manager_ext_hyphen_flash_hyphen_info, false },
+  { "read", &cli_cmd_slot_hyphen_manager_read, false },
+  { "slots-info", &cli_cmd_slot_hyphen_manager_slots_hyphen_info, false },
+  { NULL, NULL, false },
+};
+static const sl_cli_command_info_t cli_cmd_grp_slot_hyphen_manager = \
+  SL_CLI_COMMAND_GROUP(slot_hyphen_manager_group_table, "Slot Manager related commands");
+
 static const sl_cli_command_entry_t eeprom_group_table[] = {
   { "data-print", &cli_cmd_eeprom_data_hyphen_print, false },
   { "status", &cli_cmd_eeprom_status, false },
@@ -1226,6 +1272,7 @@ static const sl_cli_command_info_t cli_cmd_grp_update_hyphen_tc_hyphen_link_hyph
   SL_CLI_COMMAND_GROUP(update_hyphen_tc_hyphen_link_hyphen_key_group_table, "update-tc-link-key related commands");
 
 static const sl_cli_command_entry_t plugin_group_table[] = {
+  { "slot-manager", &cli_cmd_grp_slot_hyphen_manager, false },
   { "network-steering", &cli_cmd_grp_network_hyphen_steering, false },
   { "ota-client", &cli_cmd_grp_ota_hyphen_client, false },
   { "ota-storage-common", &cli_cmd_grp_ota_hyphen_storage_hyphen_common, false },

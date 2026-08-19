@@ -597,6 +597,9 @@ static void oled_try_init(void)
   static bool reported_missing = false;
 
   const oled_bus_t bus = { .write = oled_bus_write, .context = NULL };
+  /* Same constant the OTA client reports, so the number on the screen cannot
+   * drift from the one zigbee2mqtt compares against. */
+  oled_display_set_version(SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_POLICY_FIRMWARE_VERSION);
   oled_ready = oled_display_init(&bedside_oled, &bus);
   if (oled_ready) {
     reported_missing = false;

@@ -40,6 +40,7 @@ void sli_zigbee_af_init_done(void)
   sli_zigbee_af_init_cb(SL_ZIGBEE_INIT_LEVEL_DONE);
   sli_zigbee_zcl_cli_init(SL_ZIGBEE_INIT_LEVEL_DONE);
   sl_zigbee_af_init(SL_ZIGBEE_INIT_LEVEL_DONE);
+  sl_util_af_slot_manager_init_cb(SL_ZIGBEE_INIT_LEVEL_DONE);
   sli_zigbee_af_ota_storage_simple_init_callback(SL_ZIGBEE_INIT_LEVEL_DONE);
   sl_zigbee_af_reporting_init_cb(SL_ZIGBEE_INIT_LEVEL_DONE);
   sli_zigbee_af_network_init(SL_ZIGBEE_INIT_LEVEL_DONE);

@@ -1081,7 +1081,127 @@ Example syntax (.slcc or .slcp) for populating this file:
     
 <div class="group">
   <div class="group-header">
-    <h3 class="group-name"> plugin network-steering</h3>
+    <h3 class="group-name"> plugin slot-manager</h3>
+  </div>
+  <div class="group-info">
+    <span class="help">Slot Manager related commands</span>
+    
+    <div class="command-list">
+    
+    
+  
+  <div class="command">
+    <div class="command-header-bar"></div>
+    <div class="command-header">
+      <span class="command-name"> plugin slot-manager boot-slot</span>
+        <span class="command-argument">u32</span>
+      <span class="command-handler">sli_slot_manager_cli_bootload_slot</span>
+    </div>
+    <div class="command-info">
+      <div class="help">Boots the image in the specified slot ID.</div>
+      
+      
+      <div class="argument-list">
+      <div class="arguments-title">Arguments</div>
+      <ul>
+        <li>
+        <span class="argument-name">u32</span>Storage slot number
+        </li>
+      </ul>
+      </div>
+      
+    </div>
+  </div>
+    
+    
+  
+  <div class="command">
+    <div class="command-header-bar"></div>
+    <div class="command-header">
+      <span class="command-name"> plugin slot-manager erase-slot</span>
+        <span class="command-argument">u32</span>
+      <span class="command-handler">sli_slot_manager_cli_erase_slot</span>
+    </div>
+    <div class="command-info">
+      <div class="help">Erases the specified slot ID.</div>
+      
+      
+      <div class="argument-list">
+      <div class="arguments-title">Arguments</div>
+      <ul>
+        <li>
+        <span class="argument-name">u32</span>Storage slot number
+        </li>
+      </ul>
+      </div>
+      
+    </div>
+  </div>
+    
+    
+  
+  <div class="command">
+    <div class="command-header-bar"></div>
+    <div class="command-header">
+      <span class="command-name"> plugin slot-manager ext-flash-info</span>
+      <span class="command-handler">sli_slot_manager_cli_print_external_flash_info</span>
+    </div>
+    <div class="command-info">
+      <div class="help">Prints flash storage information.</div>
+      
+      
+    </div>
+  </div>
+    
+    
+  
+  <div class="command">
+    <div class="command-header-bar"></div>
+    <div class="command-header">
+      <span class="command-name"> plugin slot-manager read</span>
+        <span class="command-argument">u32</span>
+        <span class="command-argument">u8</span>
+      <span class="command-handler">sli_slot_manager_cli_read_ext_flash</span>
+    </div>
+    <div class="command-info">
+      <div class="help">Reads raw data from flash storage.</div>
+      
+      
+      <div class="argument-list">
+      <div class="arguments-title">Arguments</div>
+      <ul>
+        <li>
+        <span class="argument-name">u32</span>Address to read
+        </li>
+        <li>
+        <span class="argument-name">u8</span>Number of bytes to read
+        </li>
+      </ul>
+      </div>
+      
+    </div>
+  </div>
+    
+    
+  
+  <div class="command">
+    <div class="command-header-bar"></div>
+    <div class="command-header">
+      <span class="command-name"> plugin slot-manager slots-info</span>
+      <span class="command-handler">sli_slot_manager_cli_print_slots_info</span>
+    </div>
+    <div class="command-info">
+      <div class="help">Prints information for all available slots.</div>
+      
+      
+    </div>
+  </div>
+    </div>
+  </div>
+</div>
+<div class="group">
+  <div class="group-header">
+    <h3 class="group-name"> network-steering</h3>
   </div>
   <div class="group-info">
     <span class="help">network-steering related commands.</span>
@@ -1093,7 +1213,7 @@ Example syntax (.slcc or .slcp) for populating this file:
   <div class="command">
     <div class="command-header-bar"></div>
     <div class="command-header">
-      <span class="command-name"> plugin network-steering status</span>
+      <span class="command-name"> network-steering status</span>
       <span class="command-handler">sl_zigbee_af_network_steering_status_command</span>
     </div>
     <div class="command-info">
@@ -1108,7 +1228,7 @@ Example syntax (.slcc or .slcp) for populating this file:
   <div class="command">
     <div class="command-header-bar"></div>
     <div class="command-header">
-      <span class="command-name"> plugin network-steering start</span>
+      <span class="command-name"> network-steering start</span>
         <span class="command-argument">u8</span>
       <span class="command-handler">sl_zigbee_af_network_steering_start_command</span>
     </div>
@@ -1133,7 +1253,7 @@ Example syntax (.slcc or .slcp) for populating this file:
   <div class="command">
     <div class="command-header-bar"></div>
     <div class="command-header">
-      <span class="command-name"> plugin network-steering stop</span>
+      <span class="command-name"> network-steering stop</span>
       <span class="command-handler">sl_zigbee_af_network_steering_stop_command</span>
     </div>
     <div class="command-info">
@@ -1148,7 +1268,7 @@ Example syntax (.slcc or .slcp) for populating this file:
   <div class="command">
     <div class="command-header-bar"></div>
     <div class="command-header">
-      <span class="command-name"> plugin network-steering pre-configured-key-set</span>
+      <span class="command-name"> network-steering pre-configured-key-set</span>
         <span class="command-argument">hex</span>
       <span class="command-handler">sl_zigbee_af_network_steering_set_preconfigured_key_command</span>
     </div>
@@ -1170,7 +1290,7 @@ Example syntax (.slcc or .slcp) for populating this file:
     
 <div class="group">
   <div class="group-header">
-    <h4 class="group-name"> plugin network-steering mask</h4>
+    <h4 class="group-name"> network-steering mask</h4>
   </div>
   <div class="group-info">
     <span class="help">mask related command.</span>

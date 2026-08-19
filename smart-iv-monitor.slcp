@@ -115,6 +115,9 @@ component:
   id: zigbee_ota_storage_simple_eeprom
 - package: simplicity_sdk
   vendor: silabs
+  id: slot_manager
+- package: simplicity_sdk
+  vendor: silabs
   id: zigbee_ota_storage_simple
 - package: simplicity_sdk
   vendor: silabs
