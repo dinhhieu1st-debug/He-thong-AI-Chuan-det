@@ -193,6 +193,7 @@ rồi chạy lại `slc generate`.
 | [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset, cách chia tập, và **những gì nhóm không chứng minh được** |
 | [`docs/MLTK_AUTOGEN.md`](docs/MLTK_AUTOGEN.md) | Luồng `.tflite` → tool MLTK của Silicon Labs → chip, kèm hai cái bẫy |
 | [`docs/TRIEN_KHAI_PI.md`](docs/TRIEN_KHAI_PI.md) | **Đọc trước khi sửa `gateway/`.** Hai file đó chạy trên Pi chứ không phải máy bạn — kèm ba kiểu hỏng đã gặp thật và cách cứu hộ |
+| [`docs/BAO_CAO_KIEM_THU_WEB.md`](docs/BAO_CAO_KIEM_THU_WEB.md) | **Báo cáo kiểm thử web:** 70 ca chạy thật trên ba vai trò, kèm mã HTTP thực tế và hai chức năng còn thiếu |
 | [`docs/OTA.md`](docs/OTA.md) | **Cập nhật firmware từ xa.** Ai được thao tác, bấm gì trên giao diện, và các bước phát hành một bản firmware mới từ đầu tới cuối |
 | [`docs/AI_V2_PLAN.md`](docs/AI_V2_PLAN.md) | Lý do đằng sau từng quyết định của bản AI v2, **kèm cả những lần đi sai** |
 | [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI (bản cũ, giữ để tham chiếu) |
