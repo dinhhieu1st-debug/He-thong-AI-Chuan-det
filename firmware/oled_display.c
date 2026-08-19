@@ -262,15 +262,23 @@ bool oled_display_show_vitals(oled_display_t *display,
 
   /* Top half: the two numbers a nurse reads from across the bed, as large as
    * 128x64 allows (scale 3 = 15x21 px per glyph). */
-  draw_text(display, 2U,  0U, "HR", 1U);
+  /* SPO2 stays as it is - it is the term printed on every pulse oximeter in
+   * the ward, including the one this reads from. Translating it would make the
+   * bedside display disagree with the sensor beside it. */
+  draw_text(display, 2U,  0U, "MACH", 1U);
   draw_text(display, 70U, 0U, "SPO2", 1U);
   draw_text(display, 2U,  10U, hr_text, 3U);
   draw_text(display, 70U, 10U, spo2_text, 3U);
 
   /* Middle: flow against the prescription. Small on purpose — it matters when
    * setting the drip, not when glancing from the doorway. */
-  draw_text(display, 2U, 34U, "FLOW", 1U);
-  draw_text(display, 34U, 34U, flow_text, 1U);
+  /* Positions moved with the label, not left where the shorter English one
+   * sat. At 6 px per character "TOC DO" runs to x=37, so a value still drawn
+   * at x=34 would print straight through it. The full row is
+   * 2..37 label | 42..71 value ("2000%" is the widest) | 78..119 "MUC DAT",
+   * which is the whole 128 px panel with nothing overlapping. */
+  draw_text(display, 2U, 34U, "TOC DO", 1U);
+  draw_text(display, 42U, 34U, flow_text, 1U);
   draw_text(display, 78U, 34U, "MUC DAT", 1U);
 
   /* Bottom: one line saying whether anything is wrong, boxed when it is. The

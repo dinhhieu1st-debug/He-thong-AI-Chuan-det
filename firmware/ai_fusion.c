@@ -280,35 +280,35 @@ void ai_fusion_step(fusion_result_t *out)
 
   if (out->line_branch && out->patient_branch) {
     out->level = ALERT_LEVEL_CRITICAL;
-    out->headline = "DANGER: FLUID OVERLOAD?";
+    out->headline = "NGUY CO QUA TAI DICH";
   } else if (out->patient_branch) {
     out->level = ALERT_LEVEL_VITALS_ALERT;
-    out->headline = "PATIENT ALERT";
+    out->headline = "CANH BAO BENH NHAN";
   } else if (out->line_branch) {
     out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "CHECK IV LINE";
+    out->headline = "KIEM TRA DAY TRUYEN";
   } else if (out->rule_missing) {
     /* A dead sensor is not a well patient. Someone has to look, but it is not
      * a clinical emergency, so it sits at the warning level rather than
      * silently reading as "everything is fine". */
     out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "SENSOR SIGNAL LOST";
+    out->headline = "MAT TIN HIEU CAM BIEN";
   } else if (out->line.valid && out->line.state == LINE_SENSOR_MISMATCH) {
     out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "DROP SENSOR FAULT";
+    out->headline = "LOI CAM BIEN GIOT";
   } else if (out->line.valid && out->line.state == LINE_EMPTY) {
     out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "BAG EMPTY";
+    out->headline = "HET DICH";
   } else if (out->early_warning) {
     /* A prediction, not a fact - so it warns rather than alarms. It is the only
      * signal here that can precede a gradual deterioration, which is why it is
      * not simply folded into one of the two branches above. */
     out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "EARLY WARNING";
+    out->headline = "CANH BAO SOM";
   } else if (out->line.valid && out->line.state == LINE_RUNNING_LOW) {
     /* Information, not an alarm: the infusion is behaving exactly as it should.
      * It stays at NORMAL so the buzzer keeps quiet; the headline is there for
      * the nurse who happens to walk past. */
-    out->headline = "Bag running low";
+    out->headline = "SAP HET DICH";
   }
 }
