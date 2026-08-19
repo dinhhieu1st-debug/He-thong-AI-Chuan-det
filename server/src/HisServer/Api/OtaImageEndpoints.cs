@@ -33,12 +33,12 @@ public static class OtaImageEndpoints
         group.MapPost("/images", async (HttpRequest request, OtaImageStore store) =>
         {
             if (!request.HasFormContentType)
-                return Results.BadRequest(new { error = "Cần gửi dạng multipart/form-data." });
+                return Results.BadRequest(new { error = "Expected multipart/form-data." });
 
             var form = await request.ReadFormAsync();
             var file = form.Files.GetFile("file");
             if (file is null || file.Length == 0)
-                return Results.BadRequest(new { error = "Chưa chọn file." });
+                return Results.BadRequest(new { error = "No file selected." });
 
             try
             {

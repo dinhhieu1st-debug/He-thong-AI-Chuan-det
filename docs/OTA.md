@@ -37,10 +37,14 @@ tải lại trang giữa lúc đang nạp vẫn thấy đúng — và **không**
 
 | Vai | Làm được gì với OTA | Vì sao |
 |---|---|---|
-| **Kỹ thuật viên** (`kythuat`) | Bấm *Kiểm tra bản mới*, bấm *Cập nhật*, theo dõi tiến độ | quyền `ManageDevices`; đây là người chịu trách nhiệm về thiết bị |
+| **Kỹ thuật viên** (`kythuat`) | Bấm *Check for update*, bấm *Update*, theo dõi tiến độ | quyền `ManageDevices`; đây là người chịu trách nhiệm về thiết bị |
 | **Y tá** (`yta`) | **Không thấy và không gọi được** các API OTA | y tá lo bệnh nhân; một cú bấm nhầm làm máy đầu giường mất theo dõi vài phút |
 | **Quản trị** (`admin`) | Như kỹ thuật viên | |
 | **Người dựng bản phát hành** (mục 4) | Build firmware, tạo file `.ota` | cần máy có SDK; **không** cần ssh vào Pi nữa — file tải lên qua web |
+
+> Giao diện trang kỹ thuật viết bằng **tiếng Anh** (đồng bộ với phần còn lại
+> của trang). Tài liệu này giữ tiếng Việt và có ghi kèm nhãn tiếng Anh ở những
+> chỗ mô tả nút bấm.
 
 Kỹ thuật viên **tải file `.ota` lên** qua trang web (mục 3), nhưng không chọn
 được file tuỳ ý cho một thiết bị: server đọc **header của chính file** để biết nó
@@ -56,28 +60,28 @@ nhầm file `.gbl` hay `.s37` thì bị từ chối ngay lúc tải lên.
 
 | Hiện trên thẻ | Nghĩa là | Có nút gì |
 |---|---|---|
-| **Chưa kiểm tra** | chưa hỏi lần nào từ khi server chạy | *Kiểm tra bản mới* |
-| **Đang ở bản mới nhất** | đã hỏi, không có bản nào mới hơn | *Kiểm tra bản mới* |
-| **Có bản cập nhật** | có ảnh mới hơn trong index | *Kiểm tra bản mới* + **Cập nhật** |
-| **Đang bắt đầu… / Đang nạp firmware** | đang truyền | **không nút nào** |
-| **Đã cập nhật xong** | thiết bị đang khởi động lại vào bản mới | *Kiểm tra bản mới* |
-| **Cập nhật thất bại** | có kèm nguyên văn lý do | *Kiểm tra bản mới* để thử lại |
+| **Not checked yet** | chưa hỏi lần nào từ khi server chạy | *Check for update* |
+| **Up to date** | đã hỏi, không có bản nào mới hơn | *Check for update* |
+| **Update available** | có ảnh mới hơn trong kho | *Check for update* + **Update** |
+| **Starting… / Installing** | đang truyền | **không nút nào** |
+| **Updated** | thiết bị đang khởi động lại vào bản mới | *Check for update* |
+| **Update failed** | có kèm nguyên văn lý do | *Check for update* để thử lại |
 
-3. Bấm **Kiểm tra bản mới** → đợi vài giây, trạng thái tự đổi (không cần tải lại
+3. Bấm **Check for update** → đợi vài giây, trạng thái tự đổi (không cần tải lại
    trang).
-4. Nếu hiện **Có bản cập nhật** → bấm **Cập nhật** → xác nhận trong hộp thoại.
+4. Nếu hiện **Update available** → bấm **Update** → xác nhận trong hộp thoại.
 5. Trong lúc nạp: thanh tiến độ + phần trăm + ước lượng thời gian còn lại, kèm
-   dòng **“Đang nạp firmware — đừng rút nguồn thiết bị.”**
+   dòng **“Installing firmware — do not disconnect power.”**
 6. Nạp xong thiết bị **tự khởi động lại** vào bản mới. Mất theo dõi khoảng vài
    chục giây — trên trang y tá giường đó sẽ báo mất tín hiệu trong lúc này.
 
 > **Chọn giờ mà làm.** Nạp firmware là cắt theo dõi của một giường đang truyền
 > dịch trong vài phút. Đừng làm khi giường đó đang có cảnh báo.
 
-### Kho firmware
+### Firmware library
 
-Ở đầu trang Devices có khối **Kho firmware (OTA)**: chọn file `.ota` → **Tải
-lên**. Bảng bên dưới hiện mọi ảnh đang được chào, kèm **mã nhà sản xuất đọc từ
+Ở đầu trang Devices có khối **Firmware library (OTA)**: chọn file `.ota` →
+**Upload**. Bảng bên dưới hiện mọi ảnh đang được chào, kèm **mã nhà sản xuất đọc từ
 chính file** (mã lạ thì tô đỏ) và số phiên bản.
 
 Server đọc header trước khi nhận: chọn nhầm file `.gbl`/`.s37` nằm cùng thư mục
@@ -92,9 +96,13 @@ Bấm vào một thiết bị → khối **Device log** ghi lại, có tô màu 
 
 | Dòng | Khi nào |
 |---|---|
-| Bắt đầu cập nhật firmware: v1 → v2 | vừa bấm Cập nhật |
-| Đã cập nhật firmware: v1 → v2 | nạp xong |
-| Cập nhật firmware thất bại: *lý do* | hỏng giữa chừng |
+| `Firmware update started` — *Update started: v2 to v4* | vừa bấm Update |
+| `Firmware updated` — *Updated: v2 to v4* | nạp xong |
+| `Firmware update failed` — *Update failed: lý do* | hỏng giữa chừng |
+
+Số phiên bản "đi từ đâu" được **đóng băng suốt lúc cập nhật**. Nếu không, đến
+lúc báo xong thì chip đã khởi động lại và khai bản mới, và dòng lịch sử sẽ đọc
+thành *"v4 → v4"* — mất đúng cái dữ kiện nó sinh ra để ghi.
 
 **Ghi cả lần hỏng là chủ ý.** Một thiết bị phải thử ba lần mới lên được là một
 thiết bị đáng ngờ; chỉ ghi lần thành công thì ba lần kia biến mất khỏi hồ sơ.
@@ -278,7 +286,7 @@ Phải ra `magic=0xbeef11e`, `mfg=4169`, và `fileVersion` đúng số mới.
 
 ### 4.5. Đưa lên hệ thống
 
-Vào trang kỹ thuật → **Kho firmware (OTA)** → chọn file → **Tải lên**. Xong.
+Vào trang kỹ thuật → **Firmware library (OTA)** → chọn file → **Upload**. Xong.
 
 Không còn bước `scp` lên Pi và sửa `smart_iv_ota_index.json` bằng tay: server
 lưu ảnh, **tự sinh index từ header của từng file**, và z2m đọc index đó qua HTTP.
@@ -300,8 +308,8 @@ chạy trên máy đầu giường.
 
 ### 4.6. Rồi mới tới lượt kỹ thuật viên
 
-Vào trang Devices, bấm **Kiểm tra bản mới** → phải thấy **Có bản cập nhật** →
-bấm **Cập nhật** (mục 3).
+Vào trang Devices, bấm **Check for update** → phải thấy **Update available** →
+bấm **Update** (mục 3).
 
 ### 4.7. Sau khi nạp lại chip qua dây
 
@@ -348,17 +356,32 @@ sau khi mất điện không cùng lúc đập vào server.
 
 ## 5. Cấu hình z2m trên Pi
 
-`~/zigbee2mqtt/data/configuration.yaml`:
+Cấu hình **một lần**, trong `~/zigbee2mqtt/data/configuration.yaml`:
 
 ```yaml
 ota:
-  zigbee_ota_override_index_location: smart_iv_ota_index.json
+  zigbee_ota_override_index_location: http://<tên-máy-chủ>.local:5100/api/ota/index.json
   image_block_response_delay: 50
   default_maximum_data_size: 63
 ```
 
-`63` là **trần cứng**, không phải con số chỉnh cho vui: firmware xG26 bỏ qua khối
-lớn hơn, và OTA sẽ **đứng im không báo lỗi**.
+| Tham số | Vì sao |
+|---|---|
+| `zigbee_ota_override_index_location` | trỏ về **HIS Server**, không phải file trên Pi. Server sinh index từ header của từng ảnh đã tải lên, nên tải file qua web là z2m thấy ngay — không ssh, không sửa JSON tay |
+| `default_maximum_data_size: 63` | **trần cứng**. Lớn hơn thì firmware xG26 bỏ qua khối và OTA **đứng im không báo lỗi** |
+| `image_block_response_delay: 50` | giãn nhịp gửi khối, tránh làm nghẽn mạng Zigbee trong lúc nạp |
+
+Dùng **tên mDNS** giống `gateway.service`, đừng thay bằng IP cứng — máy chủ chạy
+wifi DHCP và đổi IP thường xuyên.
+
+Kiểm tra Pi đọc được index:
+
+```bash
+curl -s http://<tên-máy-chủ>.local:5100/api/ota/index.json
+```
+
+Repo vẫn giữ `gateway/ota/smart_iv_ota_index.json` (rỗng) cho trường hợp muốn
+quay về cách cũ đặt file trực tiếp trên Pi.
 
 ---
 

@@ -211,6 +211,36 @@ thôi tin cái máy.
 
 ---
 
+## 6.5 Cấu hình OTA trên Pi
+
+Chỉ cấu hình **một lần**, trong `~/zigbee2mqtt/data/configuration.yaml`:
+
+```yaml
+ota:
+  zigbee_ota_override_index_location: http://<tên-máy-chủ>.local:5100/api/ota/index.json
+  image_block_response_delay: 50
+  default_maximum_data_size: 63
+```
+
+Ba điểm đáng ghi:
+
+- **Index trỏ về HIS Server, không phải file trên Pi.** Server tự sinh index từ
+  header của từng ảnh đã tải lên, nên **không còn phải scp file và sửa JSON bằng
+  tay**. Kỹ thuật viên tải file qua web là z2m thấy ngay.
+- `default_maximum_data_size: 63` là **trần cứng**. Lớn hơn thì firmware xG26 bỏ
+  qua khối và OTA **đứng im không báo lỗi**.
+- Tên máy chủ dùng **mDNS** giống `gateway.service`, đừng thay bằng IP cứng.
+
+Kiểm tra Pi đọc được index:
+
+```bash
+curl -s http://<tên-máy-chủ>.local:5100/api/ota/index.json
+```
+
+Toàn bộ quy trình phát hành, các bẫy và bảng sự cố nằm ở [`OTA.md`](OTA.md).
+
+---
+
 ## 7. Thêm thiết bị Zigbee mới
 
 Đã thử với một board xG24 (BRD2703A) nạp mẫu `zigbee_z3_light` — không AI, không

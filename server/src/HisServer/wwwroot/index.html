@@ -160,17 +160,19 @@
           <button class="btn" id="rescanDevicesBtn">Rescan</button>
           <button class="btn primary" id="addDeviceBtn">+ Add Device</button>
         </div>
-        <!-- Kho firmware. Ảnh tải lên đây là thứ "Kiểm tra bản mới" sẽ chào
-             cho thiết bị - không còn phải ssh vào Pi để đặt file nữa. -->
+        <!-- The firmware library. What is uploaded here is what "Check for
+             update" will offer to a device - no more ssh'ing a file onto the
+             Pi and hand-editing an index. -->
         <div class="pending-devices" id="otaLibrary" style="margin-top:14px;">
-          <div class="section-title" style="margin-top:0;">Kho firmware (OTA)</div>
+          <div class="section-title" style="margin-top:0;">Firmware library (OTA)</div>
           <div class="muted" style="margin-bottom:10px;">
-            Tải file <code>.ota</code> lên đây. Thiết bị chỉ được chào bản có
-            <b>mã nhà sản xuất trùng</b> và <b>phiên bản cao hơn</b> bản đang chạy.
+            Upload <code>.ota</code> files here. A device is only offered an image
+            whose <b>manufacturer code matches</b> and whose <b>version is higher</b>
+            than the one it is running — the file size is not part of that decision.
           </div>
           <div class="inline-form">
             <input type="file" id="otaFileInput" accept=".ota">
-            <button class="btn primary" id="otaUploadBtn">Tải lên</button>
+            <button class="btn primary" id="otaUploadBtn">Upload</button>
           </div>
           <div id="otaImageList" style="margin-top:10px;"></div>
         </div>
@@ -247,7 +249,7 @@
       <label>Device ID</label>
       <input type="text" id="newDeviceId" placeholder="0x64028ffffe641802" required>
       <div class="muted" style="margin:-6px 0 10px;font-size:12px;">
-        Mã EUI-64 in trên thiết bị, hoặc lấy từ log của gateway.
+        The EUI-64 printed on the device, or taken from the gateway log.
       </div>
       <label>Type</label>
       <select id="newDeviceType">
@@ -261,11 +263,11 @@
            that does not exist reports to nobody. -->
       <label>Room</label>
       <select id="newDeviceRoom">
-        <option value="">Chọn phòng…</option>
+        <option value="">Choose a room…</option>
       </select>
       <label>Assigned Bed</label>
       <select id="newDeviceBedId" disabled>
-        <option value="">Chọn phòng trước…</option>
+        <option value="">Choose a room first…</option>
       </select>
       <div class="modal-actions">
         <button type="button" class="btn" data-close-modal="addDeviceModal">Cancel</button>

@@ -57,13 +57,13 @@ const DevicesTab = (() => {
   });
 
   const OTA_LABEL = {
-    Unknown:  { text: "Chưa kiểm tra",        cls: "ota-idle" },
-    UpToDate: { text: "Đang ở bản mới nhất",  cls: "ota-ok" },
-    Available:{ text: "Có bản cập nhật",      cls: "ota-avail" },
-    Starting: { text: "Đang bắt đầu…",        cls: "ota-busy" },
-    Updating: { text: "Đang nạp firmware",    cls: "ota-busy" },
-    Done:     { text: "Đã cập nhật xong",     cls: "ota-ok" },
-    Failed:   { text: "Cập nhật thất bại",    cls: "ota-fail" },
+    Unknown:  { text: "Not checked yet",   cls: "ota-idle" },
+    UpToDate: { text: "Up to date",        cls: "ota-ok" },
+    Available:{ text: "Update available",  cls: "ota-avail" },
+    Starting: { text: "Starting…",         cls: "ota-busy" },
+    Updating: { text: "Installing",        cls: "ota-busy" },
+    Done:     { text: "Updated",           cls: "ota-ok" },
+    Failed:   { text: "Update failed",     cls: "ota-fail" },
   };
 
   function otaSectionHtml(device) {
@@ -84,17 +84,17 @@ const DevicesTab = (() => {
       ? `<div class="ota-bar"><div class="ota-bar-fill" style="width:${
            ota.progress != null ? ota.progress : 0}%;"></div></div>
          <div class="ota-sub">${
-           ota.progress != null ? ota.progress + "%" : "đang chuẩn bị…"}${
+           ota.progress != null ? ota.progress + "%" : "preparing…"}${
            ota.remainingSeconds != null && ota.remainingSeconds > 0
-             ? " · còn khoảng " + Math.round(ota.remainingSeconds / 60) + " phút" : ""}</div>
-         <div class="ota-warn">Đang nạp firmware — đừng rút nguồn thiết bị.</div>`
+             ? " · about " + Math.round(ota.remainingSeconds / 60) + " min left" : ""}</div>
+         <div class="ota-warn">Installing firmware — do not disconnect power.</div>`
       : "";
 
     const buttons = busy ? "" : `
       <div class="inline-form ota-actions">
-        <button type="button" class="btn" data-ota-check="${id}">Kiểm tra bản mới</button>
+        <button type="button" class="btn" data-ota-check="${id}">Check for update</button>
         ${state === "Available"
-          ? `<button type="button" class="btn primary" data-ota-update="${id}">Cập nhật</button>`
+          ? `<button type="button" class="btn primary" data-ota-update="${id}">Update</button>`
           : ""}
       </div>`;
 
@@ -339,9 +339,9 @@ const DevicesTab = (() => {
    * firmware is this bed on, and when did it change" is the question this page
    * gets asked after an update goes wrong. */
   const FIRMWARE_EVENTS = {
-    FirmwareUpdateStarted: "Bắt đầu cập nhật firmware",
-    FirmwareUpdated:       "Đã cập nhật firmware",
-    FirmwareUpdateFailed:  "Cập nhật firmware thất bại",
+    FirmwareUpdateStarted: "Firmware update started",
+    FirmwareUpdated:       "Firmware updated",
+    FirmwareUpdateFailed:  "Firmware update failed",
   };
 
   /* The technician's log. Deliberately not the System Log, which carries SpO2
@@ -439,38 +439,38 @@ const DevicesTab = (() => {
     try {
       images = await Api.otaImages();
     } catch (err) {
-      host.innerHTML = `<span class="muted">Không đọc được kho firmware.</span>`;
+      host.innerHTML = `<span class="muted">Could not read the firmware library.</span>`;
       return;
     }
 
     if (images.length === 0) {
-      host.innerHTML = `<span class="muted">Chưa có file nào. `
-        + `Tải một file .ota lên để "Kiểm tra bản mới" có thứ để chào.</span>`;
+      host.innerHTML = `<span class="muted">No images yet. `
+        + `Upload a .ota file so "Check for update" has something to offer.</span>`;
       return;
     }
 
     host.innerHTML = `
       <table class="data-table">
-        <tr><th>File</th><th>Thiết bị</th><th>Phiên bản</th><th>Kích thước</th><th></th></tr>
+        <tr><th>File</th><th>Device</th><th>Version</th><th>Size</th><th></th></tr>
         ${images.map((i) => `
           <tr>
             <td><b>${UiUtils.escapeHtml(i.fileName)}</b>
                 <div class="muted">${UiUtils.escapeHtml(i.headerText || "")}</div></td>
             <td>${OTA_KNOWN_MFG[i.manufacturerCode]
                   ? UiUtils.escapeHtml(OTA_KNOWN_MFG[i.manufacturerCode])
-                  : `<span class="ota-fail">mã lạ: ${i.manufacturerCode}</span>`}</td>
+                  : `<span class="ota-fail">unknown code: ${i.manufacturerCode}</span>`}</td>
             <td>v${i.fileVersion}</td>
             <td class="muted">${Math.round(i.sizeBytes / 1024)} KB</td>
-            <td><button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}">Xoá</button></td>
+            <td><button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}">Delete</button></td>
           </tr>`).join("")}
       </table>`;
 
     host.querySelectorAll("[data-ota-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const name = btn.getAttribute("data-ota-del");
-        if (!confirm(`Xoá ${name} khỏi kho firmware?\n\n`
-                   + `Thiết bị đang chạy bản này không bị ảnh hưởng — chỉ là `
-                   + `từ giờ nó không được chào cho thiết bị nào nữa.`)) return;
+        if (!confirm(`Remove ${name} from the firmware library?\n\n`
+                   + `Devices already running this image are unaffected — it just `
+                   + `stops being offered to anything from now on.`)) return;
         try {
           await Api.otaDeleteImage(name);
           renderOtaLibrary();
@@ -495,9 +495,9 @@ const DevicesTab = (() => {
         btn.disabled = true;
         try {
           await Api.otaCheck(id);
-          UiUtils.toast(`${id}: đã gửi lệnh kiểm tra bản mới`);
+          UiUtils.toast(`${id}: checking for a newer firmware`);
         } catch (err) {
-          UiUtils.toast(`Không kiểm tra được: ${err.message}`);
+          UiUtils.toast(`Could not check: ${err.message}`);
           btn.disabled = false;
         }
       });
@@ -510,17 +510,17 @@ const DevicesTab = (() => {
          * một lần. Đây là thao tác duy nhất ở trang này có thể làm một giường
          * ngừng theo dõi. */
         if (!window.confirm(
-              `Cập nhật firmware cho ${id}?\n\n` +
-              `Quá trình mất vài phút và không dừng giữa chừng được. ` +
-              `Đừng rút nguồn thiết bị trong lúc đó.`)) {
+              `Update the firmware on ${id}?\n\n` +
+              `This takes several minutes and cannot be stopped once started. ` +
+              `Do not disconnect the device's power while it runs.`)) {
           return;
         }
         btn.disabled = true;
         try {
           await Api.otaUpdate(id);
-          UiUtils.toast(`${id}: đã bắt đầu cập nhật`);
+          UiUtils.toast(`${id}: update started`);
         } catch (err) {
-          UiUtils.toast(`Không bắt đầu được: ${err.message}`);
+          UiUtils.toast(`Could not start: ${err.message}`);
           btn.disabled = false;
         }
       });
@@ -551,7 +551,7 @@ const DevicesTab = (() => {
         if (status?.deviceId) otaByDevice.set(status.deviceId, status);
       }
     } catch (err) {
-      console.warn("Không lấy được trạng thái firmware ban đầu", err);
+      console.warn("Could not load the initial firmware state", err);
     }
 
     State.setDevices(devices);
@@ -598,7 +598,7 @@ const DevicesTab = (() => {
                                      .map((b) => b.room)
                                      .filter(Boolean))].sort();
 
-      roomSel.innerHTML = `<option value="">Chọn phòng…</option>`
+      roomSel.innerHTML = `<option value="">Choose a room…</option>`
         + rooms.map((r) => `<option value="${UiUtils.escapeHtml(r)}">${UiUtils.escapeHtml(r)}</option>`).join("");
     }
 
@@ -606,7 +606,7 @@ const DevicesTab = (() => {
       const bedSel = document.getElementById("newDeviceBedId");
       if (!room) {
         bedSel.disabled = true;
-        bedSel.innerHTML = `<option value="">Chọn phòng trước…</option>`;
+        bedSel.innerHTML = `<option value="">Choose a room first…</option>`;
         return;
       }
 
@@ -622,9 +622,9 @@ const DevicesTab = (() => {
         .sort((a, b) => a.bedId.localeCompare(b.bedId));
 
       bedSel.disabled = false;
-      bedSel.innerHTML = `<option value="">Chưa gán giường</option>`
+      bedSel.innerHTML = `<option value="">No bed assigned</option>`
         + beds.map((b) => `<option value="${UiUtils.escapeHtml(b.bedId)}">`
-                        + `${UiUtils.escapeHtml(b.bedId)}${taken.has(b.bedId) ? " · đã có thiết bị" : ""}`
+                        + `${UiUtils.escapeHtml(b.bedId)}${taken.has(b.bedId) ? " · already has a device" : ""}`
                         + `</option>`).join("");
     }
 
@@ -635,7 +635,7 @@ const DevicesTab = (() => {
     document.getElementById("otaUploadBtn")?.addEventListener("click", async () => {
       const input = document.getElementById("otaFileInput");
       const file = input.files && input.files[0];
-      if (!file) { UiUtils.toast("Chưa chọn file .ota", true); return; }
+      if (!file) { UiUtils.toast("No .ota file selected", true); return; }
 
       const btn = document.getElementById("otaUploadBtn");
       btn.disabled = true;
@@ -643,8 +643,8 @@ const DevicesTab = (() => {
         const image = await Api.otaUploadImage(file);
         /* Echo back what the FILE says, not what it is called - that is the
          * whole point of validating the header server-side. */
-        UiUtils.toast(`Đã tải lên: ${image.headerText || image.fileName} `
-                    + `(mã ${image.manufacturerCode}, v${image.fileVersion})`);
+        UiUtils.toast(`Uploaded: ${image.headerText || image.fileName} `
+                    + `(code ${image.manufacturerCode}, v${image.fileVersion})`);
         input.value = "";
         renderOtaLibrary();
       } catch (err) {

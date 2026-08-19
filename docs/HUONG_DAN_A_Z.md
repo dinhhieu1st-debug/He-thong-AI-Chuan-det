@@ -242,7 +242,10 @@ Ba lớp, mỗi lớp một file:
 
 ```
 sensor_hub.{c,h}   ← đọc cảm biến vật lý (giọt/loadcell/MAX30102), theo dõi "còn tín hiệu hay không"
-ai_monitor.{c,h}   ← gom dữ liệu, chuẩn hoá, chạy model AI + luật lâm sàng, ra kết luận cảnh báo
+drop_filter.{c,h}  ← lọc nhiễu cảm biến giọt (mục 1.6.5) — không dính GPIO nên test được trên PC
+ai_fusion.{c,h}    ← chạy 3 model + luật lâm sàng, hợp nhất thành MỘT mức cảnh báo 4 cấp
+ai_engine.{h,cpp}  ← nạp và chạy 3 model TFLite Micro
+line_rules.{c,h}   ← đối chiếu cân ↔ số giọt (không dùng AI)
 oled_display.{c,h} ← driver màn hình đầu giường (mục 1.7), không tự quyết định gì
 app.c              ← vòng lặp chính, gọi các lớp trên, rồi ghi kết quả vào Zigbee + màn hình
 ```
@@ -266,15 +269,12 @@ Bật/tắt từng kênh bằng macro ở đầu file:
 #define HR_ENABLED     1   // MAX30102 - nhịp tim        → ĐÃ LẮP, đã test đọc được số thật
 #define SPO2_ENABLED   1   // MAX30102 - SpO2             → ĐÃ LẮP (chung chip với HR)
 #define FLOW_ENABLED   1   // HX711 + loadcell            → ĐÃ LẮP, đã hiệu chuẩn (mục 1.3.1)
-#define DROPS_ENABLED  0   // cảm biến giọt               → RÚT RA tạm thời để test HR/SpO2/Flow riêng
+#define DROPS_ENABLED  1   // cảm biến giọt               → ĐÃ LẮP
 ```
 
-Trạng thái hiện tại (2026-07-18): HR/SpO2 (module DFRobot MAX30102, bit-bang
-I2C) và Flow (loadcell + HX711, bit-bang GPIO) đều đã lắp và đọc được dữ liệu
-thật ổn định. `DROPS_ENABLED` đang tắt tạm (rút cảm biến giọt ra để test 2 kênh
-kia riêng, xem `sensor_hub.h` dòng comment) — bật lại `1` khi cắm lại cảm biến
-giọt, không cần sửa gì khác trong code, kiến trúc đã tính sẵn cho việc bật/tắt
-từng kênh độc lập.
+Trạng thái hiện tại: **cả bốn kênh đều đã lắp và chạy thật**. Kiến trúc bật/tắt
+từng kênh vẫn giữ nguyên — rút một cảm biến ra để thử riêng thì đặt `0`, không
+cần sửa gì khác, và kênh đó sẽ được báo là "chưa lắp" chứ không phải "hỏng".
 
 **Bài học từ quá trình debug 2 kênh HR và Flow** (rất đáng đọc nếu định thêm
 cảm biến mới bit-bang GPIO tương tự — xem mục 9 để biết chi tiết từng lỗi):
@@ -301,43 +301,48 @@ nạp firmware khác nhau sẽ bị lệch baseline do trôi nhiễu, gây hệ 
 gặp thực tế). Giá trị `14000` cũ chỉ là số mượn tạm từ `hx711_test.ino`
 (loadcell/hiệu chuẩn khác), không đúng cho loadcell hiện tại.
 
-### 1.2 `ai_monitor` — 6 đặc trưng + AI + luật lâm sàng
+### 1.2 `ai_fusion` — ba model + luật lâm sàng + đối chiếu cân↔giọt
 
-Mỗi giây, `ai_monitor_step()` gom 6 con số ("đặc trưng", feature) theo đúng
-thứ tự (khớp với model đã train):
+> Mục này **đã được viết lại**. Bản trước mô tả `ai_monitor`: **một** autoencoder
+> đọc chung 6 đặc trưng. Đó là AI v1 và nó **không còn trong firmware nữa** —
+> lý do thay nằm ở [`AI_V2_PLAN.md`](AI_V2_PLAN.md), tóm tắt ở
+> [`AI_HOAT_DONG_THE_NAO.md`](AI_HOAT_DONG_THE_NAO.md) mục 2.
 
-```
-[0] heart_rate    nhịp tim (bpm)
-[1] spo2          % bão hoà oxy
-[2] flow_ratio    lưu lượng thực / mức bác sĩ đặt   (1.0 = đúng mức)
-[3] drops_ratio   giọt/phút thực / mức bác sĩ đặt
-[4] vital_missing cờ: mất tín hiệu HR hoặc SpO2 (sau khi đã gắn máy)
-[5] line_missing  cờ: mất tín hiệu đường truyền (Flow hoặc Drops)
-```
+Mỗi giây, `ai_fusion_step()` chạy **ba model độc lập** rồi hợp nhất bằng luật
+viết ra được:
 
-Hai cơ chế phát hiện bất thường **chạy song song, OR với nhau** (bất kỳ cái nào
-báo thì coi là có cảnh báo — ưu tiên không bỏ sót hơn là ít báo nhầm):
-
-**A. Luật lâm sàng cứng** (ngưỡng cố định, dễ hiểu, dễ audit):
-
-| Điều kiện | Ngưỡng | Ý nghĩa |
+| Model | Nhìn gì | Trả lời |
 |---|---|---|
-| `reason_hr` | lệch > 30% baseline cá nhân, HOẶC < 45 bpm, HOẶC > 150 bpm | Nhịp tim bất thường |
-| `reason_spo2` | SpO2 < 90% | Tụt oxy máu |
-| `reason_flow` | flow_ratio > 1.5× hoặc < 0.3× mức đặt | Free-flow (chảy tự do, nguy hiểm) hoặc tắc đường truyền |
-| `reason_missing` | vital_missing hoặc line_missing = 1 | Mất tín hiệu cảm biến |
+| Drip forecaster | 64 giây số giọt | dòng chảy sắp đi về đâu |
+| Vitals forecaster | 64 giây HR + SpO2 | sinh hiệu sắp đi về đâu |
+| Vitals autoencoder | HR + SpO2 **lúc này** | bản thân bệnh nhân có ổn không |
 
-**B. Autoencoder (mô hình AI, TensorFlow Lite Micro)**: model học "dáng vẻ
-bình thường" của 6 đặc trưng từ dữ liệu huấn luyện; khi đầu vào hiện tại khác
-lạ so với những gì model từng thấy, sai số tái tạo (`recon_error`) tăng cao.
-Nếu `recon_error > 1.4336` (ngưỡng `AI_AE_THRESHOLD`, chọn từ tập validation
-lúc train) → `reason_ae = 1`. Đây là lớp phát hiện các bất thường **mà luật
-cứng không định nghĩa trước được** (ví dụ dao động bất thường nhưng không vượt
-ngưỡng tuyệt đối nào).
+Ba model **tách rời** để quy được trách nhiệm: tắc dây và bệnh nhân xấu đi có
+cách xử trí hoàn toàn khác nhau, mà v1 phát ra cùng một tiếng còi. Model sinh
+hiệu **cố ý không nhìn dữ liệu giọt**, nếu không thì tắc dây sẽ làm bẩn phán
+đoán về bệnh nhân — đúng lỗi của v1.
 
-Baseline nhịp tim cá nhân hoá: 60 giây đầu sau khi gắn máy, hệ thống lấy nhịp
-tim làm "mức nền" của riêng bệnh nhân đó (`ai_monitor_set_hr_baseline`), rồi
-so lệch % với mức nền này thay vì một ngưỡng chung cho mọi người.
+Chạy song song là **luật lâm sàng cứng** (`firmware/clinical_limits.h`), và
+luật cứng **không đi qua bộ lọc chống báo giả** — SpO2 tụt kêu ngay tick đầu:
+
+| Điều kiện | Ngưỡng |
+|---|---|
+| Nhịp tim bất thường | lệch > 30% baseline cá nhân, HOẶC < 45, HOẶC > 150 bpm |
+| Tụt oxy | SpO2 < 90% |
+| Dòng chảy | ngoài 0,3–1,5× mức bác sĩ đặt |
+| Mất tín hiệu | kênh đã lắp nhưng không còn số |
+
+Kết quả bất thường của model **phải giữ liên tục 11 giây** (`AI_PERSIST_K 11`)
+mới được tính — đây là thứ đưa báo động giả từ 29–47 lần/giờ xuống **0**.
+
+Ngoài ra còn **đối chiếu cân với số giọt** (`firmware/line_rules.c`), không dùng
+AI: cân nhẹ dần nghĩa là dịch vẫn vào; cân đứng yên mà giọt cũng đứng nghĩa là
+tắc. Đây là thứ phân biệt *hết dịch* với *tắc dây*, hai chuyện nhìn từ số giọt
+thì giống hệt nhau.
+
+Baseline nhịp tim cá nhân hoá: 60 giây đầu, lấy **trung vị** của ít nhất 20 mẫu
+thật (không phải một mẫu tức thời, và không chốt nếu chưa đủ mẫu — chốt bừa
+từng khiến một bệnh nhân 131 bpm bị so với "baseline" 80 bpm chẳng ai đo).
 
 ### 1.3 Đưa kết quả lên Zigbee — cluster tuỳ chỉnh "Smart IV Vitals"
 
@@ -551,6 +556,29 @@ network leave                        # rời mạng hiện tại
 plugin network-steering start 0      # bắt đầu join mạng mới (cần permit-join đang bật)
 ```
 
+### 1.6.5 Cảm biến giọt và bộ báo động
+
+**Cảm biến giọt** (`firmware/drop_filter.c`). Đo trên rig thật: xung chỉ rộng
+**1–6 ms**, và **một giọt sinh ra HAI xung cách nhau 16–17 ms** (giọt thắt lại
+rồi mới rơi). Vì vậy bộ đếm dùng máy trạng thái bốn bước: xác nhận **600 µs**
+(đo bằng micro giây — đồng hồ mili giây làm tròn xung 1 ms xuống 0), yêu cầu tia
+thông lại **25 ms** để gộp cặp xung thành một giọt, và bỏ xung cách giọt trước
+dưới **250 ms**. Tốc độ hiển thị lấy **trung vị 5 khoảng**.
+
+Bản đầu tiên đếm **mọi cạnh tín hiệu** với một khoảng chết 200 ms, và một ca
+truyền đều báo về 193 → 100 → 51 → 32 giọt/phút. Sau khi sửa: **97–100** suốt 45
+giây. Chi tiết ở [`AI_HOAT_DONG_THE_NAO.md`](AI_HOAT_DONG_THE_NAO.md) mục 3.
+
+**Đèn và còi** (`firmware/sensor_hub.c`). Ba đèn xanh/vàng/đỏ và một còi, mỗi
+mức cảnh báo **chỉ sáng đúng một đèn**; cấp nguy cấp nhất dùng **đỏ nhấp nháy**
+chứ không phải đỏ + vàng cùng lúc. Nhịp còi khác nhau theo mức (1 s / 0,3 s /
+0,15 s) và chạy **không chặn** vòng lặp chính.
+
+Mỗi lần bật nguồn có **tự kiểm tra**: sáng lần lượt xanh → vàng → đỏ rồi kêu một
+tiếng ngắn, chưa tới một giây. Đây là cách duy nhất phân biệt *"bộ báo động
+hỏng"* với *"ca trực yên bình"* — hai thứ trông giống hệt nhau cho tới đúng lúc
+cần phân biệt. **Không nghe tiếng nào nghĩa là đấu dây, không phải phần mềm.**
+
 ### 1.7 Màn hình OLED đầu giường
 
 Console cho y tá nằm ở trạm điều dưỡng, và nó chỉ hiện được dữ liệu khi cả
@@ -573,8 +601,30 @@ Chữ **SCK** in trên màn OLED I2C nghĩa là xung clock I2C — nối vào SC
 đối không nối vào chân SPI nào.
 
 **Màn hình hiện gì** (`firmware/oled_display.c`): HR và SpO2 cỡ lớn ở nửa
-trên, dòng Flow so với mức bác sĩ đặt ở giữa, và **một dòng lý do cảnh báo có
-khung** ở dưới. Kênh chưa có tín hiệu hiện `--`, không bao giờ hiện `0` —
+trên; hàng giữa là **số giọt/phút đo được và mức bác sĩ đặt, cùng đơn vị**
+(`DROPS 52  TGT 50`); dưới cùng là **một dòng lý do cảnh báo có khung**. Kênh
+chưa có tín hiệu hiện `--`, không bao giờ hiện `0`
+
+Hàng giữa **trước đây là Flow tính theo phần trăm mức đặt**. Phần trăm giấu mất
+con số y tá thật sự làm việc: khoá con lăn vặn theo **giọt/phút**, và giọt/phút
+cũng là thứ đếm bằng đồng hồ để kiểm tra máy. Hai số cùng đơn vị đặt cạnh nhau
+thì không phải nhẩm gì cả. Bảng điều khiển ở trạm điều dưỡng cũng đã bỏ thẻ
+"flow vs target" vì đúng lý do này.
+
+**Nhiều lỗi thì dòng cảnh báo xoay vòng.** Màn 128x64 chỉ đủ một dòng đọc được,
+nên khi có từ hai sự cố trở lên, dòng dưới cùng đổi **3 giây một lần**, kèm bộ
+đếm `1/3`, `2/3`… ở góc — để dòng chữ đang đổi được đọc là *"đang có ba vấn đề"*
+chứ không phải *"màn hình lỗi"*. Trước đây chỉ hiện lỗi nặng nhất, nên y tá xử
+xong cái được nêu tên mà chuông vẫn kêu thì không có cách nào biết còn gì nữa.
+
+**Màn chờ lúc khởi động hiện số phiên bản firmware** (`FW V4`). Sau một lần cập
+nhật từ xa, người cần biết chip đang chạy bản nào là người **đứng ở giường**,
+không phải người ngồi trước màn hình log.
+
+**Font chỉ có A-Z và 0-9.** Ký tự không có trong bảng vẽ ra **khoảng trắng**,
+nên `"Bag running low"` chữ thường từng hiện lên thành `"B"` rồi trống trơn.
+`tools/oled_test.c` kiểm mọi chuỗi firmware có thể hiện, cả về ký tự lẫn độ dài
+(quá 21 ký tự là bị cắt âm thầm).
 cùng nguyên tắc với server ở mục 6.3 ("chưa có dữ liệu" không phải là một chỉ
 số). Thứ tự ưu tiên lý do đặt **trùng** `DescribeAlert()` trong
 `VitalsStatusEvaluator.cs`, để màn hình đầu giường và console không nói hai
@@ -1270,8 +1320,9 @@ thu về cỡ nhỏ, vì lúc đó ưu tiên là nhìn được cả khoa trong 
 
 1. Board cảm biến đo được: HR/SpO2 bình thường, Drops chưa lắp (`CH_DISABLED`),
    Flow (loadcell) đang chảy nhưng dây bị tắc (drop_ratio ngoài khoảng đặt).
-2. `ai_monitor_step()` → `reason_flow = 1` (flow_ratio ngoài khoảng), kênh
-   Drops chưa lắp → trạng thái `CH_DISABLED`, không set `reason_missing`.
+2. `ai_fusion_step()` → luật dòng chảy bật `rule_flow` (ngoài 0,3–1,5× mức đặt),
+   nhánh đường truyền bật, nhánh bệnh nhân im → **cấp 1 (vàng)**; kênh nào chưa
+   lắp thì ở `CH_DISABLED` và **không** bị tính là mất tín hiệu.
 3. `app.c` ghi cả 5 giá trị (bao gồm `alarm_bitmap` có bit3 `line_blocked`)
    vào 5 attribute của **cùng 1 cluster `Smart IV Vitals`, endpoint 2**
    (dùng `sl_zigbee_af_write_manufacturer_specific_server_attribute()`),

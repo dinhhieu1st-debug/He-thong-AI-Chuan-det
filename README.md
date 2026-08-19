@@ -118,11 +118,35 @@ tuốt". Lập luận đầy đủ kèm 7 tình huống thực tế ở
 | Đặt ngưỡng, tare cân, nhận/xuất bệnh nhân | ✅ | ❌ | ❌ |
 | Báo hỏng thiết bị | ✅ tạo | ✅ xử lý | ❌ |
 | Tình trạng thiết bị + gán giường | ❌ | ✅ | ❌ |
+| Cập nhật firmware từ xa (OTA) | ❌ | ✅ | ✅ |
 | Danh mục giường, System Log, tài khoản | ❌ | ❌ | ✅ |
 
 Chặn ở **cả hai lớp**: giao diện xoá hẳn phần tử không thuộc quyền, và API trả
 403 — kể cả kênh realtime SignalR cũng chia nhóm theo năng lực, nên máy của kỹ
 thuật viên không nhận được gói dữ liệu bệnh nhân nào.
+
+## Cập nhật firmware từ xa
+
+Kỹ thuật viên tải file `.ota` lên ngay trên web, bấm kiểm tra, bấm cập nhật, và
+xem thanh tiến độ — **không cần ssh, không cần cầm dây tới giường**. Chip tự
+khởi động lại vào bản mới.
+
+Đã chạy thật đầu-cuối: **v2 → v4**, 436 KB, tải 862 giây, xác minh 54 giây, tự
+khởi động lại và chạy đủ sau 5 giây.
+
+Ba thứ đáng chú ý trong thiết kế:
+
+- **Ảnh được chào theo số phiên bản, không theo kích thước file.** File nhỏ hơn
+  vẫn cập nhật đè được, miễn phiên bản cao hơn.
+- **Kiểm theo header của chính file, không theo tên.** Chọn nhầm `.gbl` hay
+  `.s37` cùng thư mục build là bị từ chối ngay lúc tải lên — và index do server
+  **tự sinh từ header**, nên không thể mâu thuẫn với file nó trỏ tới.
+- **Ảnh sai chip không bao giờ được chào.** Mã nhà sản xuất phải trùng. Đây
+  không phải lo xa: đã có lần thiết bị khởi động vào firmware của người khác vì
+  một ảnh cũ nằm lại trong bộ nhớ — ghi lại đầy đủ ở
+  [`gateway/ota/README.md`](gateway/ota/README.md).
+
+Toàn bộ quy trình, phân vai và bảng sự cố: [`docs/OTA.md`](docs/OTA.md).
 
 ---
 
@@ -140,7 +164,8 @@ Repo xếp theo **trạm xử lý**: mã của trạm nào nằm trong thư mụ
 | `ml/` | `train_*.py`, `evaluate.py`, `export_c_headers.py` (gọi tool MLTK của Silicon Labs) |
 | `ml/data_src/` | Dữ liệu nguồn: bản ghi cảm biến giọt thật + ICU BIDMC |
 | `firmware/models/` | Header C **sinh tự động** từ `.tflite` — đừng sửa tay |
-| `tools/` | `serial_gateway.py`; `fusion_test.c` và `dashboard_render_check.js` (kiểm thử chạy trên máy) |
+| `tools/` | `serial_gateway.py`; các bài kiểm thử chạy trên máy: `fusion_test.c`, `drop_filter_test.c`, `oled_test.c`, `dashboard_render_check.js`, `ota_render_check.js` |
+| `gateway/ota/` | Index OTA và luật an toàn khi phát hành firmware (ảnh `.ota` **không** đưa vào git) |
 | `server/tests/` | Kiểm thử bộ đánh giá trạng thái giường (console app, không cần NuGet) |
 | `docs/` | Toàn bộ tài liệu (xem bên dưới) |
 
@@ -171,6 +196,7 @@ rồi chạy lại `slc generate`.
 | [`docs/OTA.md`](docs/OTA.md) | **Cập nhật firmware từ xa.** Ai được thao tác, bấm gì trên giao diện, và các bước phát hành một bản firmware mới từ đầu tới cuối |
 | [`docs/AI_V2_PLAN.md`](docs/AI_V2_PLAN.md) | Lý do đằng sau từng quyết định của bản AI v2, **kèm cả những lần đi sai** |
 | [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu nâng cấp phần AI (bản cũ, giữ để tham chiếu) |
+| [`docs/AI_SYSTEM_SPECIFICATION.md`](docs/AI_SYSTEM_SPECIFICATION.md) | **Bản đặc tả đề xuất ban đầu — KHÔNG phải hệ thống đang chạy.** Giữ lại để đối chiếu; bốn điểm khác biệt ghi ngay đầu file |
 | [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |
 
 ---
@@ -205,6 +231,17 @@ từ gateway (`Tcp:Port` trong `appsettings.json`) — đừng cho web nghe trù
 cổng đó. `0.0.0.0` là để gateway trên Pi gọi vào được từ máy khác, không chỉ
 localhost.
 
+**Kiểm thử chạy trên máy** (không cần board, không cần Pi):
+
+```bash
+cc -I firmware -o /tmp/t tools/fusion_test.c firmware/ai_fusion.c firmware/line_rules.c -lm && /tmp/t
+cc -I firmware -o /tmp/t tools/drop_filter_test.c firmware/drop_filter.c -lm && /tmp/t
+cc -I firmware -o /tmp/t tools/oled_test.c firmware/oled_display.c && /tmp/t
+node tools/dashboard_render_check.js
+node tools/ota_render_check.js
+dotnet run --project server/tests/EvaluatorTests
+```
+
 **Gateway trên Pi**: cả `mosquitto`, `zigbee2mqtt` và `gateway` đều chạy nền
 bằng systemd, tự bật lại sau khi Pi khởi động:
 
@@ -213,9 +250,10 @@ sudo systemctl restart gateway
 journalctl -u gateway -f
 ```
 
-`ExecStart` trong `/etc/systemd/system/gateway.service` chứa **IP LAN của máy
-chạy HIS Server** — máy đó đổi IP thì phải sửa dòng đó rồi
-`daemon-reload` + `restart`, nếu không dashboard sẽ lặng lẽ ngừng cập nhật.
+`ExecStart` trong `/etc/systemd/system/gateway.service` trỏ vào **tên mDNS** của
+máy chạy HIS Server (`<tên-máy>.local`), **không phải IP**. Đây là chủ ý: máy dev
+dùng wifi DHCP và đã đổi IP ba lần trong hai ngày, mà mỗi lần đổi IP cứng là
+dashboard lặng lẽ ngừng cập nhật. Đừng thay bằng IP.
 
 ---
 

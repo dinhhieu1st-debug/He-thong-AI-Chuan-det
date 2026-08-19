@@ -71,12 +71,12 @@ want("đang nạp: cũng không cho bấm Kiểm tra",
 want("đang nạp: có thanh tiến độ đúng phần trăm",
      html.includes('width:47%'), "47%");
 want("đang nạp: có nhắc đừng rút nguồn",
-     html.includes('đừng rút nguồn'), "có cảnh báo");
+     html.includes('do not disconnect power'), "có cảnh báo");
 
 set({ deviceId: dev.deviceId, state: "Starting", inFlight: true, progress: null });
 html = otaSectionHtml(dev);
 want("vừa bắt đầu, chưa có phần trăm: không bịa ra số",
-     html.includes('đang chuẩn bị'), "nói 'đang chuẩn bị'");
+     html.includes('preparing'), "nói 'preparing'");
 want("vừa bắt đầu: nút Cập nhật cũng đã biến mất",
      !html.includes('data-ota-update'), "đã ẩn");
 

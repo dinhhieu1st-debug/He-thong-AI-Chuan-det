@@ -304,21 +304,21 @@ public sealed class BedTcpIngestionService : BackgroundService
         {
             OtaState.Starting => (DeviceEventType.FirmwareUpdateStarted,
                 latest is not null
-                    ? $"Bắt đầu cập nhật: v{installed?.ToString() ?? "?"} → v{latest}"
-                    : "Bắt đầu cập nhật firmware"),
+                    ? $"Update started: v{installed?.ToString() ?? "?"} to v{latest}"
+                    : "Firmware update started"),
 
             /* The versions here are read BEFORE the device reboots and reports
              * its new one, so "installed" is still the old image - which is
              * exactly the number the history needs: what it came from. */
             OtaState.Done => (DeviceEventType.FirmwareUpdated,
                 latest is not null
-                    ? $"Cập nhật xong: v{installed?.ToString() ?? "?"} → v{latest}"
-                    : "Cập nhật firmware xong"),
+                    ? $"Updated: v{installed?.ToString() ?? "?"} to v{latest}"
+                    : "Firmware updated"),
 
             OtaState.Failed => (DeviceEventType.FirmwareUpdateFailed,
                 string.IsNullOrWhiteSpace(status.Message)
-                    ? "Cập nhật thất bại"
-                    : $"Cập nhật thất bại: {status.Message}"),
+                    ? "Update failed"
+                    : $"Update failed: {status.Message}"),
 
             _ => (default(DeviceEventType), (string?)null),
         };

@@ -84,7 +84,7 @@ public sealed class OtaImageStore
 
         var image = ReadHeader(safeName, bytes, DateTime.UtcNow)
             ?? throw new InvalidDataException(
-                "File này không phải ảnh OTA Zigbee (thiếu chữ ký 0x0BEEF11E ở đầu file).");
+                "Not a Zigbee OTA image: the file does not start with the 0x0BEEF11E signature. (A .gbl or .s37 from the same build folder is the usual mistake.)");
 
         await File.WriteAllBytesAsync(Path.Combine(directory, safeName), bytes, ct);
         log.LogInformation(

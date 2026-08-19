@@ -1,12 +1,27 @@
 # Ảnh firmware OTA và file index
 
-Thư mục này là **nguồn sự thật** cho những gì zigbee2mqtt được phép chào cho
-thiết bị. Nội dung được triển khai sang `~/zigbee2mqtt/data/` trên Pi.
+```
+images/*.ota                ảnh firmware (KHÔNG đưa vào git — xem dưới)
+smart_iv_ota_index.json     index dạng file, để trống, chỉ dùng khi cần lùi
+```
 
-```
-smart_iv_ota_index.json     danh sách ảnh z2m được phép chào
-images/*.ota                ảnh firmware
-```
+## Bây giờ index nằm ở đâu
+
+**HIS Server sinh index, không phải file này.** Kỹ thuật viên tải `.ota` lên
+qua trang web; server đọc header của từng file và tự dựng
+`/api/ota/index.json`, còn zigbee2mqtt trỏ thẳng vào đó qua HTTP.
+
+Đổi như vậy vì cách cũ — `scp` file lên Pi rồi sửa JSON bằng tay — là việc không
+ai làm được từ ngoài phòng bệnh, và sửa index bằng tay chính là chỗ một mã nhà
+sản xuất sai lọt vào. Index sinh ra từ header thì **không thể mâu thuẫn với file
+nó trỏ tới**.
+
+`smart_iv_ota_index.json` giữ lại và để rỗng `[]`, phòng khi muốn quay về cách
+đặt file trực tiếp trên Pi.
+
+Ảnh `.ota` **không đưa vào git** (`.gitignore`): mỗi bản phát hành ~430 KB, dựng
+lại được từ đúng commit của nguồn (xem `docs/OTA.md` mục 4.3), và không ai đọc
+diff của một file nhị phân bao giờ.
 
 ---
 
