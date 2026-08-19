@@ -36,6 +36,10 @@
 #define OLED_WIDTH            128U
 #define OLED_HEIGHT           64U
 
+/* Calls to oled_display_show_vitals() that each fault is held for when several
+ * are active. The caller runs at 1 Hz, so this is three seconds. */
+#define OLED_CAUSE_HOLD_TICKS 3U
+
 /* The driver never touches the I2C bus itself: it is handed a write function
  * by whoever owns the bus (sensor_hub.c, which already bit-bangs PC05/PC07
  * for the MAX30102). One owner keeps the two devices from interleaving
@@ -84,6 +88,18 @@ typedef struct {
    * reliably is worth more than four lines nobody reads. The console still
    * lists every contributing reason at once. */
   const char *banner;
+
+  /* Every active fault, most severe first, from ai_fusion. When more than one
+   * is present the banner line CYCLES through them, a few seconds each, with
+   * an "n/m" counter so it is obvious more exist and that the screen is not
+   * simply flickering.
+   *
+   * Showing only the worst one is what this replaces: a nurse fixes the named
+   * problem, the alarm carries on, and nothing on the device says why. Still
+   * one line at a time, because two lines of 6 px text at a bedside is a line
+   * nobody reads. */
+  const char *const *causes;
+  uint8_t     cause_count;
   uint8_t     level;      /* alert_level_t, 0..3 - drives emphasis only */
 } oled_vitals_t;
 

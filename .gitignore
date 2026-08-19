@@ -69,3 +69,6 @@ server/tests/**/obj/
 # (xem docs/OTA.md mục 4.3). Giữ file .ota trong git thì mỗi lần phát hành lại
 # thêm ~430 KB vĩnh viễn vào lịch sử, đổi lấy thứ không ai đọc diff bao giờ.
 gateway/ota/images/*.ota
+
+# Ảnh firmware do kỹ thuật viên tải lên qua web (server/src/HisServer/ota-images).
+server/src/HisServer/ota-images/

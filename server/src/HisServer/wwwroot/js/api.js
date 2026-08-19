@@ -77,6 +77,22 @@ const Api = (() => {
     otaStatus: (deviceId) =>
       request("GET", `/api/devices/${encodeURIComponent(deviceId)}/ota`),
     otaStatuses: () => request("GET", "/api/devices/ota"),
+    otaImages: () => request("GET", "/api/ota/images"),
+    otaDeleteImage: (fileName) =>
+      request("DELETE", `/api/ota/images/${encodeURIComponent(fileName)}`),
+    /* Multipart, so it does not go through request() - that helper sets a JSON
+     * content type, and setting any content type by hand on a FormData upload
+     * strips the boundary the server needs to parse it. */
+    otaUploadImage: async (file) => {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/ota/images", { method: "POST", body });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.error || `Upload thất bại (${res.status})`);
+      }
+      return res.json();
+    },
     getDeviceEvents: (deviceId) =>
       request("GET", `/api/devices/${encodeURIComponent(deviceId)}/events`),
 

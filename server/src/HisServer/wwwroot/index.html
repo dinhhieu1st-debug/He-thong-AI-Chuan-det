@@ -160,6 +160,21 @@
           <button class="btn" id="rescanDevicesBtn">Rescan</button>
           <button class="btn primary" id="addDeviceBtn">+ Add Device</button>
         </div>
+        <!-- Kho firmware. Ảnh tải lên đây là thứ "Kiểm tra bản mới" sẽ chào
+             cho thiết bị - không còn phải ssh vào Pi để đặt file nữa. -->
+        <div class="pending-devices" id="otaLibrary" style="margin-top:14px;">
+          <div class="section-title" style="margin-top:0;">Kho firmware (OTA)</div>
+          <div class="muted" style="margin-bottom:10px;">
+            Tải file <code>.ota</code> lên đây. Thiết bị chỉ được chào bản có
+            <b>mã nhà sản xuất trùng</b> và <b>phiên bản cao hơn</b> bản đang chạy.
+          </div>
+          <div class="inline-form">
+            <input type="file" id="otaFileInput" accept=".ota">
+            <button class="btn primary" id="otaUploadBtn">Tải lên</button>
+          </div>
+          <div id="otaImageList" style="margin-top:10px;"></div>
+        </div>
+
         <div class="split">
           <div class="main-col">
             <div class="device-grid" id="devicesGrid"></div>

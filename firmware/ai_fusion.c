@@ -86,7 +86,7 @@ void ai_fusion_step(fusion_result_t *out)
 {
   memset(out, 0, sizeof(*out));
   out->level = ALERT_LEVEL_NORMAL;
-  out->headline = "Monitoring";
+  out->headline = "MONITORING";
 
   /* ======================================================================
    *  1. HARD CLINICAL RULES. Evaluated first and independently of every
@@ -278,37 +278,57 @@ void ai_fusion_step(fusion_result_t *out)
   out->patient_branch = out->vitals_anomaly || out->ae_anomaly
                         || out->rule_spo2 || out->rule_hr;
 
+  /* The LEVEL is decided by the most severe thing that is true - unchanged.
+   * What is new is that every active fault is also recorded, so the bedside
+   * screen can show them all in turn instead of hiding everything behind the
+   * worst one. */
   if (out->line_branch && out->patient_branch) {
     out->level = ALERT_LEVEL_CRITICAL;
-    out->headline = "NGUY CO QUA TAI DICH";
   } else if (out->patient_branch) {
     out->level = ALERT_LEVEL_VITALS_ALERT;
-    out->headline = "CANH BAO BENH NHAN";
-  } else if (out->line_branch) {
+  } else if (out->line_branch || out->rule_missing || out->early_warning
+             || (out->line.valid && (out->line.state == LINE_SENSOR_MISMATCH
+                                     || out->line.state == LINE_EMPTY))) {
+    /* A dead sensor is not a well patient, and neither is a drop sensor
+     * disagreeing with the scale. Someone has to look, but none of it is a
+     * clinical emergency, so it warns rather than alarms. Early warning is a
+     * prediction, not a fact, and sits here for the same reason. */
     out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "KIEM TRA DAY TRUYEN";
-  } else if (out->rule_missing) {
-    /* A dead sensor is not a well patient. Someone has to look, but it is not
-     * a clinical emergency, so it sits at the warning level rather than
-     * silently reading as "everything is fine". */
-    out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "MAT TIN HIEU CAM BIEN";
-  } else if (out->line.valid && out->line.state == LINE_SENSOR_MISMATCH) {
-    out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "LOI CAM BIEN GIOT";
-  } else if (out->line.valid && out->line.state == LINE_EMPTY) {
-    out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "HET DICH";
-  } else if (out->early_warning) {
-    /* A prediction, not a fact - so it warns rather than alarms. It is the only
-     * signal here that can precede a gradual deterioration, which is why it is
-     * not simply folded into one of the two branches above. */
-    out->level = ALERT_LEVEL_LINE_WARNING;
-    out->headline = "CANH BAO SOM";
-  } else if (out->line.valid && out->line.state == LINE_RUNNING_LOW) {
-    /* Information, not an alarm: the infusion is behaving exactly as it should.
-     * It stays at NORMAL so the buzzer keeps quiet; the headline is there for
-     * the nurse who happens to walk past. */
-    out->headline = "SAP HET DICH";
   }
+
+  /* Causes, most severe first. Kept in the same order the level test above
+   * uses, so the first entry is always the one that set the level and the
+   * screen's first frame agrees with the buzzer. */
+  out->cause_count = 0U;
+  #define ADD_CAUSE(text)                                            \
+    do {                                                             \
+      if (out->cause_count < AI_MAX_CAUSES) {                        \
+        out->causes[out->cause_count++] = (text);                    \
+      }                                                              \
+    } while (0)
+
+  if (out->line_branch && out->patient_branch) {
+    /* Must fit 21 characters - the font is 6 px wide on a 128 px panel, and
+     * draw_text_centered silently clips anything longer. The old wording,
+     * "DANGER: FLUID OVERLOAD?", was 23 and lost its last two characters on
+     * the actual screen. */
+    ADD_CAUSE("DANGER: OVERLOAD");
+  }
+  if (out->patient_branch)  ADD_CAUSE("PATIENT ALERT");
+  if (out->line_branch)     ADD_CAUSE("CHECK IV LINE");
+  if (out->rule_missing)    ADD_CAUSE("SENSOR SIGNAL LOST");
+  if (out->line.valid && out->line.state == LINE_SENSOR_MISMATCH) {
+    ADD_CAUSE("DROP SENSOR FAULT");
+  }
+  if (out->line.valid && out->line.state == LINE_EMPTY) ADD_CAUSE("BAG EMPTY");
+  if (out->early_warning)                               ADD_CAUSE("EARLY WARNING");
+  if (out->line.valid && out->line.state == LINE_RUNNING_LOW) {
+    /* Information, not an alarm: the infusion is behaving exactly as it
+     * should. The level stays NORMAL so the buzzer keeps quiet; this is here
+     * for the nurse who happens to walk past. */
+    ADD_CAUSE("BAG RUNNING LOW");
+  }
+  #undef ADD_CAUSE
+
+  if (out->cause_count > 0U) out->headline = out->causes[0];
 }

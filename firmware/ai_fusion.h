@@ -90,10 +90,28 @@
 #define AI_DRIP_RESIDUAL_THRESHOLD    0.0662f
 #define AI_VITALS_RESIDUAL_THRESHOLD  0.5295f
 
+/* Most faults that can be true at once. Six covers every combination the
+ * decision below can produce; the array is bounded so nothing here can grow
+ * without someone noticing. */
+#define AI_MAX_CAUSES 6U
+
 typedef struct {
   /* ---- final answer ---- */
   alert_level_t level;
-  const char   *headline;      /* what to put on the OLED */
+  const char   *headline;      /* the single most severe cause */
+
+  /* Every active fault, most severe first.
+   *
+   * The bedside screen used to be told only the worst one, which is fine when
+   * there is one and misleading when there are three: a nurse fixes the named
+   * problem, sees the alarm persist, and has no way to find out what else is
+   * wrong without walking to the console. The display cycles through these.
+   *
+   * All uppercase A-Z, digits and space: the 5x7 font has no lowercase, and an
+   * unmapped character renders as a BLANK rather than as anything visible.
+   * tools/oled_test.c enforces this. */
+  const char   *causes[AI_MAX_CAUSES];
+  uint8_t       cause_count;
 
   /* ---- branch verdicts (what made the decision) ---- */
   bool line_branch;

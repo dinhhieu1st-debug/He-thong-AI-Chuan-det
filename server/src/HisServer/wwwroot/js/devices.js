@@ -413,6 +413,61 @@ const DevicesTab = (() => {
     });
   }
 
+  /* --- the firmware library ------------------------------------------------
+   *
+   * What a technician can see about an image is read out of the FILE, not out
+   * of its name: the branch this feature came from had three files named
+   * xg24_* that were really xG26 images, and a name is not evidence. */
+  const OTA_KNOWN_MFG = { 4169: "SmartIV-Sensor (xG26)", 4098: "xG24" };
+
+  async function renderOtaLibrary() {
+    const host = document.getElementById("otaImageList");
+    if (!host) return;
+
+    let images;
+    try {
+      images = await Api.otaImages();
+    } catch (err) {
+      host.innerHTML = `<span class="muted">Không đọc được kho firmware.</span>`;
+      return;
+    }
+
+    if (images.length === 0) {
+      host.innerHTML = `<span class="muted">Chưa có file nào. `
+        + `Tải một file .ota lên để "Kiểm tra bản mới" có thứ để chào.</span>`;
+      return;
+    }
+
+    host.innerHTML = `
+      <table class="data-table">
+        <tr><th>File</th><th>Thiết bị</th><th>Phiên bản</th><th>Kích thước</th><th></th></tr>
+        ${images.map((i) => `
+          <tr>
+            <td><b>${UiUtils.escapeHtml(i.fileName)}</b>
+                <div class="muted">${UiUtils.escapeHtml(i.headerText || "")}</div></td>
+            <td>${OTA_KNOWN_MFG[i.manufacturerCode]
+                  ? UiUtils.escapeHtml(OTA_KNOWN_MFG[i.manufacturerCode])
+                  : `<span class="ota-fail">mã lạ: ${i.manufacturerCode}</span>`}</td>
+            <td>v${i.fileVersion}</td>
+            <td class="muted">${Math.round(i.sizeBytes / 1024)} KB</td>
+            <td><button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}">Xoá</button></td>
+          </tr>`).join("")}
+      </table>`;
+
+    host.querySelectorAll("[data-ota-del]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const name = btn.getAttribute("data-ota-del");
+        if (!confirm(`Xoá ${name} khỏi kho firmware?\n\n`
+                   + `Thiết bị đang chạy bản này không bị ảnh hưởng — chỉ là `
+                   + `từ giờ nó không được chào cho thiết bị nào nữa.`)) return;
+        try {
+          await Api.otaDeleteImage(name);
+          renderOtaLibrary();
+        } catch (err) { UiUtils.toast(err.message, true); }
+      });
+    });
+  }
+
   function render() {
     const devices = Array.from(State.devices.values()).filter(matchesFilters).sort((a, b) => a.deviceId.localeCompare(b.deviceId));
     const grid = document.getElementById("devicesGrid");
@@ -566,6 +621,28 @@ const DevicesTab = (() => {
       fillBedChoices(e.target.value);
     });
 
+    document.getElementById("otaUploadBtn")?.addEventListener("click", async () => {
+      const input = document.getElementById("otaFileInput");
+      const file = input.files && input.files[0];
+      if (!file) { UiUtils.toast("Chưa chọn file .ota", true); return; }
+
+      const btn = document.getElementById("otaUploadBtn");
+      btn.disabled = true;
+      try {
+        const image = await Api.otaUploadImage(file);
+        /* Echo back what the FILE says, not what it is called - that is the
+         * whole point of validating the header server-side. */
+        UiUtils.toast(`Đã tải lên: ${image.headerText || image.fileName} `
+                    + `(mã ${image.manufacturerCode}, v${image.fileVersion})`);
+        input.value = "";
+        renderOtaLibrary();
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
     document.getElementById("addDeviceBtn").addEventListener("click", () => {
       fillRoomChoices();
       fillBedChoices("");
@@ -592,6 +669,7 @@ const DevicesTab = (() => {
     });
 
     loadInitial();
+    renderOtaLibrary();
   }
 
   return { init, render };

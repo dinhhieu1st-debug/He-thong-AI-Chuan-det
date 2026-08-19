@@ -199,7 +199,7 @@ bool oled_display_show_splash(oled_display_t *display)
   clear(display);
   draw_text_centered(display, 12U, "SMART IV", 2U);
   draw_text_centered(display, 34U, "ICTU", 2U);
-  draw_text_centered(display, 54U, "DANG KHOI DONG", 1U);
+  draw_text_centered(display, 54U, "STARTING UP", 1U);
   return refresh(display);
 }
 
@@ -212,7 +212,7 @@ static const char *alarm_banner(const oled_vitals_t *v)
   /* ai_fusion decided the message; render it. The fallback below only covers
    * the case of a caller that has not been updated to supply one. */
   if (v->banner != NULL && v->banner[0] != '\0') return v->banner;
-  return "CANH BAO";
+  return "ALERT";
 }
 
 bool oled_display_show_vitals(oled_display_t *display,
@@ -240,7 +240,37 @@ bool oled_display_show_vitals(oled_display_t *display,
     flow_text[i] = '\0';
   }
 
-  const char *banner = vitals->alarm ? alarm_banner(vitals) : "BINH THUONG";
+  /* Which of several faults to show this time.
+   *
+   * Advanced by call, not by wall clock, because this function is called on a
+   * fixed 1 s cadence from the AI loop - so "every OLED_CAUSE_HOLD_TICKS
+   * calls" is every 3 seconds, and the driver needs no clock of its own.
+   *
+   * Long enough to read a line at a glance, short enough that three faults
+   * are all seen inside ten seconds. */
+  static uint32_t cause_tick = 0U;
+  cause_tick++;
+
+  const char *banner;
+  char        counter[8];
+  counter[0] = '\0';
+
+  if (!vitals->alarm) {
+    banner = "NORMAL";
+  } else if (vitals->causes != NULL && vitals->cause_count > 1U) {
+    uint8_t idx = (uint8_t)((cause_tick / OLED_CAUSE_HOLD_TICKS)
+                            % vitals->cause_count);
+    banner = vitals->causes[idx];
+
+    /* "2/3" - so a changing line reads as "there are three problems" rather
+     * than as a display fault. */
+    counter[0] = (char)('0' + (idx + 1U));
+    counter[1] = '/';
+    counter[2] = (char)('0' + vitals->cause_count);
+    counter[3] = '\0';
+  } else {
+    banner = alarm_banner(vitals);
+  }
 
   /* Nothing changed since the last paint -> send nothing. A full frame is
    * 8 pages x 128 bytes; pushing that down a bit-banged bus every second
@@ -248,8 +278,8 @@ bool oled_display_show_vitals(oled_display_t *display,
   static char last_signature[48];
   char signature[48];
   int len = 0;
-  const char *parts[4] = { hr_text, spo2_text, flow_text, banner };
-  for (uint8_t p = 0U; p < 4U && len < (int)sizeof(signature) - 2; p++) {
+  const char *parts[5] = { hr_text, spo2_text, flow_text, banner, counter };
+  for (uint8_t p = 0U; p < 5U && len < (int)sizeof(signature) - 2; p++) {
     for (uint8_t i = 0U; parts[p][i] != '\0' && len < (int)sizeof(signature) - 2; i++) {
       signature[len++] = parts[p][i];
     }
@@ -262,31 +292,28 @@ bool oled_display_show_vitals(oled_display_t *display,
 
   /* Top half: the two numbers a nurse reads from across the bed, as large as
    * 128x64 allows (scale 3 = 15x21 px per glyph). */
-  /* SPO2 stays as it is - it is the term printed on every pulse oximeter in
-   * the ward, including the one this reads from. Translating it would make the
-   * bedside display disagree with the sensor beside it. */
-  draw_text(display, 2U,  0U, "MACH", 1U);
+  draw_text(display, 2U,  0U, "HR", 1U);
   draw_text(display, 70U, 0U, "SPO2", 1U);
   draw_text(display, 2U,  10U, hr_text, 3U);
   draw_text(display, 70U, 10U, spo2_text, 3U);
 
   /* Middle: flow against the prescription. Small on purpose — it matters when
    * setting the drip, not when glancing from the doorway. */
-  /* Positions moved with the label, not left where the shorter English one
-   * sat. At 6 px per character "TOC DO" runs to x=37, so a value still drawn
-   * at x=34 would print straight through it. The full row is
-   * 2..37 label | 42..71 value ("2000%" is the widest) | 78..119 "MUC DAT",
-   * which is the whole 128 px panel with nothing overlapping. */
-  draw_text(display, 2U, 34U, "TOC DO", 1U);
-  draw_text(display, 42U, 34U, flow_text, 1U);
-  draw_text(display, 78U, 34U, "MUC DAT", 1U);
+  draw_text(display, 2U, 34U, "FLOW", 1U);
+  draw_text(display, 34U, 34U, flow_text, 1U);
+  draw_text(display, 78U, 34U, "TARGET", 1U);
 
   /* Bottom: one line saying whether anything is wrong, boxed when it is. The
    * box is what makes an alarm visible in peripheral vision; without it a
    * nurse has to actually read the line to know it changed. */
   if (vitals->alarm) {
     draw_frame(display, 0U, 44U, OLED_WIDTH, 20U);
-    draw_text_centered(display, 52U, banner, 1U);
+    draw_text_centered(display, 50U, banner, 1U);
+    if (counter[0] != '\0') {
+      /* Under the message, right-aligned inside the box. */
+      uint8_t w = text_width(counter, 1U);
+      draw_text(display, (uint8_t)(OLED_WIDTH - 3U - w), 58U, counter, 1U);
+    }
   } else {
     draw_text_centered(display, 52U, banner, 1U);
   }

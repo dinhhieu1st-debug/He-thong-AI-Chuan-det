@@ -632,6 +632,10 @@ static void oled_update(const fusion_result_t *f,
      * about the same second. The display no longer ranks reasons itself. */
     .alarm  = (f->level != ALERT_LEVEL_NORMAL),
     .banner = f->headline,
+    /* Every active fault, not just the worst, so the screen can cycle through
+     * them. Still ai_fusion's ranking - the display does not re-derive it. */
+    .causes      = f->causes,
+    .cause_count = f->cause_count,
     .level  = (uint8_t)f->level
   };
 

@@ -35,6 +35,7 @@ builder.Services.AddSingleton<BedConnectionRegistry>();
 // Firmware update progress. Singleton and in memory: a transfer does not
 // survive a restart, so neither should the record of it - see OtaStatus.
 builder.Services.AddSingleton<OtaStatusRegistry>();
+builder.Services.AddSingleton<OtaImageStore>();
 builder.Services.AddSingleton<VitalsPersistenceCoordinator>();
 builder.Services.AddHttpClient<FcmPushService>();
 
@@ -173,6 +174,7 @@ app.MapFaultReportEndpoints();
 app.MapBedEndpoints();
 app.MapAlertEndpoints();
 app.MapDeviceEndpoints();
+app.MapOtaImageEndpoints();
 app.MapMobileEndpoints();
 app.MapLogEndpoints();
 app.MapSettingsEndpoints();
