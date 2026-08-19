@@ -33,7 +33,9 @@ const ProfileTab = (() => {
 
     return `
       <tr data-bed-id="${UiUtils.escapeHtml(bed.bedId)}" class="profile-bed-row">
-        <td><b>${UiUtils.escapeHtml(bed.bedId)}</b><div class="muted">${UiUtils.escapeHtml(bed.room)}</div></td>
+        <td><b>${UiUtils.escapeHtml(bed.bedId)}</b>${bed.mine
+              ? ` <span class="chip active" style="font-size:10px;padding:1px 6px;">mine</span>`
+              : ""}<div class="muted">${UiUtils.escapeHtml(bed.room)}</div></td>
         <td>${patient}</td>
         <td>${statusChip(bed.status)}</td>
         <td>${bed.alertMessage ? UiUtils.escapeHtml(bed.alertMessage.split(" · ")[0]) : "<span class='muted'>—</span>"}</td>
@@ -73,15 +75,16 @@ const ProfileTab = (() => {
      * question "why does it say I have no beds?" every time. */
     const wardHtml = !Session.can("ward.view") ? "" : `
       <div class="stat-row" style="margin-top:18px;">
-        <div class="stat-tile"><div class="value">${s.total}</div><div class="label">Beds assigned</div></div>
+        <div class="stat-tile"><div class="value">${s.mine}<span class="muted" style="font-size:60%;"> / ${s.total}</span></div><div class="label">Beds assigned to me</div></div>
         <div class="stat-tile"><div class="value">${s.occupied}</div><div class="label">Occupied</div></div>
         <div class="stat-tile critical"><div class="value">${s.critical}</div><div class="label">Critical</div></div>
         <div class="stat-tile warning"><div class="value">${s.warning}</div><div class="label">Warning</div></div>
       </div>
 
-      <div class="section-title">My beds</div>
+      <div class="section-title">Beds in the ward${
+        s.mine > 0 ? ` <span class="muted" style="font-weight:400;">— yours are marked and listed first</span>` : ""}</div>
       ${data.beds.length === 0
-        ? `<div class="empty-state">No beds in your assigned scope yet.</div>`
+        ? `<div class="empty-state">No beds in the ward yet.</div>`
         : `<table class="data-table">
              <thead><tr><th>Bed</th><th>Patient</th><th>Status</th><th>Warning</th><th>Updated</th></tr></thead>
              <tbody>${data.beds.map(bedRow).join("")}</tbody>

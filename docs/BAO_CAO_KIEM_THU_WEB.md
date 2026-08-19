@@ -186,7 +186,7 @@ sai không thể lọt vào danh sách được chào cho thiết bị.
 |---|---|---|---|
 | 7.1 | Xem ca trực của mình | 200 cho cả ba vai trò | ✅ |
 | 7.2 | Cấu hình hiển thị | `GET /api/settings` → 200 | ✅ |
-| 7.3 | Trang **My shift** của điều dưỡng | Giữ nguyên 4 ô thống kê + bảng "My beds" | ✅ |
+| 7.3 | Trang **My shift** của điều dưỡng | Giữ 4 ô thống kê + bảng giường; **danh sách giường khớp đúng tab Beds & Rooms** (9/9), giường thuộc ca trực được đánh dấu `mine` và xếp lên đầu, ô đầu hiện `2 / 9` | ✅ |
 | 7.4 | Trang **My shift** của kỹ thuật viên | Không còn ô thống kê và bảng giường; giữ thông tin tài khoản + đổi mật khẩu | ✅ |
 | 7.5 | Trang **My shift** của quản trị viên | Như trên | ✅ |
 | 7.6 | Cập nhật thời gian thực (SignalR) | Trạng thái thiết bị và tiến độ cập nhật firmware tự đổi trên trang mà không cần tải lại — kiểm khi **còn cắm thiết bị**, đo trên trình duyệt | ✅ |
