@@ -978,6 +978,54 @@ static void max30102_poll(void)
 #define BUZZER_PORT      gpioPortC
 #define BUZZER_PIN_NUM   4        /* mikroBUS CS  = PC04 */
 
+/* --- No two peripherals may share a pin ------------------------------------
+ *
+ * This project has lost time to pin confusion more than once, and the failure
+ * is always silent: the pin gets configured by whichever driver initialises
+ * last, and the other peripheral simply never works. A buzzer wired to the
+ * load cell's data line is exactly this - the pin is held as an INPUT for the
+ * scale, so nothing ever drives the buzzer, and it stays quiet with no error
+ * anywhere.
+ *
+ * The mikroBUS header on BRD2709A, so the names on the silkscreen can be
+ * checked against the numbers here without opening the SDK:
+ *
+ *     AN  = PD02      PWM  = PA07
+ *     RST = PD03      INT  = PA06
+ *     CS  = PC04      RX   = PA05
+ *     SCK = PC03      TX   = PA04
+ *     MISO= PC02      SCL  = PC05
+ *     MOSI= PC01      SDA  = PC07
+ *
+ * A collision now fails the build with the two names in the message, instead
+ * of failing on a bench with neither. */
+#define SH_PIN_ID(port, pin)  ((int)(port) * 32 + (int)(pin))
+
+#define SH_PINS_DIFFER(a_port, a_pin, b_port, b_pin) \
+  (SH_PIN_ID(a_port, a_pin) != SH_PIN_ID(b_port, b_pin))
+
+_Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
+                              HX711_DOUT_PORT, HX711_DOUT_PIN),
+               "Buzzer and HX711 DOUT are on the same pin. On BRD2709A the "
+               "load cell data line is PC01 = mikroBUS MOSI; the buzzer "
+               "belongs on PC04 = mikroBUS CS. Move the wire, or move the "
+               "scale.");
+_Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
+                              HX711_SCK_PORT, HX711_SCK_PIN),
+               "Buzzer and HX711 SCK are on the same pin (PC03 = mikroBUS SCK).");
+_Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM, SENSOR_PORT, SENSOR_PIN),
+               "Buzzer and the drop sensor are on the same pin (PD02 = mikroBUS AN).");
+_Static_assert(SH_PINS_DIFFER(LED_GREEN_PORT, LED_GREEN_PIN,
+                              LED_YELLOW_PORT, LED_YELLOW_PIN)
+               && SH_PINS_DIFFER(LED_GREEN_PORT, LED_GREEN_PIN,
+                                 LED_RED_PORT, LED_RED_PIN)
+               && SH_PINS_DIFFER(LED_YELLOW_PORT, LED_YELLOW_PIN,
+                                 LED_RED_PORT, LED_RED_PIN),
+               "Two alarm lamps are on the same pin.");
+_Static_assert(SH_PINS_DIFFER(HX711_DOUT_PORT, HX711_DOUT_PIN,
+                              HX711_SCK_PORT, HX711_SCK_PIN),
+               "HX711 DOUT and SCK are on the same pin.");
+
 #define BUZZER_PERIOD_CRITICAL_MS 150U    /* urgent beep = both systems failing */
 #define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
 #define BUZZER_PERIOD_YELLOW_MS  1000U    /* slow beep = warning   (matches the .ino) */
