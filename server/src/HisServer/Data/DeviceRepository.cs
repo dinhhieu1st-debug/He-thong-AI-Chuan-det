@@ -174,6 +174,9 @@ public sealed class DeviceRepository
                     DeviceEventType.SensorFault => "SENSOR_FAULT",
                     DeviceEventType.FaultReported => "FAULT_REPORTED",
                     DeviceEventType.FaultResolved => "FAULT_RESOLVED",
+                    DeviceEventType.FirmwareUpdateStarted => "FIRMWARE_UPDATE_STARTED",
+                    DeviceEventType.FirmwareUpdated => "FIRMWARE_UPDATED",
+                    DeviceEventType.FirmwareUpdateFailed => "FIRMWARE_UPDATE_FAILED",
                     _ => type.ToString().ToUpperInvariant()
                 },
                 detail

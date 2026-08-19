@@ -91,7 +91,8 @@ typedef int his_socket_t;
 int  get_string_from_json(const char *json, const char *key, char *out, size_t out_size);
 static void publish_ota_request(const char *topic, const char *device_id);
 static void his_send_ota_status(const char *device_id, const char *state,
-                                int progress, int remaining_s, const char *message);
+                                int progress, int remaining_s, const char *message,
+                                int installed_version, int latest_version);
 
 #define BUFFER_SIZE 256
 
@@ -616,7 +617,7 @@ static void check_his_commands(void)
                     /* Bao ngay la da nhan lenh. Neu doi z2m tra loi thi nut bam
                      * ben ky thuat vien im lang vai giay, va nguoi ta se bam
                      * lai - dieu cuoi cung ta muon voi mot lenh nap firmware. */
-                    his_send_ota_status(dev, "starting", -1, -1, "Update requested");
+                    his_send_ota_status(dev, "starting", -1, -1, "Update requested", -1, -1);
                     publish_ota_request(BRIDGE_OTA_UPDATE_REQ, dev);
                 }
             } else if (strstr(his_cmd_buf, "rescan_devices") != NULL) {
@@ -781,7 +782,8 @@ int get_string_from_json(const char *json, const char *key, char *out, size_t ou
  * cua he thong nay la trang thai giuong chi duoc quyet o mot noi tren server;
  * OTA theo dung nguyen tac do. */
 static void his_send_ota_status(const char *device_id, const char *state,
-                                int progress, int remaining_s, const char *message)
+                                int progress, int remaining_s, const char *message,
+                                int installed_version, int latest_version)
 {
     char line[600];
     size_t len;
@@ -799,11 +801,15 @@ static void his_send_ota_status(const char *device_id, const char *state,
     /* progress va remaining gui -1 khi chua biet, khong gui 0. "Chua bat dau"
      * va "dang o 0%%" la hai chuyen khac nhau, va gop chung se lam thanh tien
      * do nhay ve dau moi lan z2m gui mot ban tin khong kem phan tram. */
+    /* Phien ban di kem trang thai. Khong co no thi lich su chi ghi duoc "da
+     * cap nhat luc 10:47", con cau hoi thuc su cua ky thuat vien - "tu ban nao
+     * len ban nao" - thi khong tra loi duoc. -1 = chua biet. */
     snprintf(line, sizeof(line),
              "{\"type\":\"ota_status\",\"deviceId\":\"%s\",\"state\":\"%s\""
-             ",\"progress\":%d,\"remainingSeconds\":%d,\"message\":\"%s\"}\n",
+             ",\"progress\":%d,\"remainingSeconds\":%d,\"message\":\"%s\""
+             ",\"installedVersion\":%d,\"latestVersion\":%d}\n",
              device_id, state ? state : "unknown", progress, remaining_s,
-             message ? message : "");
+             message ? message : "", installed_version, latest_version);
 
     len = strlen(line);
     if (send(his_socket, line, (int)len, 0) < 0) {
@@ -1210,13 +1216,13 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
 
         if (dev[0] != '\0') {
             if (strcmp(status, "error") == 0) {
-                his_send_ota_status(dev, "failed", -1, -1, err);
+                his_send_ota_status(dev, "failed", -1, -1, err, -1, -1);
             } else if (strstr(msg->topic, "/check") != NULL) {
                 get_bool_from_json(payload, "updateAvailable", &available);
                 his_send_ota_status(dev, available ? "available" : "upToDate",
-                                    -1, -1, "");
+                                    -1, -1, "", -1, -1);
             } else if (strstr(msg->topic, "/update") != NULL) {
-                his_send_ota_status(dev, "done", 100, 0, "Update finished");
+                his_send_ota_status(dev, "done", 100, 0, "Update finished", -1, -1);
             }
         }
         free(payload);
@@ -1312,12 +1318,15 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
         if (upd != NULL) {
             char state[32] = "";
             int progress = -1, remaining = -1;
+            int installed = -1, latest = -1;
             get_string_from_json(upd, "state", state, sizeof(state));
             get_int_from_json(upd, "progress", &progress);
             get_int_from_json(upd, "remaining", &remaining);
+            get_int_from_json(upd, "installed_version", &installed);
+            get_int_from_json(upd, "latest_version", &latest);
             if (state[0] != '\0') {
                 his_send_ota_status(device_id_for_topic(msg->topic), state,
-                                    progress, remaining, "");
+                                    progress, remaining, "", installed, latest);
             }
         }
     }

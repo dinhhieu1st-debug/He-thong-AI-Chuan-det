@@ -629,6 +629,7 @@ static void oled_update(const fusion_result_t *f,
     .spo2_pct   = (uint16_t)(spo2 < 0 ? 0 : spo2),
     .flow_valid = (sh_flow_state() == CH_OK),
     .flow_pct   = (int16_t)flow_pct,
+    .target_flow_ml_h = (uint16_t)(sh_target_flow_ml_h() + 0.5f),
     /* Exactly the level ai_fusion decided, and exactly the message it chose.
      * The screen, the serial log, the Zigbee bitmap and the ward console all
      * read these two fields, so they cannot tell a nurse different stories

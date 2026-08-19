@@ -334,6 +334,16 @@ const DevicesTab = (() => {
     }
   }
 
+  /* Firmware events read as sentences rather than as enum names, and are
+   * marked so they stand out in a log that is mostly joins and faults - "what
+   * firmware is this bed on, and when did it change" is the question this page
+   * gets asked after an update goes wrong. */
+  const FIRMWARE_EVENTS = {
+    FirmwareUpdateStarted: "Bắt đầu cập nhật firmware",
+    FirmwareUpdated:       "Đã cập nhật firmware",
+    FirmwareUpdateFailed:  "Cập nhật firmware thất bại",
+  };
+
   /* The technician's log. Deliberately not the System Log, which carries SpO2
    * and heart rate in every row - this one records what happened to the
    * equipment and nothing about the patient. */
@@ -352,7 +362,8 @@ const DevicesTab = (() => {
         ? `<span class="muted">No events recorded yet.</span>`
         : events.map((e) => `
             <div class="device-event">
-              <span class="device-event-type">${UiUtils.escapeHtml(e.eventType.replace("_", " "))}</span>
+              <span class="device-event-type${FIRMWARE_EVENTS[e.eventType] ? " device-event-fw" : ""}">${
+                UiUtils.escapeHtml(FIRMWARE_EVENTS[e.eventType] || e.eventType.replace("_", " "))}</span>
               <span class="muted">${UiUtils.formatDateTime(e.occurredAt)}</span>
               ${e.detail ? `<div class="muted">${UiUtils.escapeHtml(e.detail)}</div>` : ""}
             </div>`).join("");

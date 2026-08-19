@@ -87,6 +87,7 @@ int main(void)
     .hr_valid = true, .hr_bpm = 88,
     .spo2_valid = true, .spo2_pct = 97,
     .flow_valid = true, .flow_pct = 100,
+    .target_flow_ml_h = 100,
     .alarm = true,
     .banner = three[0],
     .causes = three, .cause_count = 3,
@@ -137,7 +138,7 @@ int main(void)
   /* Every string the firmware can put on this screen. */
   static const char *const all_strings[] = {
     "SMART IV", "ICTU", "STARTING UP", "NORMAL", "ALERT",
-    "HR", "SPO2", "FLOW", "TARGET",
+    "HR", "SPO2", "FLOW", "TGT",
     "MONITORING",
     "DANGER: OVERLOAD", "PATIENT ALERT", "CHECK IV LINE",
     "SENSOR SIGNAL LOST", "DROP SENSOR FAULT", "BAG EMPTY",

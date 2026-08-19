@@ -208,13 +208,13 @@ Console.WriteLine("\n== Firmware update state ==");
     Check("an unknown device is Unknown, not UpToDate",
           ota.Get(dev).State == OtaState.Unknown, ota.Get(dev).State.ToString());
 
-    ota.Update(dev, "available", null, null, null);
+    ota.Update(dev, "available", null, null, null, out _);
     Check("a check reporting an image maps to Available",
           ota.Get(dev).State == OtaState.Available, ota.Get(dev).State.ToString());
     Check("Available does not count as in flight",
           !ota.Get(dev).InFlight, "InFlight=false");
 
-    ota.Update(dev, "updating", 47, 120, null);
+    ota.Update(dev, "updating", 47, 120, null, out _);
     var mid = ota.Get(dev);
     Check("progress is carried", mid.Progress == 47, $"{mid.Progress}%");
     Check("Updating counts as in flight", mid.InFlight, "InFlight=true");
@@ -223,17 +223,50 @@ Console.WriteLine("\n== Firmware update state ==");
     // state but no percentage. Writing null over a real 47 makes the bar
     // collapse to empty and jump back - which reads as a stalled or restarted
     // update, the most alarming thing a progress bar can do mid-flash.
-    ota.Update(dev, "updating", null, null, null);
+    ota.Update(dev, "updating", null, null, null, out _);
     Check("a message with no percentage keeps the last one",
           ota.Get(dev).Progress == 47, $"{ota.Get(dev).Progress}%");
 
-    ota.Update(dev, "done", 100, 0, "Update finished");
+    ota.Update(dev, "done", 100, 0, "Update finished", out _);
     Check("finishing clears in flight", !ota.Get(dev).InFlight, "InFlight=false");
 
-    ota.Update(dev, "error", null, null, "No OTA cluster");
+    ota.Update(dev, "error", null, null, "No OTA cluster", out _);
     Check("an error maps to Failed and keeps the reason",
           ota.Get(dev).State == OtaState.Failed
           && ota.Get(dev).Message == "No OTA cluster", ota.Get(dev).Message ?? "");
+
+    // --- what the firmware history hangs off -----------------------------
+    //
+    // The device republishes its OTA state about once a second. History must
+    // be written on TRANSITIONS only, or the three lines a technician wants to
+    // read end up buried under thousands saying "still idle".
+    var histDev = "0xHIST";
+    ota.Update(histDev, "available", null, null, null, out var prev0);
+    Check("first sight of a device: previous state is Unknown",
+          prev0 == OtaState.Unknown, prev0.ToString());
+
+    ota.Update(histDev, "available", null, null, null, out var prev1);
+    Check("same state repeated: previous == current, so no history row",
+          prev1 == OtaState.Available
+          && ota.Get(histDev).State == OtaState.Available, "Available -> Available");
+
+    ota.Update(histDev, "updating", 5, null, null, out var prev2);
+    Check("a real transition is visible to the caller",
+          prev2 == OtaState.Available
+          && ota.Get(histDev).State == OtaState.Updating, "Available -> Updating");
+
+    // Versions are per device: two beds updating at once must not have their
+    // version numbers attributed to each other.
+    ota.Update("bedA", "updating", 1, null, null, out _, installedVersion: 1, latestVersion: 2);
+    ota.Update("bedB", "updating", 1, null, null, out _, installedVersion: 7, latestVersion: 9);
+    Check("versions are kept per device, not per server",
+          ota.VersionsFor("bedA") == (1, 2) && ota.VersionsFor("bedB") == (7, 9),
+          $"bedA={ota.VersionsFor("bedA")} bedB={ota.VersionsFor("bedB")}");
+
+    // A version arriving without a partner must not wipe the one already known.
+    ota.Update("bedA", "updating", 2, null, null, out _, installedVersion: null, latestVersion: 2);
+    Check("a missing version does not erase the one already recorded",
+          ota.VersionsFor("bedA") == (1, 2), ota.VersionsFor("bedA").ToString());
 
     // A device removed and re-added must not inherit its previous life.
     ota.Forget(dev);
@@ -242,7 +275,7 @@ Console.WriteLine("\n== Firmware update state ==");
 
     // The gateway sends -1 for "not known"; the ingestion layer turns that into
     // null before it reaches here. Guard the shape the registry actually gets.
-    ota.Update("other", "starting", null, null, "Update requested");
+    ota.Update("other", "starting", null, null, "Update requested", out _);
     Check("Starting counts as in flight, so the button hides immediately",
           ota.Get("other").InFlight, "InFlight=true");
 }

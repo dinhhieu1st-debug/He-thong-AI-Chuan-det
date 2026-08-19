@@ -273,6 +273,13 @@ bool oled_display_show_vitals(oled_display_t *display,
   static uint32_t cause_tick = 0U;
   cause_tick++;
 
+  /* The prescription itself, beside the percentage that is measured against
+   * it. 0 means nothing has been set yet, and prints as "--" rather than as a
+   * confident "0 ml/h" nobody ordered. */
+  char target_text[4];
+  format_reading(target_text, vitals->target_flow_ml_h > 0U,
+                 vitals->target_flow_ml_h);
+
   const char *banner;
   char        counter[8];
   counter[0] = '\0';
@@ -300,8 +307,9 @@ bool oled_display_show_vitals(oled_display_t *display,
   static char last_signature[48];
   char signature[48];
   int len = 0;
-  const char *parts[5] = { hr_text, spo2_text, flow_text, banner, counter };
-  for (uint8_t p = 0U; p < 5U && len < (int)sizeof(signature) - 2; p++) {
+  const char *parts[6] = { hr_text, spo2_text, flow_text, target_text,
+                           banner, counter };
+  for (uint8_t p = 0U; p < 6U && len < (int)sizeof(signature) - 2; p++) {
     for (uint8_t i = 0U; parts[p][i] != '\0' && len < (int)sizeof(signature) - 2; i++) {
       signature[len++] = parts[p][i];
     }
@@ -321,9 +329,17 @@ bool oled_display_show_vitals(oled_display_t *display,
 
   /* Middle: flow against the prescription. Small on purpose — it matters when
    * setting the drip, not when glancing from the doorway. */
-  draw_text(display, 2U, 34U, "FLOW", 1U);
-  draw_text(display, 34U, 34U, flow_text, 1U);
-  draw_text(display, 78U, 34U, "TARGET", 1U);
+  /* One row, four fields, 6 px per character on a 128 px panel:
+   *   FLOW  2..25 | value 32..61 ("2000%" is the widest) | TGT 74..91 |
+   *   value 98..115 (three digits). Nothing overlaps at the extremes.
+   *
+   * "TGT" rather than "TARGET" purely for width - the full word left no room
+   * for the number, which is how it came to be a label with nothing next to
+   * it. */
+  draw_text(display, 2U,  34U, "FLOW", 1U);
+  draw_text(display, 32U, 34U, flow_text, 1U);
+  draw_text(display, 74U, 34U, "TGT", 1U);
+  draw_text(display, 98U, 34U, target_text, 1U);
 
   /* Bottom: one line saying whether anything is wrong, boxed when it is. The
    * box is what makes an alarm visible in peripheral vision; without it a

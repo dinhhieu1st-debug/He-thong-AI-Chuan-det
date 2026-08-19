@@ -224,12 +224,27 @@ public sealed class BedTcpIngestionService : BackgroundService
                 var progress = ReadInt(otaRoot, "progress");
                 var remaining = ReadInt(otaRoot, "remainingSeconds");
 
+                var installed = ReadInt(otaRoot, "installedVersion");
+                var latest = ReadInt(otaRoot, "latestVersion");
+
                 var status = otaRegistry.Update(
                     otaDeviceId!,
                     ReadString(otaRoot, "state"),
                     progress is >= 0 ? progress : null,
                     remaining is >= 0 ? remaining : null,
-                    ReadString(otaRoot, "message"));
+                    ReadString(otaRoot, "message"),
+                    out var previousState,
+                    installed is >= 0 ? installed : null,
+                    latest is >= 0 ? latest : null);
+
+                /* History, only on a real transition. The device republishes
+                 * its OTA state roughly once a second; writing a row for each
+                 * would bury the handful of events a technician cares about
+                 * under thousands that say "still idle". */
+                if (status.State != previousState)
+                {
+                    _ = Task.Run(() => RecordOtaHistoryAsync(otaDeviceId!, status, previousState));
+                }
 
                 _ = Task.Run(() => hub.Clients.Group(MonitoringHub.DeviceGroup)
                                       .OtaStatusChanged(OtaStatusDto.From(status)));
@@ -271,6 +286,68 @@ public sealed class BedTcpIngestionService : BackgroundService
         root.TryGetProperty(name, out var el)
         && el.ValueKind == System.Text.Json.JsonValueKind.Number
         && el.TryGetInt32(out var v) ? v : null;
+
+    /// <summary>
+    /// Writes one line of firmware history.
+    ///
+    /// Only three states are worth a row. "Available" and "up to date" are the
+    /// answer to a question somebody asked, not something that happened to the
+    /// device, and a log where most rows are answers to questions is a log
+    /// nobody reads to the end.
+    /// </summary>
+    private async Task RecordOtaHistoryAsync(string deviceId, OtaStatus status,
+                                             OtaState previousState)
+    {
+        var (installed, latest) = otaRegistry.VersionsFor(deviceId);
+
+        var (type, detail) = status.State switch
+        {
+            OtaState.Starting => (DeviceEventType.FirmwareUpdateStarted,
+                latest is not null
+                    ? $"Bắt đầu cập nhật: v{installed?.ToString() ?? "?"} → v{latest}"
+                    : "Bắt đầu cập nhật firmware"),
+
+            /* The versions here are read BEFORE the device reboots and reports
+             * its new one, so "installed" is still the old image - which is
+             * exactly the number the history needs: what it came from. */
+            OtaState.Done => (DeviceEventType.FirmwareUpdated,
+                latest is not null
+                    ? $"Cập nhật xong: v{installed?.ToString() ?? "?"} → v{latest}"
+                    : "Cập nhật firmware xong"),
+
+            OtaState.Failed => (DeviceEventType.FirmwareUpdateFailed,
+                string.IsNullOrWhiteSpace(status.Message)
+                    ? "Cập nhật thất bại"
+                    : $"Cập nhật thất bại: {status.Message}"),
+
+            _ => (default(DeviceEventType), (string?)null),
+        };
+
+        if (detail is null) return;
+
+        /* A failure that follows nothing is noise: zigbee2mqtt reports "failed"
+         * for a CHECK that timed out as well as for a transfer that broke, and
+         * only the second is firmware history. */
+        if (type == DeviceEventType.FirmwareUpdateFailed
+            && previousState is not (OtaState.Starting or OtaState.Updating))
+        {
+            return;
+        }
+
+        try
+        {
+            var record = await deviceRepository.GetAsync(deviceId);
+            await deviceRepository.AddEventAsync(deviceId, record?.AssignedBedId, type,
+                                                 Truncate(detail, 255));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not record firmware history for {Device}", deviceId);
+        }
+    }
+
+    private static string Truncate(string text, int max) =>
+        text.Length <= max ? text : text[..max];
 
     private async Task AnnounceDeviceAsync(string deviceId, string? friendlyName)
     {

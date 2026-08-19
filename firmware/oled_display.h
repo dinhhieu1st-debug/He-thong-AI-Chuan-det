@@ -73,6 +73,12 @@ typedef struct {
   uint16_t spo2_pct;
   bool     flow_valid;    /* flow channel is CH_OK */
   int16_t  flow_pct;      /* flow as % of the doctor's target, 100 = on target */
+
+  /* The doctor's prescribed rate, ml/h. The row above shows flow as a
+   * PERCENTAGE of this, which is meaningless on its own: "87%" does not tell a
+   * nurse standing at the clamp what the order actually was. The label was
+   * already on screen with nothing beside it. */
+  uint16_t target_flow_ml_h;
   bool     alarm;         /* any alarm reason is active right now */
 
   /* The banner line, decided by ai_fusion and passed through verbatim.

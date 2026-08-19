@@ -202,14 +202,35 @@ nhánh BỆNH NHÂN    = Model 2 báo bất thường  HOẶC  Model 3 báo bấ
 
 | Cấp | Điều kiện | Đèn / còi | Màn hình | Y tá làm gì |
 |---|---|---|---|---|
-| **0 — XANH** | cả hai nhánh im | xanh, không còi | *Monitoring* | không cần làm gì |
-| **1 — VÀNG** | chỉ nhánh đường truyền | vàng, còi chậm 1 giây | *KIỂM TRA DÂY TRUYỀN* | xem dây, buồng giọt, kim |
-| **2 — ĐỎ** | chỉ nhánh bệnh nhân | đỏ, còi nhanh 0,3 giây | *CẢNH BÁO SINH HIỆU* | tới giường ngay |
-| **3 — ĐỎ KHẨN** | **cả hai cùng lúc** | đỏ **+ vàng**, còi rất nhanh 0,15 giây | *NGUY HIỂM: NGHI NGỜ QUÁ TẢI DỊCH* | **ngừng truyền**, gọi bác sĩ |
+| **0 — XANH** | cả hai nhánh im | xanh, không còi | *NORMAL* | không cần làm gì |
+| **1 — VÀNG** | chỉ nhánh đường truyền | vàng, còi chậm 1 giây | *CHECK IV LINE* | xem dây, buồng giọt, kim |
+| **2 — ĐỎ** | chỉ nhánh bệnh nhân | đỏ **đứng yên**, còi nhanh 0,3 giây | *PATIENT ALERT* | tới giường ngay |
+| **3 — ĐỎ KHẨN** | **cả hai cùng lúc** | đỏ **nhấp nháy**, còi rất nhanh 0,15 giây | *DANGER: OVERLOAD* | **ngừng truyền**, gọi bác sĩ |
 
 Cấp 3 không phải "cấp 2 nhưng to hơn". Dịch chảy ồ ạt *cùng lúc* sinh hiệu sụp
 là hình ảnh của **quá tải dịch hoặc phản vệ** — và xử trí đầu tiên là **khoá dây
 truyền**, khác hẳn cấp 2. Vì vậy nó có mã riêng, màu riêng, nhịp còi riêng.
+
+### Mỗi lúc chỉ MỘT đèn sáng
+
+Cấp 3 trước đây bật **đỏ và vàng cùng lúc**. Hai đèn sáng một lúc, nhìn từ xa
+đọc thành *"đang có hai sự cố riêng biệt"*, và trên bảng đèn thật thì phần lớn
+chỉ trông như hỏng đèn. Nay cấp 3 dùng **đèn đỏ nhấp nháy** — vẫn một đèn, vẫn
+phân biệt được với cấp 2 (đỏ đứng yên), và nhịp còi vốn đã khác nhau sẵn.
+
+Chỉ **một** cấp duy nhất nhấp nháy. Một khoa mà nhiều đèn cùng nhấp nháy là một
+khoa không ai còn đọc đèn nữa.
+
+### Tự kiểm tra lúc khởi động
+
+Mỗi lần bật nguồn, thiết bị lần lượt sáng **xanh → vàng → đỏ**, rồi **kêu một
+tiếng ngắn**. Mất chưa tới một giây, và trả lời một câu hỏi mà ngồi nhìn thì
+không trả lời được: *bộ báo động có còn hoạt động không, hay giường này chỉ đơn
+giản là chưa có gì để báo?*
+
+Một cái còi hỏng và một ca trực yên bình trông **giống hệt nhau** cho tới đúng
+lúc cần phân biệt. Không nghe tiếng nào hoặc thiếu một đèn nghĩa là **đấu dây**,
+không phải phần mềm quyết định báo động.
 
 ### Màu đỏ dành riêng cho bệnh nhân
 

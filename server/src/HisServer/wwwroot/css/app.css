@@ -900,3 +900,11 @@ body.no-scroll { overflow: hidden; }
 }
 
 .ota-actions { margin-top: 8px; gap: 6px; }
+
+/* Sự kiện firmware trong nhật ký thiết bị: nổi lên giữa một danh sách phần lớn
+   là join/fault, vì sau một lần cập nhật hỏng thì đây là dòng người ta tìm. */
+.device-event-fw {
+  background: #eef4ff;
+  border-left: 3px solid #2f6fed;
+  padding-left: 6px;
+}

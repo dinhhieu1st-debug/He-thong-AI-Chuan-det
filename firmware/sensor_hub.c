@@ -1002,11 +1002,44 @@ static void alert_init(void)
   GPIO_PinModeSet(LED_RED_PORT,    LED_RED_PIN,    gpioModePushPull, 0);
   GPIO_PinModeSet(BUZZER_PORT,     BUZZER_PIN_NUM, gpioModePushPull, 0);
 
-  /* Start from a known-quiet state: green on (nothing wrong yet), buzzer off. */
-  alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,  true);
+  /* --- Alarm self-test ---------------------------------------------------
+   *
+   * Each lamp in turn, then a short beep. It costs under a second at boot and
+   * answers a question that cannot otherwise be answered from a chair: is the
+   * annunciator working, or has this bed simply had nothing to alarm about?
+   * A silent alarm and a working-but-quiet ward look identical until the
+   * moment it matters.
+   *
+   * A blocking loop is acceptable HERE and nowhere else in this file: it runs
+   * once, before the Zigbee stack is serving and before the drop sensor has
+   * anything to miss. */
+  alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,  false);
   alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN, false);
   alert_pin_write(LED_RED_PORT,    LED_RED_PIN,    false);
   alert_pin_write(BUZZER_PORT,     BUZZER_PIN_NUM, false);
+
+  printf("[ALERT] Self-test: green, yellow, red, buzzer...\r\n");
+
+  const struct { GPIO_Port_TypeDef port; unsigned int pin; } lamps[3] = {
+    { LED_GREEN_PORT,  LED_GREEN_PIN  },
+    { LED_YELLOW_PORT, LED_YELLOW_PIN },
+    { LED_RED_PORT,    LED_RED_PIN    },
+  };
+  for (uint8_t i = 0; i < 3U; i++) {
+    alert_pin_write(lamps[i].port, lamps[i].pin, true);
+    sl_udelay_wait(200000U);                  /* 200 ms */
+    alert_pin_write(lamps[i].port, lamps[i].pin, false);
+  }
+
+  alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, true);
+  sl_udelay_wait(200000U);
+  alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+
+  printf("[ALERT] Self-test done. No beep or no lamp here means WIRING, "
+         "not the alarm logic.\r\n");
+
+  /* Settle into the quiet state: green on, nothing wrong yet. */
+  alert_pin_write(LED_GREEN_PORT, LED_GREEN_PIN, true);
 }
 
 void sh_alert_set_level(alert_level_t level)
@@ -1021,13 +1054,21 @@ void sh_alert_set_level(alert_level_t level)
   buzzer_last_toggle = now_ms();
   buzzer_on = (level != ALERT_LEVEL_NORMAL);
 
-  /* CRITICAL lights RED and YELLOW together - the only combination the three
-   * LEDs can show that is unambiguous at a glance from across the room. */
+  /* EXACTLY ONE lamp is lit at a time.
+   *
+   * CRITICAL used to light RED and YELLOW together. Two lamps on at once reads
+   * as "two separate faults" from across the room, and on this hardware it
+   * mostly just looks like the panel is broken. So critical shows RED, and is
+   * told apart from a patient alert by BLINKING it - handled in alert_poll(),
+   * in step with the buzzer.
+   *
+   * Nothing is lost: red steady means the patient, red flashing means the
+   * patient AND the line, and the buzzer cadence already differs between the
+   * two. */
   alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,
                   level == ALERT_LEVEL_NORMAL);
   alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN,
-                  level == ALERT_LEVEL_LINE_WARNING
-                  || level == ALERT_LEVEL_CRITICAL);
+                  level == ALERT_LEVEL_LINE_WARNING);
   alert_pin_write(LED_RED_PORT,    LED_RED_PIN,
                   level == ALERT_LEVEL_VITALS_ALERT
                   || level == ALERT_LEVEL_CRITICAL);
@@ -1071,6 +1112,14 @@ static void alert_poll(void)
     buzzer_last_toggle = now;
     buzzer_on = !buzzer_on;
     alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, buzzer_on);
+
+    /* Critical is the one level that flashes its lamp, so that it needs only
+     * one lamp to be distinguishable from a patient alert. Every other level
+     * holds its lamp steady - a ward where several lamps blink is a ward where
+     * nobody reads any of them. */
+    if (alert_level == ALERT_LEVEL_CRITICAL) {
+      alert_pin_write(LED_RED_PORT, LED_RED_PIN, buzzer_on);
+    }
   }
 }
 

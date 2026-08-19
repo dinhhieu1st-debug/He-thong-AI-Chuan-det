@@ -40,11 +40,12 @@ tải lại trang giữa lúc đang nạp vẫn thấy đúng — và **không**
 | **Kỹ thuật viên** (`kythuat`) | Bấm *Kiểm tra bản mới*, bấm *Cập nhật*, theo dõi tiến độ | quyền `ManageDevices`; đây là người chịu trách nhiệm về thiết bị |
 | **Y tá** (`yta`) | **Không thấy và không gọi được** các API OTA | y tá lo bệnh nhân; một cú bấm nhầm làm máy đầu giường mất theo dõi vài phút |
 | **Quản trị** (`admin`) | Như kỹ thuật viên | |
-| **Người dựng bản phát hành** (mục 4) | Build firmware, tạo file `.ota`, đưa vào index trên Pi | việc này **không** làm qua giao diện web — cần cầm máy build và quyền ssh vào Pi |
+| **Người dựng bản phát hành** (mục 4) | Build firmware, tạo file `.ota` | cần máy có SDK; **không** cần ssh vào Pi nữa — file tải lên qua web |
 
-Ranh giới quan trọng: **giao diện chỉ chọn “nạp bản đã được duyệt”, không chọn
-“nạp file nào”.** Người dùng web không thể trỏ thiết bị vào một file firmware
-tuỳ ý. Muốn có bản mới thì phải qua mục 4, có kiểm tra mã nhà sản xuất.
+Kỹ thuật viên **tải file `.ota` lên** qua trang web (mục 3), nhưng không chọn
+được file tuỳ ý cho một thiết bị: server đọc **header của chính file** để biết nó
+dành cho loại thiết bị nào, và z2m chỉ chào ảnh có mã nhà sản xuất trùng. Chọn
+nhầm file `.gbl` hay `.s37` thì bị từ chối ngay lúc tải lên.
 
 ---
 
@@ -73,6 +74,34 @@ tuỳ ý. Muốn có bản mới thì phải qua mục 4, có kiểm tra mã nh�
 > **Chọn giờ mà làm.** Nạp firmware là cắt theo dõi của một giường đang truyền
 > dịch trong vài phút. Đừng làm khi giường đó đang có cảnh báo.
 
+### Kho firmware
+
+Ở đầu trang Devices có khối **Kho firmware (OTA)**: chọn file `.ota` → **Tải
+lên**. Bảng bên dưới hiện mọi ảnh đang được chào, kèm **mã nhà sản xuất đọc từ
+chính file** (mã lạ thì tô đỏ) và số phiên bản.
+
+Server đọc header trước khi nhận: chọn nhầm file `.gbl`/`.s37` nằm cùng thư mục
+build thì bị từ chối kèm đúng lý do, chứ không nhận rồi hỏng lúc nạp.
+
+zigbee2mqtt lấy index **trực tiếp từ server** qua HTTP, nên tải lên xong là dùng
+được ngay — không phải ssh, không phải sửa JSON bằng tay.
+
+### Lịch sử cập nhật
+
+Bấm vào một thiết bị → khối **Device log** ghi lại, có tô màu riêng:
+
+| Dòng | Khi nào |
+|---|---|
+| Bắt đầu cập nhật firmware: v1 → v2 | vừa bấm Cập nhật |
+| Đã cập nhật firmware: v1 → v2 | nạp xong |
+| Cập nhật firmware thất bại: *lý do* | hỏng giữa chừng |
+
+**Ghi cả lần hỏng là chủ ý.** Một thiết bị phải thử ba lần mới lên được là một
+thiết bị đáng ngờ; chỉ ghi lần thành công thì ba lần kia biến mất khỏi hồ sơ.
+
+Chỉ ghi khi trạng thái **thật sự đổi** — thiết bị phát lại trạng thái OTA mỗi
+giây, ghi hết thì ba dòng đáng đọc chìm dưới hàng nghìn dòng "vẫn đang rảnh".
+
 ### Những gì giao diện cố tình không cho làm
 
 | Tình huống | Giao diện | Lý do |
@@ -86,7 +115,7 @@ nếu thiết bị đang nạp dở, **503** nếu không gateway nào đang k�
 
 ---
 
-## 4. Phát hành một bản cập nhật (người build làm, không qua web)
+## 4. Phát hành một bản cập nhật
 
 ### 4.1. Điều kiện thiết bị — đã xong, ghi lại để biết vì sao
 
@@ -96,6 +125,7 @@ Thiết bị chỉ nhận OTA khi có **cả ba**:
 2. các component OTA trong `smart-iv-monitor.slcp`:
    `zigbee_ota_client`, `zigbee_ota_client_policy`, `zigbee_ota_storage_simple`,
    `zigbee_ota_storage_simple_eeprom`, `bootloader_app_properties`,
+   **`slot_manager`**,
 3. **cluster OTA khai trong ZAP** — endpoint 1, cluster `25 (0x0019)`, phía
    *client*.
 
@@ -119,6 +149,46 @@ con số này mỗi khi đổi `NVM3_DEFAULT_NVM_SIZE` hoặc `SLOT0_SIZE`.
 Vì ứng dụng phải dời lên trên bootloader nên **lần đầu bắt buộc nạp qua dây**.
 Từ lần sau mới OTA được.
 
+#### Chỗ chứa ảnh tải về — hai thứ phải đi cùng nhau
+
+`config/ota-storage-simple-eeprom-config.h` phải đặt:
+
+```c
+#define SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_GECKO_BOOTLOADER_STORAGE_SUPPORT   USE_FIRST_SLOT
+```
+
+**và** `.slcp` phải có component `slot_manager`. Thiếu một trong hai là hỏng, và
+hỏng theo kiểu khó tìm:
+
+- Để mặc định `DO_NOT_USE_SLOTS` → client bỏ qua slot 1,58 MB, dùng cửa sổ
+  `STORAGE_START..STORAGE_END` mặc định **256 KB**.
+- Thiếu `slot_manager` → đoạn code tính kích thước từ slot **bị loại khỏi bản
+  build**, nên đặt đúng cấu hình thôi vẫn chưa đủ.
+
+Ảnh của dự án này 430 KB, nên hậu quả là thiết bị từ chối mọi lời chào:
+
+```
+ERROR: Next Image is too big to store (0x0006927E > 0x0003F800)
+```
+
+Còn z2m chỉ báo *"did not start/finish firmware download after being notified"* —
+mô tả triệu chứng và giấu nguyên nhân. **Phải đọc log serial của chip mới ra.**
+
+> ### ⚠ XOÁ SLOT TRƯỚC KHI BẬT, trên board đã từng thử OTA
+>
+> Chuyện đã xảy ra và mất firmware AI một lần: slot 0 **đã có sẵn một ảnh GBL
+> hoàn chỉnh** từ lần thử OTA trước đó. Chừng nào còn `DO_NOT_USE_SLOTS` thì
+> không ai đụng tới nó; **đúng lúc** chuyển sang dùng slot, OTA client thấy một
+> ảnh đầy đủ nằm sẵn, coi như vừa tải xong, và bảo bootloader **cài đặt nó** —
+> thiết bị khởi động lên chạy một firmware hoàn toàn khác.
+>
+> ```bash
+> C=~/.silabs/slt/installs/archive/commander/commander
+> $C readmem --range 0x8190000:+16          # EB 17 A6 03 = có ảnh nằm sẵn
+> $C device pageerase --range 0x8190000:0x8314000
+> $C flash <firmware đúng>.s37              # xoá TRƯỚC, nạp SAU
+> ```
+
 ### 4.2. Tăng số phiên bản — **bắt buộc**
 
 `config/ota-client-policy-config.h`:
@@ -127,9 +197,21 @@ Từ lần sau mới OTA được.
 #define SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_POLICY_FIRMWARE_VERSION   1   // tăng lên 2, 3, …
 ```
 
-z2m chỉ chào ảnh có `fileVersion` **lớn hơn** phiên bản thiết bị đang chạy. Quên
-tăng thì mọi thứ chạy đúng và kết quả là *“Đang ở bản mới nhất”* — không có lỗi
-nào để mà tìm.
+**Là SỐ PHIÊN BẢN, không phải kích thước file.** Câu hỏi hay gặp: *"file OTA bản
+mới 90 KB mà bản đang chạy 100 KB thì có cập nhật được không?"* — **được**. z2m
+so đúng một con số duy nhất:
+
+```
+fileVersion trong header của file   >   phiên bản chip đang chạy   →  chào bản mới
+```
+
+Kích thước, ngày tháng, tên file: **không cái nào được xét**. Một bản vá làm
+firmware nhỏ đi vẫn cập nhật bình thường, miễn số phiên bản lớn hơn. Ngược lại,
+một file to gấp đôi nhưng khai `fileVersion` bằng hoặc nhỏ hơn thì thiết bị lịch
+sự từ chối và z2m báo *"đang ở bản mới nhất"*.
+
+Quên tăng thì mọi thứ chạy đúng và kết quả là *"Đang ở bản mới nhất"* — không có
+lỗi nào để mà tìm.
 
 ### 4.3. Build và tạo file `.ota`
 
@@ -176,44 +258,46 @@ Phải ra `magic=0xbeef11e`, `mfg=4169`, và `fileVersion` đúng số mới.
 > tên `xg24_*` nhưng ruột là ảnh **xG26** mã 4169, tức trùng mã máy đầu giường.
 > Đưa nhầm chúng vào index là **ghi đè firmware AI bằng app thử nghiệm**.
 
-### 4.5. Đưa lên Pi
+### 4.5. Đưa lên hệ thống
 
-```bash
-scp smart_iv_v2.ota iotchallenge@raspberrypi.local:~/zigbee2mqtt/data/ota/
+Vào trang kỹ thuật → **Kho firmware (OTA)** → chọn file → **Tải lên**. Xong.
 
-ssh iotchallenge@raspberrypi.local
-cat > ~/zigbee2mqtt/data/smart_iv_ota_index.json <<'JSON'
-[
-  {
-    "url": "ota/smart_iv_v2.ota",
-    "manufacturerCode": 4169,
-    "imageType": 0,
-    "fileVersion": 2
-  }
-]
-JSON
-sudo systemctl restart zigbee2mqtt
+Không còn bước `scp` lên Pi và sửa `smart_iv_ota_index.json` bằng tay: server
+lưu ảnh, **tự sinh index từ header của từng file**, và z2m đọc index đó qua HTTP.
+Index sinh ra thì không thể mâu thuẫn với file nó trỏ tới — đúng lỗi của
+`xg24_ota_index.json` bên nhánh kia (khai mã 4098 mà trỏ vào file mã 4169).
+
+Cấu hình một lần trên Pi, trong `~/zigbee2mqtt/data/configuration.yaml`:
+
+```yaml
+ota:
+  zigbee_ota_override_index_location: http://<tên-máy-chủ>.local:5100/api/ota/index.json
+  image_block_response_delay: 50
+  default_maximum_data_size: 63
 ```
 
-Nhớ cập nhật cả `gateway/ota/smart_iv_ota_index.json` trong repo cho khớp — repo
-là nguồn sự thật, Pi chỉ là bản triển khai.
+Hai endpoint `index.json` và tải ảnh để **anonymous**, vì z2m không có tài khoản
+đăng nhập. Tải lên và xoá thì **không** — bỏ được file vào kho là chọn được thứ
+chạy trên máy đầu giường.
 
 ### 4.6. Rồi mới tới lượt kỹ thuật viên
 
 Vào trang Devices, bấm **Kiểm tra bản mới** → phải thấy **Có bản cập nhật** →
 bấm **Cập nhật** (mục 3).
 
-### 4.7. Nếu thiết bị vừa được nạp lại qua dây
+### 4.7. Sau khi nạp lại chip qua dây
 
-z2m **nhớ đệm** danh sách cluster từ lần phỏng vấn trước. Firmware mới có thêm
-cluster OTA nhưng z2m vẫn tưởng không có, cho tới khi phỏng vấn lại:
+Hai chuyện phải làm/biết:
+
+**a) Bảo z2m phỏng vấn lại.** z2m **nhớ đệm** danh sách cluster. Firmware mới có
+thêm cluster OTA nhưng z2m vẫn tưởng không có, cho tới khi:
 
 ```bash
 mosquitto_pub -h localhost -t 'zigbee2mqtt/bridge/request/device/interview' \
   -m '{"id":"0x64028ffffe641802"}'
 ```
 
-Kiểm tra đã thấy chưa:
+Kiểm tra đã thấy chưa — phải ra `ep 1 ... out [25]`:
 
 ```bash
 grep '0x64028ffffe641802' ~/zigbee2mqtt/data/database.db | python3 -c "
@@ -223,9 +307,26 @@ for ep,v in d['endpoints'].items():
     print('ep',ep,'in',v.get('inClusterList'),'out',v.get('outClusterList'))"
 ```
 
-Phải thấy `ep 1 ... out [25]`.
+**b) Đợi qua khoảng im lặng đầu tiên.** Sau **mỗi lần khởi động**, OTA client
+chờ một khoảng **ngẫu nhiên 0–255 giây** rồi mới bắt đầu chạy. Trong lúc đó thiết
+bị **không đáp bất kỳ lệnh OTA nào**, và z2m chỉ báo:
 
----
+```
+Failed to check if OTA update available (Device didn't respond to OTA request)
+```
+
+— đọc y như thiết bị hỏng. Chip có in ra `Delaying 216 seconds before starting
+OTA client`, nhưng chỉ trên serial.
+
+Con số này **cố định trong SDK** (`MAXIMUM_RANDOM_DELAY_SECONDS_MASK = 0x00FF`
+trong `ota-client.c`), **không chỉnh được** qua config. Đừng nhầm nó với
+`QUERY_DELAY_MINUTES` — tham số đó chỉ quy định *khi đã chạy rồi thì bao lâu hỏi
+server một lần*.
+
+**Quy tắc thực dụng: nạp dây xong thì đợi ~5 phút rồi mới bấm Kiểm tra.**
+
+Khoảng chờ này bản thân nó hợp lý — nó tồn tại để cả một khoa thiết bị bật lại
+sau khi mất điện không cùng lúc đập vào server.
 
 ## 5. Cấu hình z2m trên Pi
 
@@ -247,15 +348,17 @@ lớn hơn, và OTA sẽ **đứng im không báo lỗi**.
 
 | Hiện tượng | Nguyên nhân thường gặp |
 |---|---|
-| *“No endpoint found with OTA cluster support”* | firmware thiếu cluster OTA trong ZAP, **hoặc** z2m còn đệm bản phỏng vấn cũ → mục 4.7 |
-| Luôn báo *“Đang ở bản mới nhất”* dù đã có file | quên tăng `FIRMWARE_VERSION` (4.2), hoặc `fileVersion` trong index không lớn hơn bản đang chạy |
-| Bấm Cập nhật trả **503** | không gateway nào đang kết nối → xem `docs/TRIEN_KHAI_PI.md` mục 5.1 |
-| Bấm Cập nhật trả **409** | thiết bị đang nạp dở — đúng như thiết kế, đợi cho xong |
+| *“No endpoint found with OTA cluster support”* | firmware thiếu cluster OTA trong ZAP, **hoặc** z2m còn đệm bản phỏng vấn cũ → mục 4.7a |
+| *“Device didn't respond to OTA request”* | đang trong khoảng im lặng 0–255 giây sau khởi động → mục 4.7b. Đợi ~5 phút |
+| *“did not start/finish firmware download”* | chỗ chứa ảnh quá nhỏ. Đọc serial của chip, tìm dòng `Next Image is too big to store` → mục 4.1 |
+| Luôn báo *“Đang ở bản mới nhất”* dù đã có file | quên tăng `FIRMWARE_VERSION` (4.2). **Không liên quan kích thước file** |
+| *“OTA update or check for update already in progress”* | bấm Cập nhật khi lệnh Kiểm tra chưa xong. Kiểm tra mất tới 60 giây — đợi trạng thái đổi rồi hãy bấm |
+| Bấm Cập nhật trả **503** | không gateway nào đang kết nối → `docs/TRIEN_KHAI_PI.md` mục 5.1 |
+| Bấm Cập nhật trả **409** | thiết bị đang nạp dở — đúng thiết kế, đợi cho xong |
 | Tiến độ chạy rồi đứng im | `default_maximum_data_size` lớn hơn 63 |
+| Nạp xong khởi động vào **firmware lạ** | slot còn ảnh cũ của người khác → khung cảnh báo ở mục 4.1 |
 | Nạp xong thiết bị không vào lại mạng | slot tải ảnh đè lên NVM3 → kiểm bảng địa chỉ ở 4.1 |
 | Boot log có `sl_zigbee_af_ota_storage_driver_read_cb() failed!` | bình thường khi slot còn trống, chưa từng tải ảnh nào |
-
----
 
 ## 7. Kiểm thử
 

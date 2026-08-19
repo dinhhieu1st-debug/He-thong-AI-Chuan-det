@@ -61,7 +61,15 @@ public enum DeviceEventType
     SensorFault,
     Offline,
     FaultReported,
-    FaultResolved
+    FaultResolved,
+
+    /* Firmware updates. Kept in the same log as everything else that has
+     * happened to a device, so reconstructing an incident needs one list, not
+     * two. The failures are recorded as well as the successes - a device that
+     * needed three attempts is worth knowing about. */
+    FirmwareUpdateStarted,
+    FirmwareUpdated,
+    FirmwareUpdateFailed
 }
 
 public sealed class DeviceEvent

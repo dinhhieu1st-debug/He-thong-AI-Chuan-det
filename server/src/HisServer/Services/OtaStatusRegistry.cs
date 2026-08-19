@@ -24,10 +24,32 @@ public sealed class OtaStatusRegistry
     /// <summary>
     /// Records what the gateway reported. Returns the stored status.
     /// </summary>
+    /// <summary>
+    /// Records what the gateway reported, and reports back what CHANGED.
+    /// </summary>
+    /// <param name="previousState">
+    /// The state this device was in before this message. The caller uses it to
+    /// write a history entry only on a real transition - the device republishes
+    /// its state about once a second, and logging every message would bury the
+    /// three events that matter under thousands that do not.
+    /// </param>
     public OtaStatus Update(string deviceId, string? rawState, int? progress,
-                            int? remainingSeconds, string? message)
+                            int? remainingSeconds, string? message,
+                            out OtaState previousState,
+                            int? installedVersion = null, int? latestVersion = null)
     {
         var state = OtaStatus.ParseState(rawState);
+        previousState = statuses.TryGetValue(deviceId, out var existing)
+            ? existing.State
+            : OtaState.Unknown;
+
+        if (installedVersion is not null || latestVersion is not null)
+        {
+            versions.AddOrUpdate(deviceId,
+                _ => (installedVersion, latestVersion),
+                (_, old) => (installedVersion ?? old.Installed,
+                             latestVersion ?? old.Latest));
+        }
 
         return statuses.AddOrUpdate(
             deviceId,
@@ -53,6 +75,19 @@ public sealed class OtaStatusRegistry
                     DateTime.UtcNow);
             });
     }
+
+    /* Last versions seen from each device, so a "finished" event can say what
+     * it went from and to. Per device, not one pair for the whole server: with
+     * two beds updating, a single pair would attribute one device's versions to
+     * the other, and a firmware history that lies is worse than none.
+     *
+     * zigbee2mqtt reports these alongside the state, but not in the message
+     * announcing completion - by then it has already moved on. */
+    private readonly ConcurrentDictionary<string, (int? Installed, int? Latest)> versions =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public (int? Installed, int? Latest) VersionsFor(string deviceId) =>
+        versions.TryGetValue(deviceId, out var v) ? v : (null, null);
 
     /// <summary>
     /// Forgets a device, so a removed-and-re-added device does not inherit the
