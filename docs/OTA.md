@@ -174,6 +174,24 @@ ERROR: Next Image is too big to store (0x0006927E > 0x0003F800)
 Còn z2m chỉ báo *"did not start/finish firmware download after being notified"* —
 mô tả triệu chứng và giấu nguyên nhân. **Phải đọc log serial của chip mới ra.**
 
+#### Slot tự dọn sau mỗi lần cập nhật
+
+Cài xong, ảnh vừa nạp **vẫn nằm nguyên trong slot**. Firmware tự xoá nó ở lần
+khởi động ngay sau đó (`ota_slot_housekeeping()` trong `firmware/app.c`), mất
+khoảng **2,4 giây đo trên board thật**:
+
+```
+[OTA] Slot still holds an image, erasing (a few seconds)...
+[OTA] Slot erase done
+```
+
+Chỉ chạy đúng một lần sau mỗi lần cập nhật — những lần khởi động sau thấy slot
+đã trống thì bỏ qua. Làm lúc khởi động chứ không phải trước khi tải, vì trước
+khi tải thì mấy giây đó cộng thẳng vào thời gian kỹ thuật viên đang ngồi nhìn.
+
+Việc này giữ cho slot **không bao giờ còn ảnh cũ nằm lại** — chính thứ đã gây ra
+sự cố ở khung dưới đây.
+
 > ### ⚠ XOÁ SLOT TRƯỚC KHI BẬT, trên board đã từng thử OTA
 >
 > Chuyện đã xảy ra và mất firmware AI một lần: slot 0 **đã có sẵn một ảnh GBL
@@ -364,13 +382,43 @@ lớn hơn, và OTA sẽ **đứng im không báo lỗi**.
 
 ```bash
 node tools/ota_render_check.js                      # 12 phép thử giao diện
-dotnet run --project server/tests/EvaluatorTests    # gồm 11 phép thử OTA
+dotnet run --project server/tests/EvaluatorTests    # gồm phần OTA + lịch sử
+cc -I firmware -o /tmp/oled_test tools/oled_test.c firmware/oled_display.c \
+   && /tmp/oled_test                                # màn hình đầu giường
 ```
 
 Các phép thử giao diện dựng thẳng HTML của thẻ thiết bị từ `devices.js`, nên
 chúng bắt được đúng thứ nguy hiểm nhất: nút Cập nhật xuất hiện trong lúc đang nạp.
 
-Đã kiểm chứng trên phần cứng thật: sau khi nạp bootloader + firmware có OTA
-client, thiết bị **giữ nguyên token và tự vào lại mạng**, ba model AI và màn hình
-OLED vẫn chạy, và lệnh Kiểm tra từ trang kỹ thuật trả về **`UpToDate`** thay vì
-báo lỗi. Chưa thực hiện một lần truyền ảnh thật, vì index đang cố ý để rỗng.
+---
+
+## 8. Đã chạy thật đến đâu
+
+Một lần cập nhật từ xa trọn vẹn, đo trên phần cứng thật (v2 → v4):
+
+| Mốc | Thời điểm |
+|---|---|
+| Bắt đầu tải | 0 s |
+| Tải xong 100% | **862 s** (~14 phút, ảnh 436 KB) |
+| Xác minh GBL xong | +54 s |
+| Đếm ngược rồi tự khởi động lại | +15 s |
+| Chạy lại đầy đủ ở bản mới | **+5 s** |
+
+```
+GBL passed verification.
+Custom verification passed: 0x00
+Countdown to upgrade: 3000 ms
+Reset info: 0x06 ( SW)
+=== Smart IV - AI module ready (firmware v4) ===
+[OTA] Slot still holds an image, erasing (a few seconds)...
+[OTA] Slot erase done
+```
+
+**Thiết bị tự khởi động lại và tự chạy lại — không phải rút nguồn.** Nếu phải rút
+nguồn thì đó là sự cố, không phải hành vi bình thường.
+
+Một lần thử trước đó (v3) thất bại với `INVALID_IMAGE` sau khi tải đủ 100%: chip
+tự kiểm ảnh, thấy hỏng, **từ chối cài và giữ nguyên firmware đang chạy** — đúng
+hành vi an toàn cần có. Nguyên nhân lần đó **chưa xác định được**; lần chạy ngay
+sau với gần như cùng mã nguồn thì qua sạch, nên chưa tái hiện được. Nếu gặp lại:
+**đọc slot trước khi xoá** (`readmem --range 0x8190000:+64`) để giữ bằng chứng.

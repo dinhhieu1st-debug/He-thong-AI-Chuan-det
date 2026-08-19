@@ -257,16 +257,33 @@ Console.WriteLine("\n== Firmware update state ==");
 
     // Versions are per device: two beds updating at once must not have their
     // version numbers attributed to each other.
-    ota.Update("bedA", "updating", 1, null, null, out _, installedVersion: 1, latestVersion: 2);
-    ota.Update("bedB", "updating", 1, null, null, out _, installedVersion: 7, latestVersion: 9);
+    // Recorded while idle - see the freeze rule below for why the state matters.
+    ota.Update("bedA", "available", null, null, null, out _, installedVersion: 1, latestVersion: 2);
+    ota.Update("bedB", "available", null, null, null, out _, installedVersion: 7, latestVersion: 9);
     Check("versions are kept per device, not per server",
           ota.VersionsFor("bedA") == (1, 2) && ota.VersionsFor("bedB") == (7, 9),
           $"bedA={ota.VersionsFor("bedA")} bedB={ota.VersionsFor("bedB")}");
 
     // A version arriving without a partner must not wipe the one already known.
-    ota.Update("bedA", "updating", 2, null, null, out _, installedVersion: null, latestVersion: 2);
+    ota.Update("bedA", "available", null, null, null, out _, installedVersion: null, latestVersion: 2);
     Check("a missing version does not erase the one already recorded",
           ota.VersionsFor("bedA") == (1, 2), ota.VersionsFor("bedA").ToString());
+
+    // The version a device came FROM must survive the update that changes it.
+    // Without this the history reads "v4 -> v4", because by the time the
+    // gateway reports "done" the device has rebooted and announces the new
+    // number - and the one fact the row exists to record is gone.
+    ota.Update("bedC", "available", null, null, null, out _, installedVersion: 2, latestVersion: 4);
+    ota.Update("bedC", "updating", 50, null, null, out _, installedVersion: 2, latestVersion: 4);
+    ota.Update("bedC", "done", 100, 0, null, out _, installedVersion: 4, latestVersion: 4);
+    Check("the version updated FROM survives until the update is over",
+          ota.VersionsFor("bedC") == (2, 4), ota.VersionsFor("bedC").ToString());
+
+    // ...and a later idle report does refresh it, or the device would look
+    // stuck on its old firmware forever.
+    ota.Update("bedC", "idle", null, null, null, out _, installedVersion: 4, latestVersion: 4);
+    Check("once idle again, the running version is believed",
+          ota.VersionsFor("bedC") == (4, 4), ota.VersionsFor("bedC").ToString());
 
     // A device removed and re-added must not inherit its previous life.
     ota.Forget(dev);

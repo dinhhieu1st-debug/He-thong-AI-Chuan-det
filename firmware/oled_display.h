@@ -71,14 +71,20 @@ typedef struct {
   uint16_t hr_bpm;
   bool     spo2_valid;    /* SpO2 channel is CH_OK */
   uint16_t spo2_pct;
-  bool     flow_valid;    /* flow channel is CH_OK */
-  int16_t  flow_pct;      /* flow as % of the doctor's target, 100 = on target */
+  /* Drops per minute, and the doctor's order to compare it against.
+   *
+   * This row used to show FLOW as a percentage of target. Two problems with
+   * that at a bedside: a percentage hides the quantity a nurse actually works
+   * in - drops per minute is what the roller clamp is set by, and what they
+   * count against a watch to check the device - and the ward console had
+   * already dropped its own flow-vs-target card for the same reason.
+   *
+   * Both numbers, both in the same unit, so the comparison needs no arithmetic
+   * from someone standing in a dim room at 3am. */
+  bool     drops_valid;   /* drop sensor has a usable rate */
+  uint16_t drops_per_min;
+  uint16_t target_drops_per_min;
 
-  /* The doctor's prescribed rate, ml/h. The row above shows flow as a
-   * PERCENTAGE of this, which is meaningless on its own: "87%" does not tell a
-   * nurse standing at the clamp what the order actually was. The label was
-   * already on screen with nothing beside it. */
-  uint16_t target_flow_ml_h;
   bool     alarm;         /* any alarm reason is active right now */
 
   /* The banner line, decided by ai_fusion and passed through verbatim.

@@ -33,6 +33,9 @@
  * source of truth for which firmware this is. */
 #include "ota-client-policy-config.h"
 
+/* For clearing the OTA download slot - see ota_slot_housekeeping(). */
+#include "btl_interface.h"
+
 #define AI_PERIOD_MS    1000U   // AI run period (1 second)
 #define HR_CALIB_MS    60000U   // first 60s: calibrate the per-patient HR baseline
 
@@ -627,9 +630,9 @@ static void oled_update(const fusion_result_t *f,
     .hr_bpm     = (uint16_t)(hr   < 0 ? 0 : hr),
     .spo2_valid = spo2_ok,
     .spo2_pct   = (uint16_t)(spo2 < 0 ? 0 : spo2),
-    .flow_valid = (sh_flow_state() == CH_OK),
-    .flow_pct   = (int16_t)flow_pct,
-    .target_flow_ml_h = (uint16_t)(sh_target_flow_ml_h() + 0.5f),
+    .drops_valid   = (sh_drops_state() == CH_OK),
+    .drops_per_min = (uint16_t)(sh_drops_per_min() + 0.5f),
+    .target_drops_per_min = (uint16_t)(sh_target_drops_per_min() + 0.5f),
     /* Exactly the level ai_fusion decided, and exactly the message it chose.
      * The screen, the serial log, the Zigbee bitmap and the ward console all
      * read these two fields, so they cannot tell a nurse different stories
@@ -653,10 +656,57 @@ static void oled_update(const fusion_result_t *f,
 }
 
 /* ================= CALLED ONCE AT STARTUP ================= */
+
+/* Leaves the OTA download slot empty for the NEXT update.
+ *
+ * The second remote update in a row failed, every time, with INVALID_IMAGE:
+ * the image downloaded to 100%, the device verified it, rejected it, and
+ * correctly stayed on the firmware it had. The first update had always worked.
+ *
+ * The difference was the slot. The first time it was blank - erased by hand
+ * over the wire. The second time it still held the previous image, and the
+ * page-erase bookkeeping the storage driver keeps in the first bytes of that
+ * slot was left over from the download before, so pages that still held old
+ * data were treated as already erased. Flash bits only go 1 -> 0 without an
+ * erase, so the new image was written into the old one and came out corrupt.
+ *
+ * Clearing it here, at boot, means the slot is always blank before an update
+ * starts. This runs exactly once after each update: the boot that follows an
+ * install finds a full slot and erases it, and every boot after that finds it
+ * already blank and does nothing. So the cost - about four seconds of blocking
+ * erase for 1.5 MB - is paid once per update, at a moment when nothing is
+ * being monitored yet, rather than on every boot.
+ *
+ * Doing it at boot rather than before a download is deliberate. Before a
+ * download it would add those seconds to a transfer a technician is watching,
+ * and it would be racing the very bookkeeping it is trying to reset. */
+static void ota_slot_housekeeping(void)
+{
+  uint32_t first_word = 0xFFFFFFFFU;
+
+  if (bootloader_readStorage(0U, 0U, (uint8_t *)&first_word,
+                             sizeof(first_word)) != BOOTLOADER_OK) {
+    /* No slot, or no bootloader underneath us. Not fatal: it only means OTA
+     * will not work, and the bedside monitoring this firmware exists for is
+     * unaffected. */
+    printf("[OTA] Slot not readable - remote update unavailable\r\n");
+    return;
+  }
+
+  if (first_word == 0xFFFFFFFFU) {
+    return;                       /* already blank - the usual case */
+  }
+
+  printf("[OTA] Slot still holds an image, erasing (a few seconds)...\r\n");
+  int32_t rc = bootloader_eraseStorageSlot(0U);
+  printf("[OTA] Slot erase %s\r\n", rc == BOOTLOADER_OK ? "done" : "FAILED");
+}
+
 void app_init(void)
 {
   setvbuf(stdout, NULL, _IONBF, 0);   // disable buffering -> printf shows up immediately
 
+  ota_slot_housekeeping();
   sensor_hub_init();
   ai_fusion_init();
   oled_try_init();

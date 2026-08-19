@@ -244,41 +244,25 @@ bool oled_display_show_vitals(oled_display_t *display,
 
   char hr_text[4];
   char spo2_text[4];
-  char flow_text[8];
   format_reading(hr_text, vitals->hr_valid, vitals->hr_bpm);
   format_reading(spo2_text, vitals->spo2_valid, vitals->spo2_pct);
 
-  /* Flow is a ratio against the doctor's target, and unlike HR/SpO2 it can be
-   * far above 100% (free flow), so it gets its own formatting with a cap. */
-  if (!vitals->flow_valid) {
-    memcpy(flow_text, "--", 3U);
-  } else {
-    uint16_t pct = vitals->flow_pct < 0 ? 0U : (uint16_t)vitals->flow_pct;
-    char digits[4];
-    format_reading(digits, true, pct);
-    uint8_t i = 0U;
-    while (digits[i] != '\0') { flow_text[i] = digits[i]; i++; }
-    flow_text[i++] = '%';
-    flow_text[i] = '\0';
-  }
+  /* Both rates as plain numbers. format_reading already prints "--" when a
+   * channel has nothing to say, which is the whole point: an unplugged sensor
+   * reads zero, and "0" on a bedside screen is a reading, not an absence. */
+  char drops_text[4];
+  char target_text[4];
+  format_reading(drops_text, vitals->drops_valid, vitals->drops_per_min);
+  format_reading(target_text, vitals->target_drops_per_min > 0U,
+                 vitals->target_drops_per_min);
 
   /* Which of several faults to show this time.
    *
    * Advanced by call, not by wall clock, because this function is called on a
    * fixed 1 s cadence from the AI loop - so "every OLED_CAUSE_HOLD_TICKS
-   * calls" is every 3 seconds, and the driver needs no clock of its own.
-   *
-   * Long enough to read a line at a glance, short enough that three faults
-   * are all seen inside ten seconds. */
+   * calls" is every 3 seconds, and the driver needs no clock of its own. */
   static uint32_t cause_tick = 0U;
   cause_tick++;
-
-  /* The prescription itself, beside the percentage that is measured against
-   * it. 0 means nothing has been set yet, and prints as "--" rather than as a
-   * confident "0 ml/h" nobody ordered. */
-  char target_text[4];
-  format_reading(target_text, vitals->target_flow_ml_h > 0U,
-                 vitals->target_flow_ml_h);
 
   const char *banner;
   char        counter[8];
@@ -307,7 +291,7 @@ bool oled_display_show_vitals(oled_display_t *display,
   static char last_signature[48];
   char signature[48];
   int len = 0;
-  const char *parts[6] = { hr_text, spo2_text, flow_text, target_text,
+  const char *parts[6] = { hr_text, spo2_text, drops_text, target_text,
                            banner, counter };
   for (uint8_t p = 0U; p < 6U && len < (int)sizeof(signature) - 2; p++) {
     for (uint8_t i = 0U; parts[p][i] != '\0' && len < (int)sizeof(signature) - 2; i++) {
@@ -327,19 +311,18 @@ bool oled_display_show_vitals(oled_display_t *display,
   draw_text(display, 2U,  10U, hr_text, 3U);
   draw_text(display, 70U, 10U, spo2_text, 3U);
 
-  /* Middle: flow against the prescription. Small on purpose — it matters when
-   * setting the drip, not when glancing from the doorway. */
-  /* One row, four fields, 6 px per character on a 128 px panel:
-   *   FLOW  2..25 | value 32..61 ("2000%" is the widest) | TGT 74..91 |
-   *   value 98..115 (three digits). Nothing overlaps at the extremes.
+  /* Middle: the drip rate against the prescription. Small on purpose — it
+   * matters when setting the clamp, not when glancing from the doorway. */
+  /* One row, 6 px per character on a 128 px panel:
+   *   DROPS 2..31 | value 38..55 | TGT 68..85 | value 92..109.
+   * Three digits fits every field with room to spare, and nothing overlaps
+   * even at the widest.
    *
-   * "TGT" rather than "TARGET" purely for width - the full word left no room
-   * for the number, which is how it came to be a label with nothing next to
-   * it. */
-  draw_text(display, 2U,  34U, "FLOW", 1U);
-  draw_text(display, 32U, 34U, flow_text, 1U);
-  draw_text(display, 74U, 34U, "TGT", 1U);
-  draw_text(display, 98U, 34U, target_text, 1U);
+   * "TGT" rather than "TARGET" purely for width. */
+  draw_text(display, 2U,  34U, "DROPS", 1U);
+  draw_text(display, 38U, 34U, drops_text, 1U);
+  draw_text(display, 68U, 34U, "TGT", 1U);
+  draw_text(display, 92U, 34U, target_text, 1U);
 
   /* Bottom: one line saying whether anything is wrong, boxed when it is. The
    * box is what makes an alarm visible in peripheral vision; without it a

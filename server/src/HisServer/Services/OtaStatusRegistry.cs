@@ -43,11 +43,23 @@ public sealed class OtaStatusRegistry
             ? existing.State
             : OtaState.Unknown;
 
-        if (installedVersion is not null || latestVersion is not null)
+        /* The version a device is RUNNING is only believed while it is idle.
+         *
+         * Otherwise the history reads "v4 -> v4": by the time the gateway
+         * reports the update finished, the device has already rebooted into
+         * the new image and is announcing the new number, so the version it
+         * came FROM is gone. Freezing it for the duration of an update keeps
+         * the one fact the history exists to record.
+         *
+         * The offered version is taken whenever it arrives - that one does not
+         * change under us. */
+        var idle = state is OtaState.Unknown or OtaState.UpToDate or OtaState.Available;
+
+        if ((installedVersion is not null && idle) || latestVersion is not null)
         {
             versions.AddOrUpdate(deviceId,
-                _ => (installedVersion, latestVersion),
-                (_, old) => (installedVersion ?? old.Installed,
+                _ => (idle ? installedVersion : null, latestVersion),
+                (_, old) => (idle ? (installedVersion ?? old.Installed) : old.Installed,
                              latestVersion ?? old.Latest));
         }
 
