@@ -10,6 +10,13 @@ namespace HisServer.Hubs;
 public interface IMonitoringClient
 {
     Task BedUpdated(BedDto bed);
+
+    /// <summary>
+    /// A bed was removed from the directory. Sent so every open console drops
+    /// it immediately: a bed that no longer exists but still sits on a ward
+    /// screen is a bed somebody may look for a patient in.
+    /// </summary>
+    Task BedRemoved(string bedId);
     Task AlertCreated(AlertDto alert);
     Task AlertAcknowledged(long alertId, DateTime? acknowledgedAt);
     Task DeviceUpdated(DeviceDto device);

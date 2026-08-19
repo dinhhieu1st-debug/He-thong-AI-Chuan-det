@@ -33,6 +33,7 @@ const DirectoryTab = (() => {
         <td style="text-align:right;">
           <button class="btn" data-edit-room="${UiUtils.escapeHtml(b.bedId)}"
                   data-room="${UiUtils.escapeHtml(b.room || "")}">Change room</button>
+          <button class="btn" data-delete-bed="${UiUtils.escapeHtml(b.bedId)}">Delete</button>
         </td>
       </tr>`;
   }
@@ -77,6 +78,24 @@ const DirectoryTab = (() => {
         return;
       }
       await act(() => Api.createBed(bedId, room), `${bedId} created`);
+    });
+
+    host.querySelectorAll("[data-delete-bed]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const bedId = btn.getAttribute("data-delete-bed");
+
+        /* The server refuses a bed that still has a patient or a device, so
+         * this dialog is about the one case it does allow: an empty bed being
+         * retired. It says what survives, because "delete" next to a hospital
+         * bed reasonably makes people wonder whether the records go too. */
+        if (!confirm(`Remove bed ${bedId} from the ward directory?\n\n`
+                   + `Past vitals and alerts recorded for this bed are kept — `
+                   + `they are the clinical record and are not deleted.\n\n`
+                   + `A bed that still has a patient admitted, or a device `
+                   + `assigned to it, cannot be removed.`)) return;
+
+        await act(() => Api.deleteBed(bedId), `${bedId} removed`);
+      });
     });
 
     host.querySelectorAll("[data-edit-room]").forEach((btn) => {

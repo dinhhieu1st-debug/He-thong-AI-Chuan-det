@@ -90,6 +90,20 @@ public sealed class BedRepository
             new { bedId, patientName, patientCode, admittedAt });
     }
 
+    /// <summary>
+    /// Removes a bed from the ward directory.
+    ///
+    /// Vital samples and alerts recorded against it are deliberately NOT
+    /// deleted: they are the clinical record of what happened to a patient in
+    /// that bed, and a bed being retired does not unmake any of it. Only the
+    /// bed's own row goes.
+    /// </summary>
+    public async Task DeleteAsync(string bedId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync("DELETE FROM beds WHERE bed_id = @bedId", new { bedId });
+    }
+
     public async Task UpsertAsync(BedState bed, CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);

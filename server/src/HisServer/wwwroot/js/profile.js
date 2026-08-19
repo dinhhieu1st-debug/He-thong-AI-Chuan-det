@@ -66,18 +66,12 @@ const ProfileTab = (() => {
      * an empty table that reads like a bug. */
     const scopeHtml = scope || `<span class="muted">No rooms or beds assigned yet — an administrator assigns them on the Users tab.</span>`;
 
-    host.innerHTML = `
-      <div class="panel-card">
-        <div class="panel-card-head">
-          <h3>${UiUtils.escapeHtml(u.fullName || u.username)}</h3>
-          <span class="chip active">${UiUtils.escapeHtml(Session.ROLE_LABEL[u.role] || u.role)}</span>
-        </div>
-        <div class="kv"><span>Account</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
-        <div class="kv"><span>Last sign-in</span><b>${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "—"}</b></div>
-        <div class="kv"><span>Responsible for</span><div>${scopeHtml}</div></div>
-        <button type="button" class="btn" id="changePasswordBtn" style="margin-top:12px;">Change password</button>
-      </div>
-
+    /* Bed counts and the bed table are only shown to whoever actually looks
+     * after beds. A technician and an administrator have no ward.view
+     * capability, so for them these panels were four zeroes and an empty
+     * table - noise that says nothing about their own shift, and invites the
+     * question "why does it say I have no beds?" every time. */
+    const wardHtml = !Session.can("ward.view") ? "" : `
       <div class="stat-row" style="margin-top:18px;">
         <div class="stat-tile"><div class="value">${s.total}</div><div class="label">Beds assigned</div></div>
         <div class="stat-tile"><div class="value">${s.occupied}</div><div class="label">Occupied</div></div>
@@ -92,6 +86,20 @@ const ProfileTab = (() => {
              <thead><tr><th>Bed</th><th>Patient</th><th>Status</th><th>Warning</th><th>Updated</th></tr></thead>
              <tbody>${data.beds.map(bedRow).join("")}</tbody>
            </table>`}`;
+
+    host.innerHTML = `
+      <div class="panel-card">
+        <div class="panel-card-head">
+          <h3>${UiUtils.escapeHtml(u.fullName || u.username)}</h3>
+          <span class="chip active">${UiUtils.escapeHtml(Session.ROLE_LABEL[u.role] || u.role)}</span>
+        </div>
+        <div class="kv"><span>Account</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
+        <div class="kv"><span>Last sign-in</span><b>${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "—"}</b></div>
+        <div class="kv"><span>Responsible for</span><div>${scopeHtml}</div></div>
+        <button type="button" class="btn" id="changePasswordBtn" style="margin-top:12px;">Change password</button>
+      </div>
+
+      ${wardHtml}`;
 
     document.getElementById("changePasswordBtn")
       ?.addEventListener("click", () => Session.promptChangePassword());

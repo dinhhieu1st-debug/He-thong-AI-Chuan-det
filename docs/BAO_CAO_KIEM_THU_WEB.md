@@ -11,17 +11,22 @@
 
 | | Số mục | Ghi chú |
 |---|---|---|
-| **Tổng số ca kiểm thử** | **70** | |
-| **Đạt** | **70** | |
+| **Tổng số ca kiểm thử** | **80** | |
+| **Đạt** | **80** | |
 | **Không đạt** | **0** | |
-| **Phát hiện thiếu chức năng** | **2** | mục 8 |
+| **Phát hiện thiếu chức năng** | **2** | mục 8 — **một cái đã bổ sung xong** |
 | Chưa kiểm được lần này | 4 | cần cắm thiết bị, mục 9 |
 
-Phân bổ: đăng nhập 10 ca · phân quyền 12 ca · điều dưỡng 14 ca · kỹ thuật viên
-16 ca · quản trị viên 15 ca · dùng chung 3 ca.
+Phân bổ: đăng nhập 11 ca · phân quyền 12 ca · điều dưỡng 14 ca · kỹ thuật viên
+16 ca · quản trị viên 15 ca · dùng chung 6 ca · xoá giường (bổ sung sau) 6 ca.
 
 Không có ca nào cho kết quả sai. Hai mục ở phần 8 là **chức năng còn thiếu**,
 không phải lỗi của chức năng đang có.
+
+> **Ghi chú về tài khoản:** mật khẩu của `yta` đã được đổi trong lúc dùng thử,
+> nên các ca kiểm thử dùng mật khẩu mới. Không đặt lại được về `yta` vì hệ thống
+> **bắt buộc mật khẩu tối thiểu 8 ký tự** — chính sách này giữ nguyên, không hạ
+> xuống cho tiện kiểm thử (ca 1.8b).
 
 **Cách kiểm thử:** gọi trực tiếp API bằng `curl` với phiên đăng nhập thật của
 từng vai trò, đối chiếu mã HTTP và dữ liệu trả về; phần giao diện kiểm bằng cách
@@ -42,6 +47,7 @@ chạy thật, không phải kết quả mong đợi.
 | 1.6 | Chưa đăng nhập mà gọi API | `GET /api/beds` không cookie | 401 | 401 | ✅ |
 | 1.7 | Tự đổi mật khẩu | `POST /api/auth/change-password` | 200, mật khẩu mới dùng được | 200 | ✅ |
 | 1.8 | Đổi mật khẩu khai sai mật khẩu cũ | cố tình sai | từ chối | 400 | ✅ |
+| 1.8b | Đặt mật khẩu quá ngắn | đặt lại thành `yta` (3 ký tự) | từ chối | **400** — bắt buộc tối thiểu 8 ký tự, chặn ở **cả** đổi mật khẩu lẫn quản trị đặt lại | ✅ |
 | 1.9 | Mật khẩu cũ hết hiệu lực | đăng nhập lại bằng mật khẩu cũ | 401 | 401 | ✅ |
 | 1.10 | Đăng xuất | `POST /api/auth/logout` | phiên bị huỷ | 200, quay về trang đăng nhập | ✅ |
 
@@ -180,32 +186,42 @@ sai không thể lọt vào danh sách được chào cho thiết bị.
 |---|---|---|---|
 | 7.1 | Xem ca trực của mình | 200 cho cả ba vai trò | ✅ |
 | 7.2 | Cấu hình hiển thị | `GET /api/settings` → 200 | ✅ |
-| 7.3 | Cập nhật thời gian thực (SignalR) | Trạng thái thiết bị và tiến độ cập nhật firmware tự đổi trên trang mà không cần tải lại — kiểm khi **còn cắm thiết bị**, đo trên trình duyệt | ✅ |
+| 7.3 | Trang **My shift** của điều dưỡng | Giữ nguyên 4 ô thống kê + bảng "My beds" | ✅ |
+| 7.4 | Trang **My shift** của kỹ thuật viên | Không còn ô thống kê và bảng giường; giữ thông tin tài khoản + đổi mật khẩu | ✅ |
+| 7.5 | Trang **My shift** của quản trị viên | Như trên | ✅ |
+| 7.6 | Cập nhật thời gian thực (SignalR) | Trạng thái thiết bị và tiến độ cập nhật firmware tự đổi trên trang mà không cần tải lại — kiểm khi **còn cắm thiết bị**, đo trên trình duyệt | ✅ |
 
 ---
 
 ## 8. Phát hiện trong quá trình kiểm thử
 
-### 8.1. Không có chức năng xoá giường
+### 8.1. Không có chức năng xoá giường — **ĐÃ BỔ SUNG**
 
-`DELETE /api/beds/TEST-901` trả về **405 Method Not Allowed**. Kiểm tra mã nguồn
-(`BedEndpoints.cs`) xác nhận chỉ có tạo (`POST`) và sửa (`PUT`), **không có
-`DELETE`**.
+`DELETE /api/beds/{bedId}` trả về **405 Method Not Allowed**; `BedEndpoints.cs`
+chỉ có tạo và sửa. Giường tạo nhầm nằm lại vĩnh viễn.
 
-**Hệ quả:** một giường tạo nhầm sẽ nằm lại trong danh mục vĩnh viễn, và không có
-cách nào xoá qua giao diện. Giường kiểm thử `TEST-901` trong lần này phải xoá
-trực tiếp bằng lệnh SQL — **và ngay cả khi đó nó vẫn còn hiện trên màn hình
-giường**: danh mục trả 8 giường trong khi màn hình theo dõi vẫn trả 9, vì bản ghi
-còn nằm trong bộ nhớ của server. Phải **khởi động lại server** nó mới biến mất.
+Khi xoá thử bằng SQL còn lộ ra tầng thứ hai: danh mục trả 8 giường trong khi màn
+hình theo dõi vẫn trả 9, vì bản ghi còn nằm trong bộ nhớ server. Phải khởi động
+lại server nó mới biến mất.
 
-Nói cách khác: nếu bổ sung chức năng xoá giường thì phải xoá ở **cả hai nơi** —
-cơ sở dữ liệu và bộ nhớ đang chạy — chứ không chỉ xoá ở cơ sở dữ liệu.
+**Đã bổ sung ngày 19/08/2026** và kiểm thử lại:
 
-**Mức độ:** không phải lỗi sai, nhưng là chức năng còn thiếu của phần quản trị.
+| # | Ca | Kết quả | KQ |
+|---|---|---|---|
+| 8.1a | Xoá giường trống | 204, biến mất khỏi **cả** danh mục **và** màn hình giường, không cần khởi động lại | ✅ |
+| 8.1b | Xoá giường **đang có bệnh nhân** | **409** — *"still has a patient admitted (Benh nhan test). Discharge the patient before removing the bed."* | ✅ |
+| 8.1c | Xoá giường **đang gán thiết bị** | **409** — *"Device 0xTEST9 is still assigned... Reassign or remove the device first."* | ✅ |
+| 8.1d | Gỡ thiết bị rồi xoá lại | 204 | ✅ |
+| 8.1e | Xoá giường không tồn tại | 404 | ✅ |
+| 8.1f | Điều dưỡng thử xoá giường | **403** | ✅ |
 
-**Đề xuất:** bổ sung xoá giường, kèm chặn khi giường **đang có bệnh nhân** hoặc
-**đang gán thiết bị** — xoá một giường đang theo dõi bệnh nhân phải là việc không
-làm được, chứ không chỉ là việc được cảnh báo.
+Hai trường hợp 8.1b và 8.1c bị **từ chối thẳng**, không phải cảnh báo rồi vẫn cho
+làm: xoá một giường đang có bệnh nhân sẽ làm bệnh nhân biến mất khỏi màn hình
+theo dõi trong khi họ vẫn nằm đó. Đó không phải việc một hộp thoại xác nhận nên
+thuyết phục được ai.
+
+Dữ liệu sinh hiệu và cảnh báo cũ của giường **được giữ lại** — đó là hồ sơ lâm
+sàng, và việc ngừng dùng một giường không xoá bỏ những gì đã xảy ra ở đó.
 
 ### 8.2. Phiếu hỏng không lưu tên người xử lý
 
@@ -240,7 +256,7 @@ xác minh 54 giây, thiết bị tự khởi động lại vào bản mới). Ch
 
 ## 10. Kết luận
 
-Toàn bộ **70 ca kiểm thử thực hiện được đều đạt**, không có ca nào cho kết quả
+Toàn bộ **80 ca kiểm thử thực hiện được đều đạt**, không có ca nào cho kết quả
 sai. Hai điểm ghi nhận ở mục 8 là chức năng còn thiếu, đã đề xuất hướng bổ sung.
 
 Ba điểm đáng nhấn khi trình bày:

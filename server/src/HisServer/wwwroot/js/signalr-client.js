@@ -8,6 +8,10 @@ const MonitoringHub = (() => {
     .build();
 
   connection.on("BedUpdated", (bed) => State.upsertBed(bed));
+  /* A removed bed must vanish from every open console at once. Leaving it on
+   * screen is worse than a stale reading: it is a bed somebody might go and
+   * look for a patient in. */
+  connection.on("BedRemoved", (bedId) => State.removeBed(bedId));
   connection.on("AlertCreated", (alert) => State.emit("alert-created", alert));
   connection.on("AlertAcknowledged", (alertId, acknowledgedAt) =>
     State.emit("alert-acknowledged", { alertId, acknowledgedAt }));

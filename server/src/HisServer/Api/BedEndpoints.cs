@@ -133,6 +133,61 @@ public static class BedEndpoints
             return Results.Created($"/api/beds/{bed.BedId}", BedDto.From(bed));
         }).RequireAuthorization(Capabilities.ManageBeds);
 
+        /* Deleting a bed.
+         *
+         * Refused outright in two cases rather than warned about, because
+         * neither is something a confirmation dialog should be able to talk
+         * somebody through: a bed with a patient admitted to it, and a bed a
+         * device is still reporting to. The first would drop a patient from the
+         * ward view while they are still in the bed; the second would leave a
+         * device delivering readings to a bed that no longer exists.
+         *
+         * Removed from BOTH places, which is the part that is easy to get
+         * wrong: the database row AND the in-memory store the ward view is
+         * served from. Deleting only the row leaves the bed on screen until
+         * the next restart - measured during testing, and the reason this
+         * comment exists. */
+        group.MapDelete("/{bedId}", async (
+            string bedId,
+            BedStateStore store,
+            BedRepository repository,
+            DeviceRepository devices,
+            IHubContext<MonitoringHub, IMonitoringClient> hub) =>
+        {
+            var bed = store.Get(bedId);
+            if (bed is null)
+            {
+                return Results.NotFound(new { error = $"Bed '{bedId}' does not exist" });
+            }
+
+            if (!string.IsNullOrWhiteSpace(bed.PatientName))
+            {
+                return Results.Conflict(new
+                {
+                    error = $"Bed '{bedId}' still has a patient admitted ({bed.PatientName}). "
+                          + "Discharge the patient before removing the bed."
+                });
+            }
+
+            var attached = (await devices.GetAllAsync())
+                .FirstOrDefault(d => string.Equals(d.AssignedBedId, bedId,
+                                                   StringComparison.OrdinalIgnoreCase));
+            if (attached is not null)
+            {
+                return Results.Conflict(new
+                {
+                    error = $"Device {attached.DeviceId} is still assigned to bed '{bedId}'. "
+                          + "Reassign or remove the device first (Devices tab)."
+                });
+            }
+
+            await repository.DeleteAsync(bedId);
+            store.Remove(bedId);
+
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedRemoved(bedId);
+            return Results.NoContent();
+        }).RequireAuthorization(Capabilities.ManageBeds);
+
         group.MapPut("/{bedId}", async (
             string bedId,
             UpdateBedRequest request,

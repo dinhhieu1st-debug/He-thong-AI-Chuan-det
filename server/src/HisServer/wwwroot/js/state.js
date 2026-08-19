@@ -24,6 +24,11 @@ const State = (() => {
     emit("beds-changed", beds);
   }
 
+  function removeBed(bedId) {
+    beds.delete(bedId);
+    emit("beds-changed", beds);
+  }
+
   function upsertDevice(device) {
     devices.set(device.deviceId, device);
     emit("devices-changed", devices);
@@ -44,7 +49,7 @@ const State = (() => {
     on, emit,
     get beds() { return beds; },
     get devices() { return devices; },
-    upsertBed, setBeds,
+    upsertBed, setBeds, removeBed,
     upsertDevice, setDevices, removeDevice
   };
 })();

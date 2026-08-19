@@ -37,6 +37,7 @@ const Api = (() => {
     getBeds: () => request("GET", "/api/beds"),
     createBed: (bedId, room) => request("POST", "/api/beds", { bedId, room }),
     updateBed: (bedId, patch) => request("PUT", `/api/beds/${encodeURIComponent(bedId)}`, patch),
+    deleteBed: (bedId) => request("DELETE", `/api/beds/${encodeURIComponent(bedId)}`),
     setTargetFlow: (bedId, targetFlowMlH) =>
       request("PUT", `/api/beds/${encodeURIComponent(bedId)}/target-flow`, { targetFlowMlH }),
     setTargetDrops: (bedId, targetDropsPerMin) =>
