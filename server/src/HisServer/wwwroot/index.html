@@ -230,17 +230,28 @@
     <h3>Add Device</h3>
     <form id="addDeviceForm">
       <label>Device ID</label>
-      <input type="text" id="newDeviceId" required>
+      <input type="text" id="newDeviceId" placeholder="0x64028ffffe641802" required>
+      <div class="muted" style="margin:-6px 0 10px;font-size:12px;">
+        Mã EUI-64 in trên thiết bị, hoặc lấy từ log của gateway.
+      </div>
       <label>Type</label>
       <select id="newDeviceType">
         <option value="Xg26">XG26</option>
         <option value="Gateway">Gateway</option>
         <option value="Ble">BLE</option>
       </select>
-      <label>Assigned Bed</label>
-      <input type="text" id="newDeviceBedId">
+      <!-- Room first, then bed: a bed only means something inside a room, and
+           picking the room narrows the bed list to the ones that exist there.
+           Free-text fields let a typo through, and a device assigned to a bed
+           that does not exist reports to nobody. -->
       <label>Room</label>
-      <input type="text" id="newDeviceRoom">
+      <select id="newDeviceRoom">
+        <option value="">Chọn phòng…</option>
+      </select>
+      <label>Assigned Bed</label>
+      <select id="newDeviceBedId" disabled>
+        <option value="">Chọn phòng trước…</option>
+      </select>
       <div class="modal-actions">
         <button type="button" class="btn" data-close-modal="addDeviceModal">Cancel</button>
         <button type="submit" class="btn primary">Add</button>

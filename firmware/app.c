@@ -29,6 +29,10 @@
 #include "network-steering.h"
 #include "app/framework/plugin/reporting/reporting.h"
 
+/* For SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_POLICY_FIRMWARE_VERSION - the single
+ * source of truth for which firmware this is. */
+#include "ota-client-policy-config.h"
+
 #define AI_PERIOD_MS    1000U   // AI run period (1 second)
 #define HR_CALIB_MS    60000U   // first 60s: calibrate the per-patient HR baseline
 
@@ -657,7 +661,12 @@ void app_init(void)
    * (the SDK's own initialiser handles a bad model with `while (1)`). */
 
 
-  printf("\r\n=== Smart IV - AI module ready ===\r\n");
+  /* Printed from the OTA client's own version constant, not a separate string
+   * that could drift away from it. After a firmware update this line is the
+   * proof that the new image is the one running - without it, a successful
+   * transfer and a silently rejected one look identical from the outside. */
+  printf("\r\n=== Smart IV - AI module ready (firmware v%d) ===\r\n",
+         SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_POLICY_FIRMWARE_VERSION);
   printf("Channels: DROPS=%s HR=%s SpO2=%s FLOW=%s\r\n",
          DROPS_ENABLED ? "ON" : "OFF",
          HR_ENABLED    ? "ON" : "OFF",

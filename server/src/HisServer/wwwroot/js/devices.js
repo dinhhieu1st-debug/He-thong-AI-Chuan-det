@@ -381,11 +381,43 @@ const DevicesTab = (() => {
     }
   }, DEVICE_LOG_REFRESH_MS);
 
+  /* Redraws the "waiting to be assigned" banner without stealing the dropdown
+   * out from under the person using it.
+   *
+   * The banner used to be rewritten on every render - which is once a second,
+   * because the "Seen" column shows a live timestamp. Opening the bed dropdown
+   * and rebuilding its <select> a moment later closes it instantly, so it was
+   * simply impossible to pick a bed. Two guards:
+   *
+   *   1. If the focus is inside the banner, someone is working in it. Leave it
+   *      completely alone.
+   *   2. Otherwise carry any half-made choice across the rewrite, so a
+   *      selection made and not yet submitted survives the next tick. */
+  function renderPendingBanner() {
+    const banner = document.getElementById("pendingDevices");
+    if (!banner) return;
+
+    if (banner.contains(document.activeElement)) return;
+
+    const chosen = new Map();
+    banner.querySelectorAll("[data-assign-bed]").forEach((sel) => {
+      if (sel.value) chosen.set(sel.getAttribute("data-assign-bed"), sel.value);
+    });
+
+    const html = pendingBannerHtml();
+    if (banner.innerHTML !== html) banner.innerHTML = html;
+
+    chosen.forEach((bedId, deviceId) => {
+      const sel = banner.querySelector(`[data-assign-bed="${CSS.escape(deviceId)}"]`);
+      if (sel) sel.value = bedId;
+    });
+  }
+
   function render() {
     const devices = Array.from(State.devices.values()).filter(matchesFilters).sort((a, b) => a.deviceId.localeCompare(b.deviceId));
     const grid = document.getElementById("devicesGrid");
     const banner = document.getElementById("pendingDevices");
-    if (banner) banner.innerHTML = pendingBannerHtml();
+    renderPendingBanner();
 
     grid.innerHTML = devices.length === 0
       ? `<div class="empty-state">No devices match the current filters.</div>`
@@ -491,7 +523,52 @@ const DevicesTab = (() => {
       }
     });
 
+    /* Room -> bed, filled from the beds that actually exist. Typing either by
+     * hand was how a device ended up assigned to a bed nobody had created,
+     * reporting to a dashboard nobody was looking at. */
+    function fillRoomChoices() {
+      const roomSel = document.getElementById("newDeviceRoom");
+      const rooms = [...new Set(Array.from(State.beds.values())
+                                     .map((b) => b.room)
+                                     .filter(Boolean))].sort();
+
+      roomSel.innerHTML = `<option value="">Chọn phòng…</option>`
+        + rooms.map((r) => `<option value="${UiUtils.escapeHtml(r)}">${UiUtils.escapeHtml(r)}</option>`).join("");
+    }
+
+    function fillBedChoices(room) {
+      const bedSel = document.getElementById("newDeviceBedId");
+      if (!room) {
+        bedSel.disabled = true;
+        bedSel.innerHTML = `<option value="">Chọn phòng trước…</option>`;
+        return;
+      }
+
+      /* Beds that already have a device are shown but marked, rather than
+       * hidden: "the bed I want is missing from the list" is a worse puzzle
+       * than "that bed is taken". */
+      const taken = new Set(Array.from(State.devices.values())
+                                 .map((d) => d.assignedBedId)
+                                 .filter(Boolean));
+
+      const beds = Array.from(State.beds.values())
+        .filter((b) => b.room === room)
+        .sort((a, b) => a.bedId.localeCompare(b.bedId));
+
+      bedSel.disabled = false;
+      bedSel.innerHTML = `<option value="">Chưa gán giường</option>`
+        + beds.map((b) => `<option value="${UiUtils.escapeHtml(b.bedId)}">`
+                        + `${UiUtils.escapeHtml(b.bedId)}${taken.has(b.bedId) ? " · đã có thiết bị" : ""}`
+                        + `</option>`).join("");
+    }
+
+    document.getElementById("newDeviceRoom").addEventListener("change", (e) => {
+      fillBedChoices(e.target.value);
+    });
+
     document.getElementById("addDeviceBtn").addEventListener("click", () => {
+      fillRoomChoices();
+      fillBedChoices("");
       document.getElementById("addDeviceModal").classList.remove("hidden");
     });
 
@@ -502,8 +579,8 @@ const DevicesTab = (() => {
       const device = await Api.createDevice({
         deviceId,
         deviceType: document.getElementById("newDeviceType").value,
-        assignedBedId: document.getElementById("newDeviceBedId").value.trim() || null,
-        room: document.getElementById("newDeviceRoom").value.trim() || null,
+        assignedBedId: document.getElementById("newDeviceBedId").value || null,
+        room: document.getElementById("newDeviceRoom").value || null,
         status: "Pending",
         batteryPercent: null,
         rssi: null,

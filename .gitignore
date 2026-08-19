@@ -64,3 +64,8 @@ ml/**/__pycache__/
 # .NET build output for the test project
 server/tests/**/bin/
 server/tests/**/obj/
+
+# Ảnh firmware OTA: là kết quả build, dựng lại được từ đúng commit của nguồn
+# (xem docs/OTA.md mục 4.3). Giữ file .ota trong git thì mỗi lần phát hành lại
+# thêm ~430 KB vĩnh viễn vào lịch sử, đổi lấy thứ không ai đọc diff bao giờ.
+gateway/ota/images/*.ota
