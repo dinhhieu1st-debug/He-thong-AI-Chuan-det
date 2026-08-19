@@ -52,8 +52,8 @@ static uint32_t now_ms(void)
   return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
 }
 
-#if DROPS_ENABLED
-/* Microseconds, for the drop detector's sub-millisecond confirm window only.
+/* Microseconds. Two callers need finer than a millisecond: the drop detector's
+ * confirm window, and the buzzer's tone generator.
  *
  * The drop pulses measured on this sensor are 1-6 ms wide, and a millisecond
  * clock quantises the short ones to zero - which is exactly how the first
@@ -72,7 +72,6 @@ static uint32_t now_us(void)
   uint64_t ticks = (uint64_t)sl_sleeptimer_get_tick_count();
   return (uint32_t)((ticks * 1000000ULL) / (uint64_t)hz);
 }
-#endif
 
 /* ============================================================================
  *  HX711 (load cell) — FLOW channel
@@ -1031,6 +1030,27 @@ _Static_assert(SH_PINS_DIFFER(HX711_DOUT_PORT, HX711_DOUT_PIN,
                               HX711_SCK_PORT, HX711_SCK_PIN),
                "HX711 DOUT and SCK are on the same pin.");
 
+/* --- Còi kêu bằng TẦN SỐ, không phải bằng mức DC -----------------------------
+ *
+ * Có hai loại còi và chúng cần hai cách lái hoàn toàn khác nhau:
+ *
+ *   - Còi CHỦ ĐỘNG (active) có mạch dao động bên trong: cấp mức cao là kêu.
+ *   - Còi THỤ ĐỘNG (passive) chỉ là một lá áp điện: cấp mức cao thì nó **cong
+ *     một cái rồi đứng yên**. Nghe được đúng một tiếng "tách" ở mỗi lần đổi
+ *     mức, và với nhịp bíp 0,3-1 giây thì tai người coi như KHÔNG NGHE THẤY GÌ.
+ *
+ * Bản trước lái bằng mức DC, nên nếu còi là loại thụ động thì nó im hoàn toàn
+ * mà mọi thứ trong phần mềm vẫn "chạy đúng" — không có lỗi nào để mà tìm.
+ *
+ * Nay trong lúc "đang bíp", chân còi được **đảo mức liên tục** để tạo ra âm
+ * thanh thật. Cách này kêu được với **cả hai loại**: còi thụ động phát ra đúng
+ * tần số này, còn còi chủ động bị băm nguồn ở tần số đó thì vẫn kêu.
+ *
+ * 350 µs mỗi nửa chu kỳ ≈ 1,4 kHz — nằm trong dải tai người nhạy nhất và trong
+ * vùng cộng hưởng của hầu hết còi áp điện. Vòng lặp chính quay ~5500 lần/giây
+ * (đo được), tức ~180 µs một vòng, nên nửa chu kỳ 350 µs là thứ nó theo kịp. */
+#define BUZZER_TONE_HALF_PERIOD_US  350U
+
 #define BUZZER_PERIOD_CRITICAL_MS 150U    /* urgent beep = both systems failing */
 #define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
 #define BUZZER_PERIOD_YELLOW_MS  1000U    /* slow beep = warning   (matches the .ino) */
@@ -1084,8 +1104,20 @@ static void alert_init(void)
     alert_pin_write(lamps[i].port, lamps[i].pin, false);
   }
 
+  /* Hai kiểu lái, để phân biệt còi chủ động với còi thụ động ngay lúc bật máy.
+   * Nghe được kiểu nào thì biết còi loại nào — và nếu không nghe kiểu nào cả
+   * thì vấn đề nằm ở dây hoặc ở chính cái còi, không phải ở phần mềm. */
+  printf("[ALERT] Buzzer test 1/2: muc DC (coi chu dong se keu)\r\n");
   alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, true);
-  sl_udelay_wait(200000U);
+  sl_udelay_wait(600000U);
+  alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+  sl_udelay_wait(400000U);
+
+  printf("[ALERT] Buzzer test 2/2: tan so 1.4 kHz (coi thu dong se keu)\r\n");
+  for (uint32_t i = 0; i < 1700U; i++) {          /* ~600 ms ở 1,4 kHz */
+    alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, (i & 1U) == 0U);
+    sl_udelay_wait(BUZZER_TONE_HALF_PERIOD_US);
+  }
   alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
 
   printf("[ALERT] Self-test done. No beep or no lamp here means WIRING, "
@@ -1161,10 +1193,24 @@ static void alert_poll(void)
                     ? BUZZER_PERIOD_RED_MS : BUZZER_PERIOD_YELLOW_MS;
   uint32_t now = now_ms();
 
+  /* Trong lúc "đang bíp" thì phát tần số, không giữ mức. Chạy mỗi vòng lặp và
+   * không chặn gì cả — đảo mức xong là trả quyền điều khiển ngay. */
+  if (buzzer_on) {
+    static uint32_t tone_last_us = 0;
+    static bool     tone_level   = false;
+    uint32_t now_micros = now_us();
+    if (now_micros - tone_last_us >= BUZZER_TONE_HALF_PERIOD_US) {
+      tone_last_us = now_micros;
+      tone_level = !tone_level;
+      alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, tone_level);
+    }
+  }
+
   if (now - buzzer_last_toggle >= period) {
     buzzer_last_toggle = now;
     buzzer_on = !buzzer_on;
-    alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, buzzer_on);
+    /* Hết pha bíp thì tắt hẳn, đừng để chân dừng ở mức cao. */
+    if (!buzzer_on) alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
 
     /* Critical is the one level that flashes its lamp, so that it needs only
      * one lamp to be distinguishable from a patient alert. Every other level
