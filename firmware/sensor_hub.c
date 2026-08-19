@@ -970,7 +970,7 @@ static void max30102_poll(void)
 #define LED_RED_PORT     gpioPortA
 #define LED_RED_PIN      5        /* mikroBUS RX  = PA05 */
 #define BUZZER_PORT      gpioPortC
-#define BUZZER_PIN_NUM   2        /* mikroBUS MOSI = PC02 (đã đổi từ CS/PC04) */
+#define BUZZER_PIN_NUM   4        /* mikroBUS CS = PC04 */
 
 /* --- No two peripherals may share a pin ------------------------------------
  *
@@ -1007,7 +1007,7 @@ _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
                               HX711_DOUT_PORT, HX711_DOUT_PIN),
                "Buzzer and HX711 DOUT are on the same pin. On BRD2709A the "
                "load cell data line is PC01 = mikroBUS MISO; the buzzer is on "
-               "PC02 = mikroBUS MOSI. Move the wire, or move the scale.");
+               "PC04 = mikroBUS CS. Move the wire, or move the scale.");
 _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
                               HX711_SCK_PORT, HX711_SCK_PIN),
                "Buzzer and HX711 SCK are on the same pin (PC03 = mikroBUS SCK).");

@@ -54,22 +54,27 @@ typedef enum { CH_DISABLED = 0, CH_OK = 1, CH_LOST = 2 } ch_state_t;
  *   GREEN  LED -> PWM pin, PA07
  *   YELLOW LED -> TX  pin, PA04   (mikroBUS UART, NOT the VCOM console,
  *   RED    LED -> RX  pin, PA05    which is on PB02/PB03 - no conflict)
- *   BUZZER     -> MOSI pin, PC02   (đổi từ CS/PC04; xem ghi chú bên dưới)
+ *   BUZZER     -> CS  pin, PC04
  * Each LED needs a 220-330 ohm series resistor; drive the buzzer through an
  * NPN transistor if it draws more than a few mA (GPIO limit).
  * All four outputs are ACTIVE HIGH (set ALERT_ACTIVE_HIGH to 0 in
  * sensor_hub.c if your modules are the active-low kind).
  *
- * Còi từng nằm ở CS/PC04 và đã được chuyển sang MOSI/PC02. Chừng nào code còn
- * trỏ PC04 thì còi HOÀN TOÀN IM: chip đẩy tín hiệu ra một chân không có gì
- * cắm, còn chân có còi thì không ai đụng tới. Không có lỗi nào hiện ra ở đâu
- * cả — đây là kiểu hỏng chỉ tìm ra bằng cách ngồi nghe.
+ * Còi có lúc được thử ở MOSI/PC02 rồi trả về CS/PC04. Nguyên nhân còi im lúc
+ * đó hoá ra là NGUỒN YẾU, không phải sai chân — nên đừng đổi chân để chữa một
+ * cái còi không kêu; đo nguồn trước.
  *
- * Theo SƠ ĐỒ CHÂN CỦA BOARD: MOSI = PC02, MISO = PC01 (chỗ cắm dây dữ liệu
- * của cân). Lưu ý điều này NGƯỢC với cách suy từ sl_spidrv_usart_mikroe_config.h
- * ("SPI master thì TX = MOSI", file đó ghi TX = PC01). SDK chỉ nói TX/RX chứ
- * không nói MOSI/MISO — đã suy sai một lần theo hướng đó, nên tra sơ đồ chân,
- * đừng suy luận. */
+ * Dù vậy, hai điều rút ra vẫn còn giá trị:
+ *
+ *  1. Nếu code trỏ nhầm chân thì còi im HOÀN TOÀN mà không lỗi nào hiện ra —
+ *     chip đẩy tín hiệu ra một chân trống, chân có còi thì không ai đụng tới.
+ *     Vì vậy sensor_hub.c có _Static_assert chặn hai thiết bị trùng chân.
+ *
+ *  2. Theo SƠ ĐỒ CHÂN CỦA BOARD: MOSI = PC02, MISO = PC01 (chỗ cắm dây dữ
+ *     liệu của cân). Điều này NGƯỢC với cách suy từ
+ *     sl_spidrv_usart_mikroe_config.h ("SPI master thì TX = MOSI", file đó ghi
+ *     TX = PC01). SDK chỉ nói TX/RX chứ không nói MOSI/MISO — đã suy sai một
+ *     lần theo hướng đó, nên tra sơ đồ chân, đừng suy luận. */
 /* Four levels, because the two RED conditions need different responses from
  * the nurse and used to be indistinguishable:
  *

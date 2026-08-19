@@ -581,15 +581,19 @@ Chân trên mikroBUS (BRD2709A):
 | Đèn xanh | PA07 | PWM |
 | Đèn vàng | PA04 | TX |
 | Đèn đỏ | PA05 | RX |
-| **Còi** | **PC02** | **MOSI** |
+| **Còi** | **PC04** | **CS** |
 | HX711 DT | PC01 | MISO |
 | HX711 SCK | PC03 | SCK |
 | Cảm biến giọt | PD02 | AN |
 | I2C (OLED + MAX30102) | PC05 / PC07 | SCL / SDA |
 
-> **Cảnh báo về nhãn MOSI/MISO.** Còi từng nằm ở CS/PC04, sau đó chuyển sang
-> MOSI/PC02, và trong lúc code còn trỏ PC04 thì **còi im hoàn toàn mà không có
-> lỗi nào hiện ra ở đâu** — chip đẩy tín hiệu ra một chân không có gì cắm.
+> **Đừng đổi chân để chữa một cái còi không kêu.** Còi từng được thử chuyển sang
+> MOSI/PC02 vì tưởng sai chân; nguyên nhân thật hoá ra là **nguồn yếu**, và chân
+> đã trả về CS/PC04. **Đo nguồn trước.**
+>
+> Dù vậy điều này vẫn đúng và vẫn đáng phòng: nếu code trỏ nhầm chân thì **còi im
+> hoàn toàn mà không có lỗi nào hiện ra ở đâu** — chip đẩy tín hiệu ra một chân
+> không có gì cắm. Đó là lý do có `_Static_assert` chặn trùng chân.
 >
 > Đừng suy MOSI/MISO từ `sl_spidrv_usart_mikroe_config.h`: file đó chỉ ghi
 > `TX = PC01, RX = PC02`, và suy "SPI master thì TX = MOSI" ra kết quả **ngược
