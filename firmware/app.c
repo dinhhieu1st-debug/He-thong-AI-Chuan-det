@@ -763,64 +763,6 @@ void app_init(void)
          "        load-cell/drop cross-check.\r\n\r\n");
 }
 
-/* Một vòng ở CHẾ ĐỘ CHỜ.
- *
- * Vẫn hiện số đo lên màn hình và vẫn gửi số đo lên server, chỉ khác là không
- * có phán quyết nào của AI đi kèm. Y tá đang lắp thiết bị cần thấy kẹp SpO2 đã
- * ăn tín hiệu chưa, giọt đã đếm được chưa, cân đã về 0 chưa - một màn hình
- * trống không giúp họ biết đã lắp xong hay chưa.
- *
- * Dòng cảnh báo trên màn hình ghi "CHO / STANDBY" chứ không phải "NORMAL": ở
- * đây "bình thường" là một lời khẳng định mà thiết bị chưa có quyền nói - nó
- * chưa hề nhìn bệnh nhân này. */
-static void app_report_standby(void)
-{
-  bool hr_ok   = (sh_hr_state()   == CH_OK);
-  bool spo2_ok = (sh_spo2_state() == CH_OK);
-  int  hr      = hr_ok   ? (int)(sh_hr()   + 0.5f) : -1;
-  int  spo2    = spo2_ok ? (int)(sh_spo2() + 0.5f) : -1;
-
-  if (oled_ready) {
-    static const char *const standby_cause[] = { "STANDBY - NOT ARMED" };
-    oled_vitals_t v = {
-      .hr_valid   = hr_ok,
-      .hr_bpm     = (uint16_t)(hr   < 0 ? 0 : hr),
-      .spo2_valid = spo2_ok,
-      .spo2_pct   = (uint16_t)(spo2 < 0 ? 0 : spo2),
-      .drops_valid   = (sh_drops_state() == CH_OK),
-      .drops_per_min = (uint16_t)(sh_drops_per_min() + 0.5f),
-      .target_drops_per_min = (uint16_t)(sh_target_drops_per_min() + 0.5f),
-      /* alarm = true chỉ để dòng chữ được vẽ trong khung cho dễ thấy; mức cảnh
-       * báo thật đã được đặt về NORMAL nên đèn xanh và còi im. */
-      .alarm       = true,
-      .banner      = standby_cause[0],
-      .causes      = standby_cause,
-      .cause_count = 1,
-      .level       = (uint8_t)ALERT_LEVEL_NORMAL
-    };
-    if (!oled_display_show_vitals(&bedside_oled, &v)) {
-      oled_ready = false;
-      oled_last_retry_ms = now_ms();
-    }
-  }
-
-  printf("[JSON]{\"monitoring\":false,\"heart_rate\":%s,\"spo2\":%s,"
-         "\"drops_per_min\":%d,\"weight_g\":%d,"
-         "\"target_flow_ml_h\":%d,\"target_drops_per_min\":%d,"
-         "\"hr_signal\":%s,\"spo2_signal\":%s,\"drops_signal\":%s,"
-         "\"alarm\":false,\"alert_level\":0}\r\n",
-         hr_ok ? "" : "null", spo2_ok ? "" : "null",
-         (int)(sh_drops_per_min() + 0.5f), (int)(sh_flow_weight_g() + 0.5f),
-         (int)(sh_target_flow_ml_h() + 0.5f), (int)(sh_target_drops_per_min() + 0.5f),
-         hr_ok ? "true" : "false", spo2_ok ? "true" : "false",
-         (sh_drops_state() == CH_OK) ? "true" : "false");
-
-  uint8_t monitoring = 0;
-  sl_zigbee_af_write_manufacturer_specific_server_attribute(
-      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_MONITORING_ACTIVE_ATTRIBUTE_ID,
-      SMART_IV_MFG_CODE, &monitoring, ZCL_INT8U_ATTRIBUTE_TYPE);
-}
-
 /* ====== CALLED REPEATEDLY (like Arduino's loop()) ====== */
 void app_process_action(void)
 {
@@ -883,16 +825,30 @@ void app_process_action(void)
      * đang treo bình và kẹp cảm biến là rác, và nhét rác vào cửa sổ 64 giây thì
      * ngay khi bắt đầu theo dõi, model sẽ dự báo dựa trên quãng thời gian
      * không có bệnh nhân nào. */
-    if (!sh_monitoring_active()) {
-      sh_alert_set_level(ALERT_LEVEL_NORMAL);
-      app_report_standby();
-      return;
-    }
-
     /* One call runs all three models, the clinical rules and the load-cell
      * cross-check, and returns the finished 4-level decision. */
     fusion_result_t f;
-    ai_fusion_step(&f);
+
+    if (sh_monitoring_active()) {
+      ai_fusion_step(&f);
+    } else {
+      /* CHẾ ĐỘ CHỜ: không chạy model, không chạy luật, không phán quyết gì.
+       *
+       * Nhưng vẫn đi TIẾP xuống toàn bộ đường báo cáo phía dưới, không thoát
+       * sớm: sinh hiệu, cân, y lệnh, số giọt vẫn chảy lên server và vẫn hiện
+       * trên màn hình như thường. Y tá đang lắp thiết bị cần nhìn thấy những
+       * con số đó - thứ duy nhất bị tắt là quyền phán xét và quyền kêu.
+       *
+       * Một kết quả rỗng ở mức NORMAL, chứ không phải "mọi thứ ổn": khác nhau
+       * ở chỗ dòng chữ trên màn hình ghi STANDBY, và cờ monitoring gửi kèm nói
+       * rõ vì sao không có phán quyết nào. */
+      static const char *const standby_cause[] = { "STANDBY - NOT ARMED" };
+      memset(&f, 0, sizeof(f));
+      f.level       = ALERT_LEVEL_NORMAL;
+      f.headline    = standby_cause[0];
+      f.causes[0]   = standby_cause[0];
+      f.cause_count = 1;
+    }
 
     /* Drive the local LEDs/buzzer straight away, BEFORE the printf/Zigbee
      * work below - the bedside indicator should never wait on the network. */
@@ -1044,7 +1000,8 @@ void app_process_action(void)
      * the server needs changing. A channel without signal is sent as null, not
      * 0, following the convention used throughout: 0 bpm reads like a patient
      * in cardiac arrest, whereas null means "no measurement". */
-    printf("[JSON]{\"heart_rate\":");
+    printf("[JSON]{\"monitoring\":%s,\"heart_rate\":",
+           sh_monitoring_active() ? "true" : "false");
     if (hr_ok) printf("%d", hr); else printf("null");
     printf(",\"spo2\":");
     if (spo2_ok) printf("%d", spo2); else printf("null");

@@ -571,8 +571,8 @@ giây. Chi tiết ở [`AI_HOAT_DONG_THE_NAO.md`](AI_HOAT_DONG_THE_NAO.md) mục
 
 **Đèn và còi** (`firmware/sensor_hub.c`). Ba đèn xanh/vàng/đỏ và một còi, mỗi
 mức cảnh báo **chỉ sáng đúng một đèn**; cấp nguy cấp nhất dùng **đỏ nhấp nháy**
-chứ không phải đỏ + vàng cùng lúc. Nhịp còi khác nhau theo mức (1 s / 0,3 s /
-0,15 s) và chạy **không chặn** vòng lặp chính.
+chứ không phải đỏ + vàng cùng lúc. **Còi chỉ kêu ở mức đỏ** (0,3 s) và đỏ khẩn (0,15 s); mức vàng có đèn nhưng
+không có tiếng. Nhịp còi chạy **không chặn** vòng lặp chính.
 
 Chân trên mikroBUS (BRD2709A):
 
@@ -621,7 +621,7 @@ tare cân.
 
 | Vẫn làm | Không làm |
 |---|---|
-| Đọc cảm biến, hiện số lên OLED và gửi lên server | Chạy ba model AI |
+| Đọc cảm biến, hiện số lên OLED và **gửi đầy đủ lên server như thường** | Chạy ba model AI |
 | Nhận lệnh đặt y lệnh, tare, hiệu chuẩn nhịp tim | Chạy luật lâm sàng |
 | | Báo động, bật đèn cảnh báo, kêu còi |
 

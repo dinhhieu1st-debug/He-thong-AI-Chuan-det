@@ -1079,7 +1079,8 @@ _Static_assert(SH_PINS_DIFFER(HX711_DOUT_PORT, HX711_DOUT_PIN,
 
 #define BUZZER_PERIOD_CRITICAL_MS 150U    /* urgent beep = both systems failing */
 #define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
-#define BUZZER_PERIOD_YELLOW_MS  1000U    /* slow beep = warning   (matches the .ino) */
+/* Mức vàng KHÔNG kêu nữa - xem buzzer_should_sound(). Giữ lại hằng số này thì
+ * chỉ tổ làm người đọc sau tưởng còi có kêu ở mức vàng. */
 
 static alert_level_t alert_level        = ALERT_LEVEL_NORMAL;
 static bool          buzzer_on          = false;
@@ -1168,6 +1169,20 @@ static void alert_init(void)
   alert_pin_write(LED_GREEN_PORT, LED_GREEN_PIN, true);
 }
 
+/* Còi CHỈ kêu khi đèn ĐỎ - tức là khi bệnh nhân đang có vấn đề.
+ *
+ * Mức vàng (sự cố đường truyền: tắc dây, chảy tự do, lệch y lệnh) có đèn nhưng
+ * KHÔNG có tiếng. Đó là việc thật và phải có người đi xử lý, nhưng cho nó cùng
+ * tiếng còi với tụt oxy là cách nhanh nhất khiến cả khoa thôi phản ứng với
+ * tiếng còi - và khi đó tiếng còi thật cũng mất tác dụng theo.
+ *
+ * Cùng đúng một logic đã dùng cho màu sắc: đỏ dành riêng cho bệnh nhân đang
+ * nguy hiểm. Giờ tiếng còi cũng vậy. */
+static bool buzzer_should_sound(alert_level_t level)
+{
+  return level == ALERT_LEVEL_VITALS_ALERT || level == ALERT_LEVEL_CRITICAL;
+}
+
 void sh_alert_set_level(alert_level_t level)
 {
   if (level == alert_level) {
@@ -1178,7 +1193,7 @@ void sh_alert_set_level(alert_level_t level)
   /* Re-arm the beep so a level change is heard immediately rather than
    * waiting out the remainder of the previous level's period. */
   buzzer_last_toggle = now_ms();
-  buzzer_on = (level != ALERT_LEVEL_NORMAL);
+  buzzer_on = buzzer_should_sound(level);
 
   /* EXACTLY ONE lamp is lit at a time.
    *
@@ -1220,7 +1235,7 @@ const char *sh_alert_level_name(alert_level_t level)
 
 static void alert_poll(void)
 {
-  if (alert_level == ALERT_LEVEL_NORMAL) {
+  if (!buzzer_should_sound(alert_level)) {
     if (buzzer_on) {
       buzzer_on = false;
       buzzer_write(false);
@@ -1228,10 +1243,11 @@ static void alert_poll(void)
     return;
   }
 
+  /* Chỉ còn hai nhịp: đỏ và đỏ khẩn. Mức vàng đã bị chặn ở trên nên không có
+   * nhịp nào cho nó nữa. */
   uint32_t period = (alert_level == ALERT_LEVEL_CRITICAL)
                     ? BUZZER_PERIOD_CRITICAL_MS
-                    : (alert_level == ALERT_LEVEL_VITALS_ALERT)
-                    ? BUZZER_PERIOD_RED_MS : BUZZER_PERIOD_YELLOW_MS;
+                    : BUZZER_PERIOD_RED_MS;
   uint32_t now = now_ms();
 
   /* Trong lúc "đang bíp" thì phát tần số, không giữ mức. Chạy mỗi vòng lặp và
