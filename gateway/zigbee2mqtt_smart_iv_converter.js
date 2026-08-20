@@ -209,6 +209,12 @@ const fzSmartIv = {
                 result.remaining_ml = msg.data.remainingMl === TS_FORECAST_INVALID
                     ? null : msg.data.remainingMl;
             }
+            // Đang theo dõi hay đang chờ. Ở chế độ chờ, thiết bị không chạy AI
+            // và không báo động - bảng điều khiển phải nói rõ điều đó, chứ
+            // không được hiện "bình thường" cho một giường chưa hề được theo dõi.
+            if (msg.data.monitoringActive !== undefined) {
+                result.monitoring = msg.data.monitoringActive !== 0;
+            }
             if (msg.data.remainingMin !== undefined) {
                 result.remaining_min = msg.data.remainingMin === TS_FORECAST_INVALID
                     ? null : msg.data.remainingMin;
@@ -306,6 +312,7 @@ const definition = {
                 // running through the Pi.
                 remainingMl:          {name: 'remainingMl',          ID: 0x0016, type: 0x21}, // int16u
                 remainingMin:         {name: 'remainingMin',         ID: 0x0017, type: 0x21}, // int16u
+                monitoringActive:     {name: 'monitoringActive',     ID: 0x0018, type: 0x20, write: true}, // int8u, writable (bat/tat theo doi)
                 tsFlags:              {name: 'tsFlags',              ID: 0x000F, type: 0x19}, // bitmap16
                 hrForecast16s:        {name: 'hrForecast16s',        ID: 0x0010, type: 0x21}, // int16u
                 spo2Forecast16s:      {name: 'spo2Forecast16s',      ID: 0x0011, type: 0x21}, // int16u
@@ -375,6 +382,21 @@ const definition = {
             },
         },
         {
+            // Bật/tắt theo dõi: publish {"monitoring": true} hoặc false.
+            // Khác hai lệnh dưới ở chỗ đây là TRẠNG THÁI chứ không phải lệnh
+            // bắn-rồi-quên, nên thiết bị giữ nguyên giá trị và báo ngược lên.
+            key: ['monitoring'],
+            convertSet: async (entity, key, value, meta) => {
+                const on = (value === true || value === 'true' || value === 1 || value === 'ON');
+                await meta.device.getEndpoint(2).write(
+                    SMART_IV_CLUSTER_NAME,
+                    {monitoringActive: on ? 1 : 0},
+                    {manufacturerCode: SMART_IV_MFG_CODE},
+                );
+                return {state: {monitoring: on}};
+            },
+        },
+        {
             // Fire-and-forget trigger: publish {"recalibrate_hr_baseline": true}
             // to remotely restart the 60s HR baseline capture window.
             key: ['recalibrate_hr_baseline'],
@@ -407,6 +429,8 @@ const definition = {
             .withDescription('Persistent count of completed tares - used to detect a new completion server-side'),
         e.numeric('hr_baseline_event_count', ea.STATE)
             .withDescription('Persistent count of completed HR baseline captures - used to detect a new completion server-side'),
+        e.binary('monitoring', ea.ALL, true, false)
+            .withDescription('Monitoring armed. When false the device reads sensors but runs no AI and raises no alarms.'),
         e.binary('reset_tare', ea.SET, true, false)
             .withDescription('Write true to remotely re-zero the load cell (no physical button needed)'),
         e.binary('recalibrate_hr_baseline', ea.SET, true, false)

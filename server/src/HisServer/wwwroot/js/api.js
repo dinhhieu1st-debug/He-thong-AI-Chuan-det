@@ -43,6 +43,8 @@ const Api = (() => {
     setTargetDrops: (bedId, targetDropsPerMin) =>
       request("PUT", `/api/beds/${encodeURIComponent(bedId)}/target-drops`, { targetDropsPerMin }),
     resetTare: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/tare`),
+    setMonitoring: (bedId, enabled) =>
+      request("POST", `/api/beds/${encodeURIComponent(bedId)}/monitoring`, { enabled }),
     recalibrateHr: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/recalibrate-hr`),
     getBedHistory: (bedId, minutes) =>
       request("GET", `/api/beds/${encodeURIComponent(bedId)}/history?minutes=${encodeURIComponent(minutes)}`),

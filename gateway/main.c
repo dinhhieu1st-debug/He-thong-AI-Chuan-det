@@ -422,6 +422,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
                                int hr_baseline_seconds_remaining, int hr_baseline_bpm,
                                int tare_event_count, int hr_baseline_event_count,
                                int link_quality, const char *device_id,
+                               int monitoring,
                                const ts_forecast_t *ts)
 {
     char line[1400];
@@ -487,7 +488,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"tareInProgress\":%s,\"tareJustCompleted\":%s,"
              "\"hrBaselineJustCompleted\":%s,\"hrBaselineSecondsRemaining\":%d,"
              "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d,"
-             "\"linkQuality\":%d,\"deviceId\":\"%s\""
+             "\"linkQuality\":%d,\"deviceId\":\"%s\",\"monitoring\":%s"
              "%s"
              ",\"hrForecast16s\":%s,\"spo2Forecast16s\":%s,\"dropsForecast16s\":%s}\n",
              his_bed_id, his_room, spo2, heart_rate, drop_rate, flow_rate,
@@ -502,6 +503,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              tare_event_count, hr_baseline_event_count,
              link_quality,
              device_id != NULL ? device_id : "",
+             monitoring ? "true" : "false",
              ts_line,
              hr_forecast_text, spo2_forecast_text, drops_forecast_text);
 
@@ -548,6 +550,7 @@ static void publish_mqtt_set(const char *description, const char *field_name, co
  *   {"cmd":"set_target_flow_ml_h","value":120}
  *   {"cmd":"set_target_drops_per_min","value":20}
  *   {"cmd":"reset_tare"}
+ *   {"cmd":"set_monitoring","value":1}   (1 = bat theo doi, 0 = che do cho)
  *   {"cmd":"recalibrate_hr_baseline"}
  *
  * On a recognized command, republishes to zigbee2mqtt's "<topic>/set" so
@@ -602,6 +605,13 @@ static void check_his_commands(void)
                        && get_int_from_json(his_cmd_buf, "value", &value)) {
                 snprintf(value_str, sizeof(value_str), "%d", value);
                 publish_mqtt_set("target drop rate", "target_drops_per_min", value_str);
+            } else if (strstr(his_cmd_buf, "set_monitoring") != NULL
+                       && get_int_from_json(his_cmd_buf, "value", &value)) {
+                /* Trang thai, khong phai lenh ban-roi-quen: thiet bi giu nguyen
+                 * gia tri va bao nguoc len, nen nut tren web luon phan anh dung
+                 * thu chip dang lam. */
+                publish_mqtt_set("monitoring", "monitoring",
+                                 value ? "true" : "false");
             } else if (strstr(his_cmd_buf, "reset_tare") != NULL) {
                 publish_mqtt_set("loadcell tare reset", "reset_tare", "true");
             } else if (strstr(his_cmd_buf, "recalibrate_hr_baseline") != NULL) {
@@ -1303,6 +1313,12 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     }
 
     get_bool_from_json(payload, "ts_ready", &ts.ready);
+    /* Dang theo doi hay dang cho. Mac dinh 1 khi thiet bi doi cu chua bao
+     * truong nay: mot thiet bi dang giam sat that ma bi hien thanh "cho" la
+     * kieu sai nguy hiem hon nhieu so voi chieu nguoc lai. */
+    int monitoring = 1;
+    get_bool_from_json(payload, "monitoring", &monitoring);
+
     get_bool_from_json(payload, "ts_anomaly", &ts.anomaly);
     get_bool_from_json(payload, "ts_early_warning", &ts.early_warning);
     get_int_from_json(payload, "ts_trend", &ts.hr_trend);
@@ -1392,7 +1408,7 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
                       tare_in_progress, tare_just_completed, hr_baseline_just_completed,
                       hr_baseline_seconds_remaining, hr_baseline_bpm,
                       tare_event_count, hr_baseline_event_count, link_quality,
-                      device_id_for_topic(msg->topic), &ts);
+                      device_id_for_topic(msg->topic), monitoring, &ts);
 
     free(payload);
 }

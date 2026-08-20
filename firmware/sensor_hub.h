@@ -54,15 +54,15 @@ typedef enum { CH_DISABLED = 0, CH_OK = 1, CH_LOST = 2 } ch_state_t;
  *   GREEN  LED -> PWM pin, PA07
  *   YELLOW LED -> TX  pin, PA04   (mikroBUS UART, NOT the VCOM console,
  *   RED    LED -> RX  pin, PA05    which is on PB02/PB03 - no conflict)
- *   BUZZER     -> CS  pin, PC04
+ *   BUZZER     -> PC06
  * Each LED needs a 220-330 ohm series resistor; drive the buzzer through an
  * NPN transistor if it draws more than a few mA (GPIO limit).
  * All four outputs are ACTIVE HIGH (set ALERT_ACTIVE_HIGH to 0 in
  * sensor_hub.c if your modules are the active-low kind).
  *
- * Còi có lúc được thử ở MOSI/PC02 rồi trả về CS/PC04. Nguyên nhân còi im lúc
- * đó hoá ra là NGUỒN YẾU, không phải sai chân — nên đừng đổi chân để chữa một
- * cái còi không kêu; đo nguồn trước.
+ * Còi đã đi qua CS/PC04 -> MOSI/PC02 -> CS/PC04 -> PC06. Lần nó im tiếng, nguyên
+ * nhân hoá ra là NGUỒN YẾU chứ không phải sai chân — nên đừng đổi chân để chữa
+ * một cái còi không kêu; đo nguồn trước. Ba chân kia giờ đều trống.
  *
  * Dù vậy, hai điều rút ra vẫn còn giá trị:
  *
@@ -137,6 +137,20 @@ uint32_t   sh_total_drops(void);
 /* Doctor-set target infusion rate, ml/hour - readable/settable at runtime
  * (see sensor_hub.c for how a network Zigbee attribute write reaches this). */
 float      sh_target_flow_ml_h(void);
+
+/* ===== Chế độ chờ / đang theo dõi =====
+ *
+ * Ở chế độ CHỜ, thiết bị vẫn đọc cảm biến và vẫn hiện số lên màn hình - y tá
+ * cần thấy kẹp SpO2 đã ăn tín hiệu chưa, cân đã về 0 chưa - nhưng KHÔNG chạy
+ * AI, KHÔNG báo động và KHÔNG kêu còi.
+ *
+ * Đó là giai đoạn treo bình, kẹp cảm biến, tare cân: mọi số đo đều là rác và
+ * mọi tiếng còi đều là báo giả. Bắt một cái máy y tế phải im trong lúc chưa ai
+ * bảo nó bắt đầu là cách duy nhất giữ cho tiếng còi của nó còn nghĩa lý.
+ *
+ * sh_set_monitoring_active() trả về true khi trạng thái thật sự đổi. */
+bool       sh_monitoring_active(void);
+bool       sh_set_monitoring_active(bool active);
 void       sh_set_target_flow_ml_h(float ml_per_h);
 
 /* Doctor-set target drop rate, drops/min - same idea as target_flow_ml_h. */

@@ -71,6 +71,9 @@ public sealed class BedState
     public int? RemainingMl { get; set; }
     public int? RemainingMin { get; set; }
 
+    /// <summary>Thiết bị đang theo dõi (true) hay đang chờ y tá bấm bắt đầu.</summary>
+    public bool Monitoring { get; set; } = true;
+
     /// <summary>
     /// Con so du bao cua kenh do co doc duoc nhu "du bao" khong. Khi false, no
     /// la "muc binh thuong ky vong" chu khong phai du doan tuong lai - giao dien

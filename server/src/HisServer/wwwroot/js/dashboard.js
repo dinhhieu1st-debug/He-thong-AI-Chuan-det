@@ -5,7 +5,7 @@ const DashboardTab = (() => {
   function bedCardHtml(bed) {
     const color = UiUtils.statusColor(bed.status);
     return `
-      <div class="bed-card" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
+      <div class="bed-card${bed.monitoring === false ? " standby" : ""}" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
         <div class="stripe" style="background:${color};"></div>
         <div class="body">
           <div class="row-top">
@@ -21,6 +21,9 @@ const DashboardTab = (() => {
             <div class="vital">Drip<b>${UiUtils.formatMetric(bed.dripRate, "%")}</b></div>
           </div>
           ${UiUtils.signalRowHtml(bed)}
+          ${bed.monitoring === false
+            ? `<div><span class="bed-standby-tag">STANDBY — not monitoring</span></div>`
+            : ""}
           ${bed.alertMessage ? `<div class="bed-message">${UiUtils.escapeHtml(bed.alertMessage)}</div>` : ""}
           <div class="bed-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
         </div>

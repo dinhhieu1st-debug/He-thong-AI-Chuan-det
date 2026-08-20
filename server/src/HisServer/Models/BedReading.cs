@@ -76,4 +76,12 @@ public sealed record BedReading(
     /// <summary>Estimated fluid left, and how long at the current rate. Null
     /// when the load cell cannot estimate it.</summary>
     int? RemainingMl = null,
-    int? RemainingMin = null);
+    int? RemainingMin = null,
+
+    /// <summary>
+    /// Thiết bị đang theo dõi, hay đang ở chế độ chờ (y tá chưa bấm bắt đầu).
+    /// Mặc định true cho thiết bị đời cũ chưa báo trường này: một giường đang
+    /// được giám sát thật mà bị hiện thành "chờ" là kiểu sai nguy hiểm hơn
+    /// nhiều so với chiều ngược lại.
+    /// </summary>
+    bool Monitoring = true);

@@ -108,7 +108,8 @@ public static class BedDataParser
             dropsTrend, dropsTrendDpmPerMin, dropsForecast16s,
             hrForecastTrusted, dropsForecastTrusted, linkQuality, deviceId,
             alertLevel, lineBranch, patientBranch, dripAnomaly, vitalsAnomaly,
-            lineState, remainingMl, remainingMin);
+            lineState, remainingMl, remainingMin,
+            ReadBool(root, true, "monitoring"));
     }
 
     private static string? ReadString(JsonElement root, params string[] names)
