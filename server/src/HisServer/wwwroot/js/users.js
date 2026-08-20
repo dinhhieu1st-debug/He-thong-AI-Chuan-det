@@ -7,6 +7,13 @@ const UsersTab = (() => {
   let users = [];
   let selected = null;         // { user, assignments }
   let error = null;
+  let searchTerm = "";
+
+  function matchesFilters(u) {
+    if (!searchTerm) return true;
+    const haystack = `${u.username} ${u.fullName || ""}`.toLowerCase();
+    return haystack.includes(searchTerm.toLowerCase());
+  }
 
   async function load() {
     try {
@@ -103,15 +110,21 @@ const UsersTab = (() => {
       return;
     }
 
+    const visible = users.filter(matchesFilters);
+
     host.innerHTML = `
       <div class="toolbar">
+        <input class="search-input" id="userSearch" placeholder="Search account or name..." value="${UiUtils.escapeHtml(searchTerm)}">
+        <span class="muted">Showing ${visible.length} of ${users.length}</span>
         <button class="btn primary" id="addUserBtn">+ Add account</button>
       </div>
       <div class="split">
         <div class="main-col">
           <table class="data-table">
             <thead><tr><th>Account</th><th>Full name</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead>
-            <tbody>${users.map(userRow).join("")}</tbody>
+            <tbody>${visible.length === 0
+              ? `<tr><td colspan="5" class="empty-state">No accounts match the current search.</td></tr>`
+              : visible.map(userRow).join("")}</tbody>
           </table>
         </div>
         <div style="flex:1; min-width:320px;">${detailHtml()}</div>
@@ -126,6 +139,13 @@ const UsersTab = (() => {
     });
 
     document.getElementById("addUserBtn")?.addEventListener("click", promptCreate);
+
+    document.getElementById("userSearch")?.addEventListener("input", (e) => {
+      searchTerm = e.target.value;
+      render();
+      const input = document.getElementById("userSearch");
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    });
 
     if (!selected) return;
     const userId = selected.user.userId;

@@ -1,5 +1,7 @@
 const AlertsTab = (() => {
-  let filter = "all";
+  const persisted = UiUtils.loadFilterState("alerts", { filter: "all", roomFilter: "all" });
+  let filter = persisted.filter;
+  let roomFilter = persisted.roomFilter;
   let searchTerm = "";
   let page = 1;
   const pageSize = 80;
@@ -22,8 +24,25 @@ const AlertsTab = (() => {
     }
   }
 
+  function renderRoomFilter() {
+    const select = document.getElementById("alertRoomFilter");
+    if (!select) return;
+    const rooms = Array.from(new Set(Array.from(State.beds.values()).map((b) => b.room).filter(Boolean))).sort();
+    select.innerHTML = [`<option value="all">All rooms</option>`]
+      .concat(rooms.map((room) => `<option value="${UiUtils.escapeHtml(room)}">${UiUtils.escapeHtml(room)}</option>`))
+      .join("");
+    if (roomFilter !== "all" && !rooms.includes(roomFilter)) roomFilter = "all";
+    select.value = roomFilter;
+  }
+
   async function load() {
-    const params = { ...queryParamsForFilter(), page: String(page), pageSize: String(pageSize) };
+    renderRoomFilter();
+    const params = {
+      ...queryParamsForFilter(),
+      ...(roomFilter !== "all" ? { room: roomFilter } : {}),
+      page: String(page),
+      pageSize: String(pageSize)
+    };
     const result = await Api.getAlerts(params);
     currentItems = result.items;
     totalCount = result.totalCount;
@@ -137,6 +156,9 @@ const AlertsTab = (() => {
     document.getElementById("alertsPrev")?.addEventListener("click", () => { page = Math.max(1, page - 1); load(); });
     document.getElementById("alertsNext")?.addEventListener("click", () => { page += 1; load(); });
 
+    const countEl = document.getElementById("alertsCount");
+    if (countEl) countEl.textContent = `Showing ${items.length} of ${totalCount}`;
+
     document.querySelectorAll("[data-select-alert]").forEach((cb) => {
       cb.addEventListener("change", () => {
         const id = Number(cb.getAttribute("data-select-alert"));
@@ -236,10 +258,29 @@ const AlertsTab = (() => {
     });
   }
 
+  function applyFilterChip() {
+    document.querySelectorAll("#alertFilters .chip").forEach((chip) => {
+      chip.classList.toggle("active", chip.getAttribute("data-filter") === filter);
+    });
+  }
+
+  function persist() {
+    UiUtils.saveFilterState("alerts", { filter, roomFilter });
+  }
+
   function init() {
+    applyFilterChip();
+
     document.getElementById("alertFilters").addEventListener("click", (e) => {
       const f = e.target.getAttribute("data-filter");
-      if (f) { filter = f; page = 1; load(); }
+      if (f) { filter = f; page = 1; persist(); applyFilterChip(); load(); }
+    });
+
+    document.getElementById("alertRoomFilter").addEventListener("change", (e) => {
+      roomFilter = e.target.value;
+      page = 1;
+      persist();
+      load();
     });
 
     document.getElementById("alertSearch").addEventListener("input", (e) => {

@@ -140,6 +140,7 @@
                more rooms than fit on one line as chips. -->
           <select class="search-input room-select" id="bedRoomFilter"></select>
           <div class="chip-row" id="bedStatusFilters"></div>
+          <span class="muted" id="bedsCount"></span>
           <button class="btn primary" id="addBedBtn" data-cap="beds.manage">+ Add Bed</button>
         </div>
         <div class="split">
@@ -160,6 +161,7 @@
         </div>
         <div class="toolbar">
           <input class="search-input" id="alertSearch" placeholder="Search bed or message...">
+          <select class="search-input room-select" id="alertRoomFilter"></select>
           <div class="chip-row" id="alertFilters">
             <button class="chip active" data-filter="all">All</button>
             <button class="chip" data-filter="critical">Critical</button>
@@ -167,6 +169,7 @@
             <button class="chip" data-filter="unacked">Unacknowledged</button>
             <button class="chip" data-filter="acked">Acknowledged</button>
           </div>
+          <span class="muted" id="alertsCount"></span>
         </div>
         <div class="bulk-bar" id="alertsBulkBar" style="display:none;">
           <label class="bulk-select-all"><input type="checkbox" id="alertsSelectAll"> Select all on this page</label>
@@ -193,6 +196,7 @@
             <button class="chip" data-filter="gateway">Gateway</button>
             <button class="chip" data-filter="ble">BLE</button>
           </div>
+          <span class="muted" id="devicesCount"></span>
           <button class="btn" id="rescanDevicesBtn">Rescan</button>
           <button class="btn primary" id="addDeviceBtn">+ Add Device</button>
         </div>

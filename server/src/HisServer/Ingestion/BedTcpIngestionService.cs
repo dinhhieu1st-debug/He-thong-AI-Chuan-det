@@ -563,20 +563,22 @@ public sealed class BedTcpIngestionService : BackgroundService
     {
         var previousBed = bedStateStore.Get(reading.BedId);
         var previousStatus = previousBed?.Status ?? BedStatus.Offline;
-        var status = VitalsStatusEvaluator.Evaluate(reading, previousBed?.Spo2, previousBed?.HeartRate);
+        var previousHysteresis = previousBed?.Hysteresis ?? VitalsStatusEvaluator.MetricHysteresis.None;
+        var status = VitalsStatusEvaluator.Evaluate(reading, previousHysteresis);
+        var nextHysteresis = VitalsStatusEvaluator.ComputeNextHysteresis(reading, previousHysteresis);
 
         string? alertMessage = null;
         string alertType = string.Empty;
         if (status is BedStatus.Warning or BedStatus.Critical)
         {
-            (alertType, alertMessage) = VitalsStatusEvaluator.DescribeAlert(
-                reading, previousBed?.Spo2, previousBed?.HeartRate);
+            (alertType, alertMessage) = VitalsStatusEvaluator.DescribeAlert(reading, previousHysteresis);
         }
 
         var bed = bedStateStore.Upsert(reading.BedId, state =>
         {
             state.Room = reading.Room;
             state.Status = status;
+            state.Hysteresis = nextHysteresis;
             state.Spo2 = reading.Spo2;
             state.HeartRate = reading.HeartRate;
             state.DripRate = reading.DripRate;

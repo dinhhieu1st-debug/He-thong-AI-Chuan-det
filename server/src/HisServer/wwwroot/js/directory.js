@@ -8,6 +8,13 @@
 const DirectoryTab = (() => {
   let beds = [];
   let error = null;
+  let searchTerm = "";
+
+  function matchesFilters(b) {
+    if (!searchTerm) return true;
+    const haystack = `${b.bedId} ${b.room || ""} ${b.deviceId || ""}`.toLowerCase();
+    return haystack.includes(searchTerm.toLowerCase());
+  }
 
   async function load() {
     try {
@@ -58,17 +65,30 @@ const DirectoryTab = (() => {
       </div>
 
       <div class="toolbar">
+        <input class="search-input" id="directorySearch" placeholder="Search bed, room or device..." value="${UiUtils.escapeHtml(searchTerm)}">
+      </div>
+      <div class="toolbar">
         <input class="search-input" id="newBedId" placeholder="New bed id, e.g. BED-104" style="max-width:220px;">
         <input class="search-input" id="newBedRoom" placeholder="Room, e.g. ICU-1" style="max-width:180px;">
         <button class="btn primary" id="createBedBtn">Add bed</button>
       </div>
 
-      ${beds.length === 0
-        ? `<div class="empty-state">No beds yet. Add the first one above.</div>`
-        : `<table class="data-table">
+      ${(() => {
+        const visible = beds.filter(matchesFilters);
+        if (beds.length === 0) return `<div class="empty-state">No beds yet. Add the first one above.</div>`;
+        if (visible.length === 0) return `<div class="empty-state">No beds match the current search.</div>`;
+        return `<table class="data-table">
              <thead><tr><th>Bed</th><th>Room</th><th>Device</th><th>Occupancy</th><th></th></tr></thead>
-             <tbody>${beds.map(rowHtml).join("")}</tbody>
-           </table>`}`;
+             <tbody>${visible.map(rowHtml).join("")}</tbody>
+           </table>`;
+      })()}`;
+
+    document.getElementById("directorySearch")?.addEventListener("input", (e) => {
+      searchTerm = e.target.value;
+      render();
+      const input = document.getElementById("directorySearch");
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    });
 
     document.getElementById("createBedBtn")?.addEventListener("click", async () => {
       const bedId = document.getElementById("newBedId").value.trim();

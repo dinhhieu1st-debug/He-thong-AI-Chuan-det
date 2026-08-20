@@ -19,6 +19,7 @@ public static class AlertEndpoints
             AlertRepository repository,
             bool? ack,
             string? level,
+            string? room,
             int? page,
             int? pageSize) =>
         {
@@ -32,6 +33,7 @@ public static class AlertEndpoints
             {
                 Acknowledged = ack,
                 Level = parsedLevel,
+                Room = string.IsNullOrWhiteSpace(room) ? null : room,
                 Page = page is null or <= 0 ? 1 : page.Value,
                 PageSize = pageSize is null or <= 0 ? 80 : pageSize.Value
             };

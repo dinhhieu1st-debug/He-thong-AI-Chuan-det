@@ -1,7 +1,12 @@
 const DevicesTab = (() => {
+  const persisted = UiUtils.loadFilterState("devices", { typeFilter: "all" });
   let searchTerm = "";
-  let typeFilter = "all";
+  let typeFilter = persisted.typeFilter;
   let selectedDeviceId = null;
+
+  // Needs-attention first: a fault or a dropped link is why someone opened
+  // this tab, so it should not be buried under a page of healthy devices.
+  const DEVICE_SEVERITY_RANK = { SENSORFAULT: 0, WARNING: 0, OFFLINE: 1, PENDING: 2, ONLINE: 3 };
 
   /* SENSOR_FAULT sits between healthy and dead on purpose, and gets its own
    * colour: the unit is alive and talking, but a probe or a cable is gone.
@@ -480,7 +485,13 @@ const DevicesTab = (() => {
   }
 
   function render() {
-    const devices = Array.from(State.devices.values()).filter(matchesFilters).sort((a, b) => a.deviceId.localeCompare(b.deviceId));
+    const total = State.devices.size;
+    const devices = Array.from(State.devices.values())
+      .filter(matchesFilters)
+      .sort((a, b) => {
+        const ra = DEVICE_SEVERITY_RANK[statusKey(a)] ?? 4, rb = DEVICE_SEVERITY_RANK[statusKey(b)] ?? 4;
+        return ra - rb || a.deviceId.localeCompare(b.deviceId);
+      });
     const grid = document.getElementById("devicesGrid");
     const banner = document.getElementById("pendingDevices");
     renderPendingBanner();
@@ -488,6 +499,9 @@ const DevicesTab = (() => {
     grid.innerHTML = devices.length === 0
       ? `<div class="empty-state">No devices match the current filters.</div>`
       : devices.map(deviceCardHtml).join("");
+
+    const countEl = document.getElementById("devicesCount");
+    if (countEl) countEl.textContent = devices.length === total ? `${total} devices` : `Showing ${devices.length} of ${total}`;
 
     document.querySelectorAll("[data-ota-check]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -557,11 +571,19 @@ const DevicesTab = (() => {
     State.setDevices(devices);
   }
 
+  function applyTypeFilterChip() {
+    document.querySelectorAll("#deviceTypeFilters .chip").forEach((chip) => {
+      chip.classList.toggle("active", chip.getAttribute("data-filter") === typeFilter);
+    });
+  }
+
   function init() {
     State.on("devices-changed", render);
     State.on("device-discovered", (device) => {
       UiUtils.toast(`New device joined: ${device.deviceId}`);
     });
+
+    applyTypeFilterChip();
 
     document.getElementById("deviceSearch").addEventListener("input", (e) => {
       searchTerm = e.target.value;
@@ -570,7 +592,12 @@ const DevicesTab = (() => {
 
     document.getElementById("deviceTypeFilters").addEventListener("click", (e) => {
       const f = e.target.getAttribute("data-filter");
-      if (f) { typeFilter = f; render(); }
+      if (f) {
+        typeFilter = f;
+        UiUtils.saveFilterState("devices", { typeFilter });
+        applyTypeFilterChip();
+        render();
+      }
     });
 
     document.getElementById("rescanDevicesBtn")?.addEventListener("click", async () => {

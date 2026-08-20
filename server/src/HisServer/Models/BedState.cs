@@ -67,6 +67,16 @@ public sealed class BedState
     public bool DripAnomaly { get; set; }
     public bool VitalsAnomaly { get; set; }
     public int? LineState { get; set; }
+
+    /// <summary>
+    /// Latched per-metric hysteresis state for VitalsStatusEvaluator - see the
+    /// class comment on <see cref="VitalsStatusEvaluator.MetricHysteresis"/>
+    /// for why this has to be the DECISION from last time, not just the raw
+    /// previous SpO2/heart rate values. In-memory only, like the AI v2 fields
+    /// above: a restart loses it, but the next reading (within a second or two
+    /// on a live bed) refreshes it, so nothing is lost that matters.
+    /// </summary>
+    public VitalsStatusEvaluator.MetricHysteresis Hysteresis { get; set; }
     public int? RemainingMl { get; set; }
     public int? RemainingMin { get; set; }
 

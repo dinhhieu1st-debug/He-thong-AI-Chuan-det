@@ -122,8 +122,32 @@ const UiUtils = (() => {
     toastHistoryChanged();
   }
 
+  // Critical > Warning > Stable > Offline, so a busy tab shows what needs
+  // attention first instead of burying it alphabetically.
+  const STATUS_RANK = { Critical: 0, Warning: 1, Stable: 2, Offline: 3 };
+  function severityCompare(a, b) {
+    const ra = STATUS_RANK[a] ?? 4, rb = STATUS_RANK[b] ?? 4;
+    return ra - rb;
+  }
+
+  // Per-tab filter state persisted across reloads. Namespaced under
+  // "filters:" so it never collides with the "theme" key or anything else
+  // main.js/login.js keep in localStorage.
+  function loadFilterState(key, defaults) {
+    try {
+      return { ...defaults, ...JSON.parse(localStorage.getItem(`filters:${key}`) || "{}") };
+    } catch {
+      return { ...defaults };
+    }
+  }
+
+  function saveFilterState(key, state) {
+    localStorage.setItem(`filters:${key}`, JSON.stringify(state));
+  }
+
   return {
     statusColor, culpritBadgeHtml, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast,
-    getToastHistory, getUnseenErrorCount, markToastHistorySeen
+    getToastHistory, getUnseenErrorCount, markToastHistorySeen,
+    severityCompare, loadFilterState, saveFilterState
   };
 })();

@@ -9,6 +9,7 @@ public sealed class AlertQuery
 {
     public bool? Acknowledged { get; init; }
     public BedStatus? Level { get; init; }
+    public string? Room { get; init; }
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 80;
 }
@@ -66,8 +67,14 @@ public sealed class AlertRepository
             parameters.Add("level", query.Level.Value.ToString().ToUpperInvariant());
         }
 
+        if (query.Room is not null)
+        {
+            where.Append(" AND b.room = @room");
+            parameters.Add("room", query.Room);
+        }
+
         var totalCount = await connection.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM alerts a" + where, parameters);
+            "SELECT COUNT(*) FROM alerts a LEFT JOIN beds b ON b.bed_id = a.bed_id" + where, parameters);
 
         parameters.Add("offset", (query.Page - 1) * query.PageSize);
         parameters.Add("pageSize", query.PageSize);

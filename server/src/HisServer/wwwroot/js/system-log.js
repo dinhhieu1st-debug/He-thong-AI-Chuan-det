@@ -59,12 +59,26 @@ const SystemLogTab = (() => {
   }
 
   function init() {
+    // Default to the last 24h - an unbounded query against months of vitals
+    // history is both slow and useless as a first screen; the date inputs
+    // stay fully editable for anyone who needs to look further back.
+    const to = new Date();
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+    document.getElementById("logFromDate").value = from.toISOString().slice(0, 10);
+    document.getElementById("logToDate").value = to.toISOString().slice(0, 10);
+
+    const persisted = UiUtils.loadFilterState("systemLog", { type: "" });
+    document.getElementById("logTypeFilter").value = persisted.type;
+
     document.getElementById("logSearch").addEventListener("input", (e) => {
       searchTerm = e.target.value;
       render();
     });
 
-    document.getElementById("logTypeFilter").addEventListener("change", () => { page = 1; load(); });
+    document.getElementById("logTypeFilter").addEventListener("change", (e) => {
+      UiUtils.saveFilterState("systemLog", { type: e.target.value });
+      page = 1; load();
+    });
     document.getElementById("logFromDate").addEventListener("change", () => { page = 1; load(); });
     document.getElementById("logToDate").addEventListener("change", () => { page = 1; load(); });
     document.getElementById("logRefreshBtn").addEventListener("click", () => load());

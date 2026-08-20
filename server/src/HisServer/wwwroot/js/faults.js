@@ -21,6 +21,17 @@ const FaultsTab = (() => {
   let reports = [];
   let showResolved = false;
   let error = null;
+  let searchTerm = "";
+  let channelFilter = "all";
+
+  function matchesFilters(r) {
+    if (channelFilter !== "all" && r.channel !== channelFilter) return false;
+    if (searchTerm) {
+      const haystack = `${r.bedId} ${r.deviceId || ""} ${r.note || ""}`.toLowerCase();
+      if (!haystack.includes(searchTerm.toLowerCase())) return false;
+    }
+    return true;
+  }
 
   async function load() {
     try {
@@ -80,20 +91,49 @@ const FaultsTab = (() => {
       return;
     }
 
+    const visible = reports.filter(matchesFilters);
+
     host.innerHTML = `
       <div class="toolbar">
+        <input class="search-input" id="faultSearch" placeholder="Search bed, device or note..." value="${UiUtils.escapeHtml(searchTerm)}">
         <button class="chip ${showResolved ? "" : "active"}" data-filter-open>Open</button>
         <button class="chip ${showResolved ? "active" : ""}" data-filter-all>Including resolved</button>
       </div>
+      <div class="chip-row">
+        <button class="chip ${channelFilter === "all" ? "active" : ""}" data-channel="all">All parts</button>
+        ${Object.entries(CHANNEL_LABEL).map(([key, label]) =>
+          `<button class="chip ${channelFilter === key ? "active" : ""}" data-channel="${key}">${UiUtils.escapeHtml(label)}</button>`
+        ).join("")}
+      </div>
+      <span class="muted">Showing ${visible.length} of ${reports.length}</span>
       ${reports.length === 0
         ? `<div class="empty-state">Nothing reported. Nurses raise these from the bed detail screen.</div>`
-        : `<table class="data-table">
+        : visible.length === 0
+          ? `<div class="empty-state">No fault reports match the current filters.</div>`
+          : `<table class="data-table">
              <thead><tr>
                <th>Bed / device</th><th>Part</th><th>Reported problem</th>
                <th>Reported by</th><th>Status</th><th></th>
              </tr></thead>
-             <tbody>${reports.map(rowHtml).join("")}</tbody>
+             <tbody>${visible.map(rowHtml).join("")}</tbody>
            </table>`}`;
+
+    host.querySelector("#faultSearch")?.addEventListener("input", (e) => {
+      searchTerm = e.target.value;
+      render();
+      // render() just rebuilt the whole toolbar from a string, which drops
+      // focus from under the caret - put it back so typing isn't interrupted
+      // every keystroke.
+      const input = document.getElementById("faultSearch");
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    });
+
+    host.querySelectorAll("[data-channel]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        channelFilter = btn.getAttribute("data-channel");
+        render();
+      });
+    });
 
     host.querySelector("[data-filter-open]")?.addEventListener("click", () => {
       showResolved = false; load();

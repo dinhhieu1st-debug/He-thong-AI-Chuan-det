@@ -1,14 +1,35 @@
 const BedsTab = (() => {
+  const persisted = UiUtils.loadFilterState("beds", { selectedRoom: "all", selectedStatus: "all", myBedsOnly: false });
   let searchTerm = "";
-  let selectedRoom = "all";
-  let selectedStatus = "all";
+  let selectedRoom = persisted.selectedRoom;
+  let selectedStatus = persisted.selectedStatus;
+  let myBedsOnly = persisted.myBedsOnly;
+  let myBedIds = null;   // Set, lazily loaded from the duty roster - null means "not loaded yet"
   let selectedBedId = null;
 
   const STATUS_FILTERS = ["all", "Stable", "Warning", "Critical", "Offline"];
 
+  function persist() {
+    UiUtils.saveFilterState("beds", { selectedRoom, selectedStatus, myBedsOnly });
+  }
+
+  // Same roster ProfileTab ("My shift") already reads - loaded once per tab
+  // activation, not per render, since it only changes when an administrator
+  // edits assignments.
+  async function loadMyBedIds() {
+    try {
+      const data = await Api.getMyAssignment();
+      myBedIds = new Set(data.beds.filter((b) => b.mine).map((b) => b.bedId));
+    } catch {
+      myBedIds = new Set();
+    }
+    renderFilters();
+  }
+
   function matchesFilters(bed) {
     if (selectedRoom !== "all" && bed.room !== selectedRoom) return false;
     if (selectedStatus !== "all" && bed.status !== selectedStatus) return false;
+    if (myBedsOnly && myBedIds && !myBedIds.has(bed.bedId)) return false;
     if (searchTerm) {
       const haystack = `${bed.bedId} ${bed.room}`.toLowerCase();
       if (!haystack.includes(searchTerm.toLowerCase())) return false;
@@ -63,7 +84,9 @@ const BedsTab = (() => {
 
     document.getElementById("bedStatusFilters").innerHTML = STATUS_FILTERS.map((status) =>
       `<button class="chip ${status === selectedStatus ? "active" : ""}" data-status="${status}">${status === "all" ? "All statuses" : status}</button>`
-    ).join("");
+    ).join("") + (myBedIds && myBedIds.size > 0
+      ? `<button class="chip ${myBedsOnly ? "active" : ""}" data-my-beds>My beds</button>`
+      : "");
   }
 
   // One-shot event flags (tare_just_completed / hr_baseline_just_completed)
@@ -1069,7 +1092,10 @@ const BedsTab = (() => {
 
   function render() {
     renderFilters();
-    const beds = Array.from(State.beds.values()).filter(matchesFilters).sort((a, b) => a.bedId.localeCompare(b.bedId));
+    const total = State.beds.size;
+    const beds = Array.from(State.beds.values())
+      .filter(matchesFilters)
+      .sort((a, b) => UiUtils.severityCompare(a.status, b.status) || a.bedId.localeCompare(b.bedId));
     const grid = document.getElementById("bedsGrid");
     // Viewing one room means far fewer cards, so let them grow into the space
     // instead of leaving most of the page empty. Kept off for "all rooms",
@@ -1078,6 +1104,9 @@ const BedsTab = (() => {
     grid.innerHTML = beds.length === 0
       ? `<div class="empty-state">No beds match the current filters.</div>`
       : beds.map(bedCardHtml).join("");
+
+    const countEl = document.getElementById("bedsCount");
+    if (countEl) countEl.textContent = beds.length === total ? `${total} beds` : `Showing ${beds.length} of ${total}`;
 
     grid.querySelectorAll(".bed-card").forEach((card) => {
       card.addEventListener("click", () => {
@@ -1100,6 +1129,7 @@ const BedsTab = (() => {
 
   function init() {
     State.on("beds-changed", render);
+    loadMyBedIds();
 
     document.getElementById("bedSearch").addEventListener("input", (e) => {
       searchTerm = e.target.value;
@@ -1108,12 +1138,14 @@ const BedsTab = (() => {
 
     document.getElementById("bedRoomFilter").addEventListener("change", (e) => {
       selectedRoom = e.target.value;
+      persist();
       render();
     });
 
     document.getElementById("bedStatusFilters").addEventListener("click", (e) => {
       const status = e.target.getAttribute("data-status");
-      if (status) { selectedStatus = status; render(); }
+      if (status) { selectedStatus = status; persist(); render(); }
+      if (e.target.hasAttribute("data-my-beds")) { myBedsOnly = !myBedsOnly; persist(); render(); }
     });
 
     // Removed from the DOM for roles without beds.manage, so bind defensively.

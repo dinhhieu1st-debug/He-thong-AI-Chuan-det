@@ -31,8 +31,8 @@ static BedReading Normal() => new(
 Console.WriteLine("\n== A healthy bed stays Stable ==");
 {
     var r = Normal();
-    Check("level 0 -> Stable", VitalsStatusEvaluator.Evaluate(r, null, null) == BedStatus.Stable,
-          VitalsStatusEvaluator.Evaluate(r, null, null).ToString());
+    Check("level 0 -> Stable", VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable,
+          VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 }
 
 Console.WriteLine("\n== A line fault is a Warning, NOT Critical ==");
@@ -40,8 +40,8 @@ Console.WriteLine("   The patient is fine. Escalating this to Critical is how a 
 Console.WriteLine("   learns to ignore the device.");
 {
     var r = Normal() with { AlertLevel = 1, LineBranch = true, LineState = 2 };
-    var status = VitalsStatusEvaluator.Evaluate(r, null, null);
-    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, null, null);
+    var status = VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None);
+    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("level 1 -> Warning", status == BedStatus.Warning, status.ToString());
     Check("named as a LINE fault", type == "LINE_FAULT", $"{type}: {message}");
     Check("message says the weight is not moving",
@@ -51,7 +51,7 @@ Console.WriteLine("   learns to ignore the device.");
 Console.WriteLine("\n== A bag simply running out must NOT read as a blockage ==");
 {
     var r = Normal() with { AlertLevel = 1, LineBranch = true, LineState = 1, RemainingMin = 18 };
-    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, null, null);
+    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("reported as running low, with the time left",
           message.Contains("running low") && message.Contains("18"), message);
     Check("NOT described as blocked", !message.Contains("blocked"), message);
@@ -63,7 +63,7 @@ Console.WriteLine("   reports level 0, because the load cell shows the fluid goi
 Console.WriteLine("   Re-reading LineBlocked here would undo the whole point of the load cell.");
 {
     var r = Normal() with { AlertLevel = 0, LineBlocked = true, LineState = 1, RemainingMin = 42 };
-    var status = VitalsStatusEvaluator.Evaluate(r, null, null);
+    var status = VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("device says level 0 -> Stable despite LineBlocked",
           status == BedStatus.Stable, status.ToString());
 }
@@ -74,33 +74,33 @@ Console.WriteLine("   line the same colour and siren is how a ward stops reactin
 {
     var v1 = Normal() with { AlertLevel = null, LineBlocked = true };
     Check("v1 device, LineBlocked -> Warning, not Critical",
-          VitalsStatusEvaluator.Evaluate(v1, null, null) == BedStatus.Warning,
-          VitalsStatusEvaluator.Evaluate(v1, null, null).ToString());
+          VitalsStatusEvaluator.Evaluate(v1, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Warning,
+          VitalsStatusEvaluator.Evaluate(v1, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 
     var v2 = Normal() with { AlertLevel = 1, LineBranch = true, LineState = 2, LineBlocked = true };
     Check("v2 device, occluded line -> Warning",
-          VitalsStatusEvaluator.Evaluate(v2, null, null) == BedStatus.Warning,
-          VitalsStatusEvaluator.Evaluate(v2, null, null).ToString());
+          VitalsStatusEvaluator.Evaluate(v2, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Warning,
+          VitalsStatusEvaluator.Evaluate(v2, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 
     // The one case a line fault still reaches Critical: the patient is failing
     // too. That is level 3, and it is the patient half that earns the red.
     var both = Normal() with { AlertLevel = 3, LineBranch = true, PatientBranch = true };
     Check("line AND patient together is still Critical",
-          VitalsStatusEvaluator.Evaluate(both, null, null) == BedStatus.Critical,
-          VitalsStatusEvaluator.Evaluate(both, null, null).ToString());
+          VitalsStatusEvaluator.Evaluate(both, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical,
+          VitalsStatusEvaluator.Evaluate(both, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 
     // And a line fault must not mask a real desaturation happening at once.
     var masked = Normal() with { AlertLevel = 1, LineBlocked = true, Spo2 = 84, Spo2Signal = true };
     Check("a line fault never hides a critical SpO2",
-          VitalsStatusEvaluator.Evaluate(masked, null, null) == BedStatus.Critical,
-          VitalsStatusEvaluator.Evaluate(masked, null, null).ToString());
+          VitalsStatusEvaluator.Evaluate(masked, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical,
+          VitalsStatusEvaluator.Evaluate(masked, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 }
 
 Console.WriteLine("\n== A patient problem IS Critical ==");
 {
     var r = Normal() with { AlertLevel = 2, PatientBranch = true };
-    var status = VitalsStatusEvaluator.Evaluate(r, null, null);
-    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, null, null);
+    var status = VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None);
+    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("level 2 -> Critical", status == BedStatus.Critical, status.ToString());
     Check("says the line is fine", message.Contains("line is behaving normally"),
           $"{type}: {message}");
@@ -109,9 +109,9 @@ Console.WriteLine("\n== A patient problem IS Critical ==");
 Console.WriteLine("\n== Both at once -> suspected fluid overload ==");
 {
     var r = Normal() with { AlertLevel = 3, LineBranch = true, PatientBranch = true };
-    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, null, null);
+    var (type, message) = VitalsStatusEvaluator.DescribeAlert(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("level 3 -> Critical",
-          VitalsStatusEvaluator.Evaluate(r, null, null) == BedStatus.Critical, type);
+          VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical, type);
     Check("named as fluid overload", type == "FLUID_OVERLOAD_SUSPECTED", message);
 }
 
@@ -119,7 +119,7 @@ Console.WriteLine("\n== The server can still OVERRULE a device that says it is f
 Console.WriteLine("   The device's verdict may raise the level, never lower it.");
 {
     var r = Normal() with { AlertLevel = 0, Spo2 = 84, Spo2Signal = true };
-    var status = VitalsStatusEvaluator.Evaluate(r, null, null);
+    var status = VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("device says 0, server sees SpO2 84 -> Critical",
           status == BedStatus.Critical, status.ToString());
 }
@@ -128,46 +128,75 @@ Console.WriteLine("\n== A v1 device (no AlertLevel at all) still works ==");
 {
     var r = Normal() with { AlertLevel = null, Spo2 = 84 };
     Check("critical SpO2 still Critical",
-          VitalsStatusEvaluator.Evaluate(r, null, null) == BedStatus.Critical, "AlertLevel=null");
+          VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical, "AlertLevel=null");
 
     var healthy = Normal() with { AlertLevel = null };
     Check("healthy v1 bed still Stable",
-          VitalsStatusEvaluator.Evaluate(healthy, null, null) == BedStatus.Stable, "AlertLevel=null");
+          VitalsStatusEvaluator.Evaluate(healthy, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable, "AlertLevel=null");
 }
 
 Console.WriteLine("\n== A lost sensor is never Stable ==");
 {
     var r = Normal() with { Spo2Signal = false };
     Check("lost SpO2 -> Warning",
-          VitalsStatusEvaluator.Evaluate(r, null, null) == BedStatus.Warning,
-          VitalsStatusEvaluator.Evaluate(r, null, null).ToString());
+          VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Warning,
+          VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 }
 
 Console.WriteLine("\n== Hysteresis on one channel must not leak into another ==");
 Console.WriteLine("   A bed that was Warning because of SpO2 must not also buffer a heart");
 Console.WriteLine("   rate that was never itself abnormal - the two channels are unrelated.");
 {
-    // Previous reading: SpO2 was warning-low (92), heart rate was fine (78).
-    var previousSpo2 = 92;
-    var previousHeartRate = 78;
+    // SpO2 latched Warning (from some earlier reading), heart rate latched normal.
+    var previous = new VitalsStatusEvaluator.MetricHysteresis(Spo2Warning: true, Spo2Critical: false, HeartRateAbnormal: false);
 
-    // This reading: SpO2 has fully recovered to 99 (clear of its own 97
-    // buffer, so SpO2 itself contributes nothing here), and the heart rate
-    // has drifted to 108, just under the 110 Warning line.
+    // SpO2 has fully recovered to 99 (clear of its own buffer, so it
+    // contributes nothing here), heart rate is 108 - under the raw 110
+    // Warning line and never itself latched abnormal.
     var r = Normal() with { Spo2 = 99, HeartRate = 108 };
-    var status = VitalsStatusEvaluator.Evaluate(r, previousSpo2, previousHeartRate);
+    var status = VitalsStatusEvaluator.Evaluate(r, previous);
     Check("HR at 108 with no prior HR abnormality -> Stable (not buffered by SpO2's history)",
           status == BedStatus.Stable, status.ToString());
 
-    // Same reading, but now the PREVIOUS heart rate was itself abnormal
-    // (115) - hysteresis should apply and hold it at Warning until it clears
-    // the buffer (110 + 2 = past 108, i.e. 109 is still "not recovered
-    // enough"), same shape as the SpO2 case. 109 is below the RAW threshold
-    // of 110 - without per-reading hysteresis this would already read Stable.
+    // Same reading, but heart rate WAS latched abnormal - hysteresis should
+    // hold it at Warning until it clears the buffer (110 + 2, so 109 is
+    // still "not recovered enough"). 109 is below the raw 110 threshold -
+    // without hysteresis this would already read Stable.
+    var previousHrAbnormal = previous with { HeartRateAbnormal = true };
     var r2 = Normal() with { Spo2 = 99, HeartRate = 109 };
-    var status2 = VitalsStatusEvaluator.Evaluate(r2, previousSpo2, previousHeartRate: 115);
-    Check("HR at 109 with prior HR abnormality (115) -> still Warning (buffered)",
+    var status2 = VitalsStatusEvaluator.Evaluate(r2, previousHrAbnormal);
+    Check("HR at 109 with prior HR abnormality -> still Warning (buffered)",
           status2 == BedStatus.Warning, status2.ToString());
+}
+
+Console.WriteLine("\n== Hysteresis survives noise that crosses the boundary more than once ==");
+Console.WriteLine("   The bug this reproduces: comparing each reading only to the single RAW");
+Console.WriteLine("   previous value let noise like 94, 96, 94, 96... reset the buffer every");
+Console.WriteLine("   other reading (96 doesn't look abnormal on its own), re-firing the alert");
+Console.WriteLine("   every couple of readings - observed live on a real bed. Latching the");
+Console.WriteLine("   DECISION, not the raw value, is what has to survive this.");
+{
+    var hysteresis = VitalsStatusEvaluator.MetricHysteresis.None;
+    BedStatus status = BedStatus.Stable;
+    var alertCount = 0;
+    var previousStatus = BedStatus.Offline;
+
+    // Same noise pattern captured live: mean sits ON the Warning threshold
+    // (95), amplitude (±1-2) never reaches the recovery buffer (97).
+    int[] spo2Sequence = { 95, 95, 94, 94, 96, 94, 96, 95, 96, 94, 95 };
+    foreach (var spo2 in spo2Sequence)
+    {
+        var reading = Normal() with { Spo2 = spo2 };
+        status = VitalsStatusEvaluator.Evaluate(reading, hysteresis);
+        hysteresis = VitalsStatusEvaluator.ComputeNextHysteresis(reading, hysteresis);
+        if (status != previousStatus && status == BedStatus.Warning) alertCount++;
+        previousStatus = status;
+    }
+
+    Check("stays Warning throughout (never dips back to Stable on 95/96)",
+          status == BedStatus.Warning, status.ToString());
+    Check("fires the alert-worthy transition exactly once, not once per noisy sample",
+          alertCount == 1, $"{alertCount} transitions into Warning");
 }
 
 Console.WriteLine("\n== The worst alert must never be lost to a column limit ==");
@@ -181,7 +210,7 @@ Console.WriteLine("   dropping the entire alert.");
         Spo2 = 86, Spo2Signal = true, HeartRate = 155, HeartRateSignal = true,
         AeAlarm = true, DripAnomaly = true, VitalsAnomaly = true,
     };
-    var (_, message) = VitalsStatusEvaluator.DescribeAlert(r, null, null);
+    var (_, message) = VitalsStatusEvaluator.DescribeAlert(r, VitalsStatusEvaluator.MetricHysteresis.None);
     Check("message fits the 255-char column", message.Length <= 255,
           $"{message.Length} chars");
     Check("the most severe cause survives truncation",
@@ -220,7 +249,7 @@ Console.WriteLine("\n== A real line captured from the board parses end to end ==
         Check("remainingMin -1 becomes null", reading.RemainingMin is null,
               reading.RemainingMin?.ToString() ?? "null");
 
-        var status = VitalsStatusEvaluator.Evaluate(reading, null, null);
+        var status = VitalsStatusEvaluator.Evaluate(reading, VitalsStatusEvaluator.MetricHysteresis.None);
         Check("board with no PPG attached -> Warning, not Stable",
               status == BedStatus.Warning, status.ToString());
     }

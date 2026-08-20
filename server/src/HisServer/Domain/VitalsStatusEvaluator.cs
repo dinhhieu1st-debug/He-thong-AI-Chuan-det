@@ -33,23 +33,58 @@ public static class VitalsStatusEvaluator
     /// same as before.
     ///
     /// Without this, a value sitting within sensor noise of a threshold (SpO2
-    /// bouncing 94/95/94...) flips the bed's status every reading, and
+    /// bouncing 94/95/96/94...) flips the bed's status every reading, and
     /// AlertTransitionTracker - which only raises an alert ON a transition -
-    /// then raises a fresh alert on every single flip. Observed live: 4
-    /// duplicate alerts on one bed in about two minutes of otherwise-normal
-    /// sensor jitter. This is the textbook cause of alarm fatigue in a ward.
+    /// then raises a fresh alert on every flip. Observed live: 4 duplicate
+    /// alerts on one bed in about two minutes of otherwise-normal sensor
+    /// jitter. This is the textbook cause of alarm fatigue in a ward.
     ///
-    /// Judged PER METRIC (previousSpo2/previousHeartRate below), not off the
-    /// bed's overall previous status. An earlier version keyed the buffer off
-    /// previousStatus, which meant a bed that was Warning because of SpO2
-    /// would ALSO buffer a borderline heart rate that had never itself been
-    /// abnormal - the two channels have nothing to do with each other and
-    /// must not borrow each other's hysteresis.
+    /// Judged PER METRIC (the MetricHysteresis below), not off the bed's
+    /// overall previous status - an earlier version keyed the buffer off the
+    /// whole bed's previous status, which let a bed Warning because of SpO2
+    /// also buffer a heart rate that had never itself been abnormal.
+    ///
+    /// The state carried between readings is a LATCHED bool per metric
+    /// (persisted in BedState, updated via <see cref="ComputeNextHysteresis"/>),
+    /// not the raw previous value. An earlier version compared each reading
+    /// only to the single prior raw value: with noise like 94, 96, 94, 96...
+    /// every OTHER reading (96) reads as "not abnormal" by the raw threshold,
+    /// which reset the buffer and let the alarm re-fire every couple of
+    /// readings - the exact flapping this feature exists to stop. Latching
+    /// the decision itself, not the number that produced it, is what makes
+    /// the buffer survive noise that crosses the boundary more than once.
     /// </summary>
     private const int Spo2Hysteresis = 2;
     private const int HeartRateHysteresis = 2;
 
-    public static BedStatus Evaluate(BedReading reading, int? previousSpo2, int? previousHeartRate)
+    /// <summary>
+    /// Per-metric "is this currently latched abnormal" state, carried from
+    /// one reading to the next via BedState. Spo2Warning is true whenever
+    /// SpO2 is Warning-or-worse (Critical implies it); HeartRateAbnormal
+    /// covers both the low and high side, since only one hysteresis band
+    /// is needed regardless of which direction tripped it.
+    /// </summary>
+    public readonly record struct MetricHysteresis(
+        bool Spo2Warning, bool Spo2Critical, bool HeartRateAbnormal)
+    {
+        public static readonly MetricHysteresis None = new(false, false, false);
+    }
+
+    /// <summary>
+    /// What the CURRENT reading's own hysteresis state will be, for the
+    /// caller to persist and pass back in as `previous` next time. Must be
+    /// computed from the same predicates Evaluate/DescribeAlert use, so the
+    /// latched state never drifts from what was actually decided.
+    /// </summary>
+    public static MetricHysteresis ComputeNextHysteresis(BedReading reading, MetricHysteresis previous)
+    {
+        var critical = IsCriticalSpo2(reading, previous.Spo2Critical);
+        var warning = critical || IsWarningSpo2Only(reading, previous.Spo2Warning);
+        var hrAbnormal = IsAbnormalHeartRate(reading, previous.HeartRateAbnormal);
+        return new MetricHysteresis(warning, critical, hrAbnormal);
+    }
+
+    public static BedStatus Evaluate(BedReading reading, MetricHysteresis previous)
     {
         // The device's own four-level verdict comes first when it is available.
         // It is decided on-chip from three independent models plus the hard
@@ -105,7 +140,7 @@ public static class VitalsStatusEvaluator
         // deviation straight to Critical, which meant every bag that ran low,
         // every kinked line and every miscounted drop looked exactly like a
         // patient in trouble.
-        if (IsCriticalSpo2(reading, previousSpo2))
+        if (IsCriticalSpo2(reading, previous.Spo2Critical))
         {
             return BedStatus.Critical;
         }
@@ -123,8 +158,8 @@ public static class VitalsStatusEvaluator
             // A line fault from a device too old to classify it itself. Warning,
             // not Critical - see above.
             || (reading.LineBlocked && !deviceJudgedTheLine)
-            || IsWarningSpo2(reading, previousSpo2)
-            || IsAbnormalHeartRate(reading, previousHeartRate)
+            || IsWarningSpo2(reading, previous.Spo2Critical, previous.Spo2Warning)
+            || IsAbnormalHeartRate(reading, previous.HeartRateAbnormal)
             || reading.AeAlarm
             || HasLostSignal(reading))
         {
@@ -146,7 +181,7 @@ public static class VitalsStatusEvaluator
     /// history and the mobile push category.
     /// </summary>
     public static (string AlertType, string Message) DescribeAlert(
-        BedReading reading, int? previousSpo2, int? previousHeartRate)
+        BedReading reading, MetricHysteresis previous)
     {
         var causes = new List<(string Type, string Text)>();
 
@@ -164,7 +199,7 @@ public static class VitalsStatusEvaluator
                 "Infusion line AND patient vitals both abnormal — suspected fluid overload"));
         }
 
-        if (IsCriticalSpo2(reading, previousSpo2))
+        if (IsCriticalSpo2(reading, previous.Spo2Critical))
         {
             causes.Add(("SPO2_LOW_CRITICAL", $"Critically low SpO2: {reading.Spo2}%"));
         }
@@ -187,12 +222,12 @@ public static class VitalsStatusEvaluator
             causes.Add(("LINE_BLOCKED", "IV line blocked or free-flowing — check tubing immediately"));
         }
 
-        if (IsWarningSpo2(reading, previousSpo2))
+        if (IsWarningSpo2(reading, previous.Spo2Critical, previous.Spo2Warning))
         {
             causes.Add(("SPO2_LOW", $"Low SpO2: {reading.Spo2}%"));
         }
 
-        if (IsAbnormalHeartRate(reading, previousHeartRate))
+        if (IsAbnormalHeartRate(reading, previous.HeartRateAbnormal))
         {
             var direction = reading.HeartRate < LowHeartRate ? "Low" : "High";
             causes.Add(("HEART_RATE_ABNORMAL", $"{direction} heart rate: {reading.HeartRate} bpm"));
@@ -301,37 +336,44 @@ public static class VitalsStatusEvaluator
         _ => "Infusion line needs checking — patient vitals are normal",
     };
 
-    private static bool IsCriticalSpo2(BedReading reading, int? previousSpo2)
+    private static bool IsCriticalSpo2(BedReading reading, bool previousCritical)
     {
-        // Already critical (judged from the PREVIOUS SpO2 reading, not the
-        // bed's overall previous status): require the reading to climb past
-        // the buffered threshold before letting go, instead of the moment it
-        // touches 90.
-        var wasCritical = previousSpo2 is int p && p < CriticalSpo2;
-        var threshold = wasCritical ? CriticalSpo2 + Spo2Hysteresis : CriticalSpo2;
+        // Latched, not the raw previous value: require the reading to climb
+        // past the buffered threshold before letting go, instead of the
+        // moment it touches 90 - see the class-level comment for why a raw
+        // previous-value comparison isn't enough.
+        var threshold = previousCritical ? CriticalSpo2 + Spo2Hysteresis : CriticalSpo2;
         return reading.Spo2Signal && reading.Spo2 < threshold;
     }
 
-    private static bool IsWarningSpo2(BedReading reading, int? previousSpo2)
+    /// <summary>Warning-or-worse SpO2, WITHOUT excluding Critical - used only
+    /// to compute the next latched state (Critical implies Warning-or-worse
+    /// too). Callers deciding an actual status must use
+    /// <see cref="IsWarningSpo2"/> instead, which excludes Critical so the
+    /// two levels stay mutually exclusive in the causes list.</summary>
+    private static bool IsWarningSpo2Only(BedReading reading, bool previousWarning)
     {
-        if (IsCriticalSpo2(reading, previousSpo2))
+        var threshold = previousWarning ? WarningSpo2 + Spo2Hysteresis : WarningSpo2;
+        return reading.Spo2Signal && reading.Spo2 < threshold;
+    }
+
+    private static bool IsWarningSpo2(BedReading reading, bool previousCritical, bool previousWarning)
+    {
+        if (IsCriticalSpo2(reading, previousCritical))
         {
             return false;
         }
-        var wasAbnormal = previousSpo2 is int p && p < WarningSpo2;
-        var threshold = wasAbnormal ? WarningSpo2 + Spo2Hysteresis : WarningSpo2;
-        return reading.Spo2Signal && reading.Spo2 < threshold;
+        return IsWarningSpo2Only(reading, previousWarning);
     }
 
-    private static bool IsAbnormalHeartRate(BedReading reading, int? previousHeartRate)
+    private static bool IsAbnormalHeartRate(BedReading reading, bool previousAbnormal)
     {
         if (!reading.HeartRateSignal)
         {
             return false;
         }
-        var wasAbnormal = previousHeartRate is int p && (p < LowHeartRate || p > HighHeartRate);
-        var low = wasAbnormal ? LowHeartRate + HeartRateHysteresis : LowHeartRate;
-        var high = wasAbnormal ? HighHeartRate - HeartRateHysteresis : HighHeartRate;
+        var low = previousAbnormal ? LowHeartRate + HeartRateHysteresis : LowHeartRate;
+        var high = previousAbnormal ? HighHeartRate - HeartRateHysteresis : HighHeartRate;
         return reading.HeartRate < low || reading.HeartRate > high;
     }
 
