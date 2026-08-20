@@ -225,6 +225,15 @@ bool oled_display_show_splash(oled_display_t *display)
   return refresh(display);
 }
 
+/* Mirrors alert_level_t from sensor_hub.h (0..3). Not included directly -
+ * this driver takes a plain struct, the same way it takes hr_valid/spo2_valid
+ * instead of a MAX30102 handle, so the display never depends on the sensor
+ * stack it is decoupled from. Keep in step with sensor_hub.h by hand. */
+#define OLED_LEVEL_NORMAL        0U
+#define OLED_LEVEL_LINE_WARNING  1U
+#define OLED_LEVEL_VITALS_ALERT  2U
+#define OLED_LEVEL_CRITICAL      3U
+
 /* The single alarm line. Ordered by severity to match DescribeAlert() in the
  * HIS Server (VitalsStatusEvaluator.cs), so the bed and the ward console name
  * the same problem first — a nurse walking from the console to the bed must
@@ -285,15 +294,24 @@ bool oled_display_show_vitals(oled_display_t *display,
     banner = alarm_banner(vitals);
   }
 
+  /* Included in the signature so a level change repaints even on the rare
+   * tick where the banner text happens to match the previous level's - the
+   * box treatment below depends on level, not just on the text. Blinking is
+   * deliberately NOT done here: it would force a repaint every second even
+   * when nothing changed, defeating the "send nothing when unchanged" rule
+   * right below. That job stays with the bedside LED/buzzer (sensor_hub.c);
+   * this screen distinguishes CRITICAL with a static double frame instead. */
+  char level_sig[2] = { (char)('0' + vitals->level), '\0' };
+
   /* Nothing changed since the last paint -> send nothing. A full frame is
    * 8 pages x 128 bytes; pushing that down a bit-banged bus every second
    * would burn ~100ms of the 1s AI cycle for an identical picture. */
   static char last_signature[48];
   char signature[48];
   int len = 0;
-  const char *parts[6] = { hr_text, spo2_text, drops_text, target_text,
-                           banner, counter };
-  for (uint8_t p = 0U; p < 6U && len < (int)sizeof(signature) - 2; p++) {
+  const char *parts[7] = { hr_text, spo2_text, drops_text, target_text,
+                           banner, counter, level_sig };
+  for (uint8_t p = 0U; p < 7U && len < (int)sizeof(signature) - 2; p++) {
     for (uint8_t i = 0U; parts[p][i] != '\0' && len < (int)sizeof(signature) - 2; i++) {
       signature[len++] = parts[p][i];
     }
@@ -324,11 +342,31 @@ bool oled_display_show_vitals(oled_display_t *display,
   draw_text(display, 68U, 34U, "TGT", 1U);
   draw_text(display, 92U, 34U, target_text, 1U);
 
-  /* Bottom: one line saying whether anything is wrong, boxed when it is. The
-   * box is what makes an alarm visible in peripheral vision; without it a
-   * nurse has to actually read the line to know it changed. */
-  if (vitals->alarm) {
+  /* Bottom: one line saying whether anything is wrong, with the same
+   * three-way split the bedside LED and the ward console already use, so a
+   * nurse who only looks at one of the three still gets the right urgency:
+   *
+   *   NORMAL         plain centered text, no box
+   *   LINE_WARNING   text + underline - visible, but deliberately lighter
+   *                  than a full box, same as the yellow LED that gets a
+   *                  lamp but never the buzzer
+   *   VITALS_ALERT   single box, steady - matches the steady red LED + buzzer
+   *   CRITICAL       double box - the strongest static cue this screen has;
+   *                  the flashing red LED and the faster buzzer (both in
+   *                  sensor_hub.c) already carry the "urgent" signal, this
+   *                  just needs to be told apart from plain VITALS_ALERT at
+   *                  a glance, not to repeat the blink itself */
+  if (vitals->level == OLED_LEVEL_LINE_WARNING) {
+    draw_text_centered(display, 50U, banner, 1U);
+    uint8_t w = text_width(banner, 1U);
+    uint8_t x = w >= OLED_WIDTH ? 0U : (uint8_t)((OLED_WIDTH - w) / 2U);
+    for (uint8_t i = 0U; i < w; i++) pixel(display, (uint8_t)(x + i), 58U);
+  } else if (vitals->level == OLED_LEVEL_VITALS_ALERT
+            || vitals->level == OLED_LEVEL_CRITICAL) {
     draw_frame(display, 0U, 44U, OLED_WIDTH, 20U);
+    if (vitals->level == OLED_LEVEL_CRITICAL) {
+      draw_frame(display, 2U, 46U, (uint8_t)(OLED_WIDTH - 4U), 16U);
+    }
     draw_text_centered(display, 50U, banner, 1U);
     if (counter[0] != '\0') {
       /* Under the message, right-aligned inside the box. */
