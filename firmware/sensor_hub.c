@@ -1053,7 +1053,6 @@ _Static_assert(SH_PINS_DIFFER(HX711_DOUT_PORT, HX711_DOUT_PIN,
 
 #define BUZZER_PERIOD_CRITICAL_MS 150U    /* urgent beep = both systems failing */
 #define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
-#define BUZZER_PERIOD_YELLOW_MS  1000U    /* slow beep = warning   (matches the .ino) */
 
 static alert_level_t alert_level        = ALERT_LEVEL_NORMAL;
 static bool          buzzer_on          = false;
@@ -1135,9 +1134,12 @@ void sh_alert_set_level(alert_level_t level)
   alert_level = level;
 
   /* Re-arm the beep so a level change is heard immediately rather than
-   * waiting out the remainder of the previous level's period. */
+   * waiting out the remainder of the previous level's period. The buzzer is
+   * reserved for red (patient) and critical - yellow (line only) stays lit
+   * but silent, so a low bag or a kinked line doesn't sound the same alarm
+   * as a patient in trouble. */
   buzzer_last_toggle = now_ms();
-  buzzer_on = (level != ALERT_LEVEL_NORMAL);
+  buzzer_on = (level == ALERT_LEVEL_VITALS_ALERT || level == ALERT_LEVEL_CRITICAL);
 
   /* EXACTLY ONE lamp is lit at a time.
    *
@@ -1179,7 +1181,11 @@ const char *sh_alert_level_name(alert_level_t level)
 
 static void alert_poll(void)
 {
-  if (alert_level == ALERT_LEVEL_NORMAL) {
+  /* Yellow (line only) gets its lamp but never the buzzer - only red and
+   * critical are loud enough to pull a nurse across the ward. */
+  bool buzzer_should_sound = (alert_level == ALERT_LEVEL_VITALS_ALERT
+                            || alert_level == ALERT_LEVEL_CRITICAL);
+  if (!buzzer_should_sound) {
     if (buzzer_on) {
       buzzer_on = false;
       alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
@@ -1189,8 +1195,7 @@ static void alert_poll(void)
 
   uint32_t period = (alert_level == ALERT_LEVEL_CRITICAL)
                     ? BUZZER_PERIOD_CRITICAL_MS
-                    : (alert_level == ALERT_LEVEL_VITALS_ALERT)
-                    ? BUZZER_PERIOD_RED_MS : BUZZER_PERIOD_YELLOW_MS;
+                    : BUZZER_PERIOD_RED_MS;
   uint32_t now = now_ms();
 
   /* Trong lúc "đang bíp" thì phát tần số, không giữ mức. Chạy mỗi vòng lặp và
