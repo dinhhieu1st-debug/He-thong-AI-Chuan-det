@@ -952,7 +952,13 @@ const BedsTab = (() => {
     const active = document.activeElement;
     const state = { values: {}, focusId: null, selStart: null, selEnd: null };
 
-    ["targetFlowInput", "targetDropsInput"].forEach((id) => {
+    /* patientNameInput/patientCodeInput belong here, not just in
+     * captureInteractionState() below: that one only preserves whichever ONE
+     * field currently has focus, so typing a name then tabbing to the ID
+     * field let the next rebuild revert the name back to blank - it was never
+     * the focused field at rebuild time, so nothing kept it. This list
+     * preserves every field in it regardless of which one is focused. */
+    ["targetFlowInput", "targetDropsInput", "patientNameInput", "patientCodeInput"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) state.values[id] = el.value;
     });
