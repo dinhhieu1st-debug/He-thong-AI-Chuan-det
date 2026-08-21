@@ -43,6 +43,7 @@ builder.Services.AddHttpClient<FcmPushService>();
 builder.Services.AddSignalR();
 builder.Services.AddHostedService<BedTcpIngestionService>();
 builder.Services.AddHostedService<OfflineScanService>();
+builder.Services.AddHostedService<DeviceOfflineScanService>();
 
 /* Cookie authentication rather than tokens: the browser gets the session for
  * free on every request including the SignalR handshake, with no token to
