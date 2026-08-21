@@ -1,12 +1,38 @@
-# Smart IV Monitor — hệ thống giám sát dịch truyền có AI
+<div align="center">
 
-Hệ thống theo dõi **dịch truyền tĩnh mạch** cho bệnh viện: một thiết bị gắn ở
-mỗi giường tự đo nhịp tim, SpO2, tốc độ truyền và số giọt/phút, chạy AI ngay
-trên chip để phát hiện bất thường, rồi gửi về màn hình trung tâm cho y tá qua
-Zigbee. Khi có sự cố (tụt oxy, tắc dây, chảy tự do, tuột cảm biến) thì báo
-động **ở cả hai nơi**: màn hình đầu giường và console ở trạm điều dưỡng.
+# Smart IV Monitor
 
-Dự án làm cho IoT Challenge 2026 (nhóm ICTU).
+**Giám sát dịch truyền tĩnh mạch, có AI chạy ngay trên chip**
+
+`EFR32xG26` · `Zigbee 3.0` · `TensorFlow Lite Micro` · `ASP.NET Core` · `MySQL`
+
+IoT Challenge 2026 — nhóm **ICTU**
+
+</div>
+
+---
+
+Một thiết bị gắn ở mỗi giường tự đo nhịp tim, SpO2, tốc độ truyền và số
+giọt/phút, chạy **ba mô hình AI ngay trên chip** để phát hiện bất thường, rồi
+gửi về màn hình trung tâm cho y tá qua Zigbee. Khi có sự cố — tụt oxy, tắc dây,
+chảy tự do, tuột cảm biến — thiết bị báo động **ở cả hai nơi**: màn hình đầu
+giường và console ở trạm điều dưỡng.
+
+### Bốn con số đáng chú ý
+
+| | | |
+|---|---|---|
+| **0,948** | AUC phát hiện bất thường dòng chảy | trên **bản ghi cảm biến thật** (baseline 0,839) |
+| **0,0** | báo động giả mỗi giờ | sau bộ lọc 11 giây — trước đó **29–47** |
+| **6,2 %** | RAM tĩnh dùng trên chip | 32,5 KB, cho **cả ba** mô hình AI |
+| **v2 → v4** | cập nhật firmware từ xa | đã chạy thật đầu-cuối, 436 KB, không cần chạm vào giường |
+
+> **Ba nguyên tắc xuyên suốt** khiến hệ thống này khác một bản demo:
+> **"chưa biết" không bao giờ bị hiện thành một con số đẹp** · **màu đỏ dành
+> riêng cho bệnh nhân đang nguy hiểm** · **mọi thứ hỏng ở tầng ngoài đều không
+> được làm hỏng việc theo dõi**.
+
+📚 **[Mục lục toàn bộ tài liệu →](docs/)** · 🚀 **[Bắt đầu từ đây →](docs/HUONG_DAN_A_Z.md)**
 
 ---
 
@@ -184,63 +210,22 @@ rồi chạy lại `slc generate`.
 
 ## Tài liệu
 
-Các file vẫn nằm nguyên tại `docs/` (không di chuyển — xem lý do bên dưới), chỉ gom
-lại theo mục đích đọc ở đây cho dễ tìm.
+Toàn bộ tài liệu nằm phẳng trong [`docs/`](docs/) — **[mục lục đầy đủ ở đây](docs/README.md)**,
+gom theo *việc bạn đang định làm* chứ không theo tên file.
 
-> **Vì sao không chia `docs/` thành thư mục con?** Nhiều file trong `docs/` được
-> tham chiếu bằng **văn bản thuần** (không phải link) từ các file khác — ví dụ
-> `Script.md` nhắc tới `docs/OTA.md`, `docs/Quay_Ky_Thuat.md` nhắc tới bốn file
-> `docs/images/*.svg`. Di chuyển sẽ âm thầm làm sai những tham chiếu đó mà không
-> có gì báo lỗi. Ngoài ra `docs/slc-project-readme.md` được `smart-iv-monitor.slcp`
-> trỏ đích danh — Simplicity Studio đọc đúng đường dẫn đó, giống cách `config/`,
-> `autogen/` phải nằm ở gốc repo (xem mục trên). Gom theo mục lục là cách an toàn
-> hơn nhiều so với xáo trộn vị trí file.
+Bốn file hay cần nhất:
 
-### Bắt đầu từ đây
-| File | Nội dung |
+| File | Khi nào đọc |
 |---|---|
-| [`docs/HUONG_DAN_A_Z.md`](docs/HUONG_DAN_A_Z.md) | **Đọc file này trước.** Toàn bộ hệ thống từ chip tới web, giải thích cả *vì sao* thiết kế như vậy, kèm bảng lỗi thường gặp |
-| [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |
-| [`docs/PHAN_QUYEN_VA_VAI_TRO.md`](docs/PHAN_QUYEN_VA_VAI_TRO.md) | Vì sao 3 vai (điều dưỡng/kỹ thuật/quản trị) được chia quyền như hiện tại — phân tích nghiệp vụ, không phải code |
-| [`docs/LUONG_SETUP_VA_TAM_NGUNG.md`](docs/LUONG_SETUP_VA_TAM_NGUNG.md) | **Thiết kế, CHƯA triển khai.** Luồng "đang thiết lập bệnh nhân mới" (60s HR baseline) và "tạm ngưng theo dõi" — vì sao cảnh báo cần nín trong hai lúc này, và những gì còn thiếu để làm |
+| [`docs/HUONG_DAN_A_Z.md`](docs/HUONG_DAN_A_Z.md) | **Đọc trước tiên.** Toàn hệ thống từ chip tới web, kèm *vì sao* thiết kế như vậy |
+| [`docs/BAN_GIAO_UI_UX.md`](docs/BAN_GIAO_UI_UX.md) | Vừa nhận bàn giao: trạng thái hiện tại, thứ tự dựng lại, khoảng trống đã biết |
+| [`docs/TRIEN_KHAI_PI.md`](docs/TRIEN_KHAI_PI.md) | **Trước khi sửa `gateway/`** — hai file đó chạy trên Pi, không phải máy bạn |
+| [`server/README.md`](server/README.md) | Riêng HIS Server: API, schema, biến cấu hình |
 
-### AI / Machine Learning
-| File | Nội dung |
-|---|---|
-| [`docs/AI_HOAT_DONG_THE_NAO.md`](docs/AI_HOAT_DONG_THE_NAO.md) | AI làm gì, **khi nào báo động và khi nào cố tình không báo**, kèm 4 kịch bản diễn biến **theo từng giây** — viết cho người không đọc code |
-| [`docs/AI_TIME_SERIES_TAT_TAN_TAT.md`](docs/AI_TIME_SERIES_TAT_TAN_TAT.md) | Tất tần tật phần AI: kiến trúc, huấn luyện, đánh giá, bộ hợp nhất, nhúng vào firmware |
-| [`docs/Dataset_va_Phuong_phap_AI_SmartIV.md`](docs/Dataset_va_Phuong_phap_AI_SmartIV.md) | Dataset, cách chia tập, và **những gì nhóm không chứng minh được** |
-| [`docs/MLTK_AUTOGEN.md`](docs/MLTK_AUTOGEN.md) | Luồng `.tflite` → tool MLTK của Silicon Labs → chip, kèm hai cái bẫy |
-| [`docs/AI_V2_PLAN.md`](docs/AI_V2_PLAN.md) | Lý do đằng sau từng quyết định của bản AI v2, **kèm cả những lần đi sai** |
-| [`ml/models/`](ml/models/) | Ba file `.tflite` đang chạy thật trên chip, mở bằng Netron được |
-
-<details>
-<summary>AI — tài liệu lịch sử/đề xuất (không mô tả bản đang chạy)</summary>
-
-| File | Nội dung |
-|---|---|
-| [`docs/Nghien_cuu_Nang_cap_AI_Time_Series.md`](docs/Nghien_cuu_Nang_cap_AI_Time_Series.md) | Nghiên cứu dẫn tới AI v1 — v1 đã bị thay thế, file mã nó nhắc tới không còn tồn tại |
-| [`docs/AI_SYSTEM_SPECIFICATION.md`](docs/AI_SYSTEM_SPECIFICATION.md) | **Bản đặc tả đề xuất ban đầu — KHÔNG phải hệ thống đang chạy.** Bốn điểm khác biệt ghi ngay đầu file |
-
-</details>
-
-### Vận hành & triển khai
-| File | Nội dung |
-|---|---|
-| [`docs/TRIEN_KHAI_PI.md`](docs/TRIEN_KHAI_PI.md) | **Đọc trước khi sửa `gateway/`.** Hai file đó chạy trên Pi chứ không phải máy bạn — kèm ba kiểu hỏng đã gặp thật và cách cứu hộ |
-| [`docs/OTA.md`](docs/OTA.md) | **Cập nhật firmware từ xa.** Ai được thao tác, bấm gì trên giao diện, và các bước phát hành một bản firmware mới từ đầu tới cuối |
-
-### Kiểm thử
-| File | Nội dung |
-|---|---|
-| [`docs/BAO_CAO_KIEM_THU_WEB.md`](docs/BAO_CAO_KIEM_THU_WEB.md) | **Báo cáo kiểm thử web:** các ca chạy thật trên ba vai trò, kèm mã HTTP thực tế và các chức năng còn thiếu tại thời điểm kiểm |
-
-### Video demo (thi đấu)
-| File | Nội dung |
-|---|---|
-| [`docs/Script.md`](docs/Script.md) | Kịch bản quay đầy đủ, theo cảnh |
-| [`docs/Quay_Ky_Thuat.md`](docs/Quay_Ky_Thuat.md) | Shot list kỹ thuật tách riêng từ Script — chỉ phần quay thật + sơ đồ, bỏ hoạt hình |
-| [`docs/images/`](docs/images/) | Sơ đồ `.svg` dựng sẵn dùng trong video (kiến trúc, pipeline AI, Zigbee cluster...) |
+> **Vì sao `docs/` không chia thư mục con:** nhiều file tham chiếu nhau bằng
+> **văn bản thuần** (không phải link), và `smart-iv-monitor.slcp` trỏ đích danh
+> `docs/slc-project-readme.md` — di chuyển sẽ âm thầm làm sai mà không có gì báo
+> lỗi. Gom bằng mục lục đạt đúng mục đích mà không mang theo rủi ro đó.
 
 ---
 
