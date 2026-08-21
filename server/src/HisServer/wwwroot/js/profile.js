@@ -58,6 +58,23 @@ const ProfileTab = (() => {
 
     const u = data.user;
     const s = data.summary;
+
+    /* Same room/bed assignment data, three different meanings depending on
+     * whose page this is:
+     *   - Nurse: a clinical duty roster - which beds to actually watch.
+     *   - Technician: which rooms' EQUIPMENT is theirs, not which patients -
+     *     same underlying rows, different label so it doesn't read as a
+     *     ward assignment they don't have.
+     *   - Admin: assignment is not a concept that applies to running the
+     *     whole system, so the row is left out entirely rather than shown
+     *     empty - an empty "Responsible for" invited the question "why do
+     *     I have nothing" every time, for a role that was never meant to
+     *     have anything here. */
+    const scopeLabel = u.role === "TECHNICIAN" ? "Equipment duty" : "Responsible for";
+    const scopeEmptyReason = u.role === "TECHNICIAN"
+      ? "No equipment areas assigned yet — an administrator assigns them on the Users tab."
+      : "No rooms or beds assigned yet — an administrator assigns them on the Users tab.";
+
     const scope = [
       ...data.rooms.map((r) => `<span class="chip active">Room ${UiUtils.escapeHtml(r)}</span>`),
       ...data.individualBeds.map((b) => `<span class="chip active">${UiUtils.escapeHtml(b)}</span>`)
@@ -66,7 +83,10 @@ const ProfileTab = (() => {
     /* An empty roster is a normal state (nobody has been assigned yet), not an
      * error - say so plainly and point at who can fix it, rather than showing
      * an empty table that reads like a bug. */
-    const scopeHtml = scope || `<span class="muted">No rooms or beds assigned yet — an administrator assigns them on the Users tab.</span>`;
+    const scopeHtml = scope || `<span class="muted">${scopeEmptyReason}</span>`;
+
+    const scopeRowHtml = u.role === "ADMIN" ? "" :
+      `<div class="kv"><span>${scopeLabel}</span><div>${scopeHtml}</div></div>`;
 
     /* Bed counts and the bed table are only shown to whoever actually looks
      * after beds. A technician and an administrator have no ward.view
@@ -98,7 +118,7 @@ const ProfileTab = (() => {
         </div>
         <div class="kv"><span>Account</span><b>${UiUtils.escapeHtml(u.username)}</b></div>
         <div class="kv"><span>Last sign-in</span><b>${u.lastLoginAt ? UiUtils.formatDateTime(u.lastLoginAt) : "—"}</b></div>
-        <div class="kv"><span>Responsible for</span><div>${scopeHtml}</div></div>
+        ${scopeRowHtml}
         <button type="button" class="btn" id="changePasswordBtn" style="margin-top:12px;">Change password</button>
       </div>
 
