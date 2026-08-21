@@ -9,6 +9,22 @@ const UsersTab = (() => {
   let error = null;
   let searchTerm = "";
 
+  /* Rooms/beds for the assignment picker, loaded once alongside the user
+   * list. A room is not its own row anywhere in this system - it only
+   * exists as a value on a bed - so the room list here is built from the
+   * same directory the admin's bed tab uses, not typed by hand a second
+   * time where a typo would silently create an assignment nobody's roster
+   * ever matches. */
+  let bedDirectory = [];
+
+  async function loadBedDirectory() {
+    try {
+      bedDirectory = await Api.getBedDirectory();
+    } catch {
+      bedDirectory = [];
+    }
+  }
+
   function matchesFilters(u) {
     if (!searchTerm) return true;
     const haystack = `${u.username} ${u.fullName || ""}`.toLowerCase();
@@ -22,7 +38,19 @@ const UsersTab = (() => {
     } catch (err) {
       error = err.message;
     }
+    await loadBedDirectory();
     render();
+  }
+
+  function assignValueOptionsHtml(scope) {
+    const values = scope === "ROOM"
+      ? Array.from(new Set(bedDirectory.map((b) => b.room).filter(Boolean))).sort()
+      : bedDirectory.map((b) => b.bedId).sort();
+
+    if (values.length === 0) {
+      return `<option value="">No ${scope === "ROOM" ? "rooms" : "beds"} in the directory yet</option>`;
+    }
+    return values.map((v) => `<option value="${UiUtils.escapeHtml(v)}">${UiUtils.escapeHtml(v)}</option>`).join("");
   }
 
   async function select(userId) {
@@ -90,7 +118,9 @@ const UsersTab = (() => {
           <option value="ROOM">Room</option>
           <option value="BED">Bed</option>
         </select>
-        <input class="search-input" id="assignValue" placeholder="ICU-1 or BED-101" style="max-width:220px;">
+        <select class="search-input" id="assignValue" style="max-width:220px;">
+          ${assignValueOptionsHtml("ROOM")}
+        </select>
         <button class="btn primary" id="addAssignBtn">Add assignment</button>
       </div>
       ${selected.assignments.length === 0
@@ -180,9 +210,13 @@ const UsersTab = (() => {
       }, "Account deleted");
     });
 
+    document.getElementById("assignScope")?.addEventListener("change", (e) => {
+      document.getElementById("assignValue").innerHTML = assignValueOptionsHtml(e.target.value);
+    });
+
     document.getElementById("addAssignBtn")?.addEventListener("click", async () => {
       const scope = document.getElementById("assignScope").value;
-      const value = document.getElementById("assignValue").value.trim();
+      const value = document.getElementById("assignValue").value;
       if (!value) return;
       await guard(() => Api.addAssignment(userId, scope, value), "Assignment added");
     });

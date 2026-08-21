@@ -69,7 +69,12 @@ const DirectoryTab = (() => {
       </div>
       <div class="toolbar">
         <input class="search-input" id="newBedId" placeholder="New bed id, e.g. BED-104" style="max-width:220px;">
-        <input class="search-input" id="newBedRoom" placeholder="Room, e.g. ICU-1" style="max-width:180px;">
+        <select class="search-input" id="newBedRoomSelect" style="max-width:180px;">
+          ${Array.from(rooms).sort().map((r) =>
+            `<option value="${UiUtils.escapeHtml(r)}">${UiUtils.escapeHtml(r)}</option>`).join("")}
+          <option value="__new__">+ New room…</option>
+        </select>
+        <input class="search-input" id="newBedRoomNew" placeholder="New room name" style="max-width:160px; display:none;">
         <button class="btn primary" id="createBedBtn">Add bed</button>
       </div>
 
@@ -90,11 +95,31 @@ const DirectoryTab = (() => {
       if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
     });
 
+    /* Pick an existing room from the dropdown, or "+ New room..." to type
+     * one - a room is not its own row anywhere in this system, it only
+     * exists as a value on a bed, so this select IS the room list, built
+     * from what beds already have rather than a second thing to keep in
+     * sync. Retyping "ICU-1" by hand for every new bed is exactly what let
+     * "ICU-1" and "Icu-1" both exist as two different rooms before. */
+    const roomSelect = document.getElementById("newBedRoomSelect");
+    const roomCustom = document.getElementById("newBedRoomNew");
+    function syncRoomCustomVisibility() {
+      const isNew = roomSelect.value === "__new__";
+      roomCustom.style.display = isNew ? "" : "none";
+      if (isNew) roomCustom.focus();
+    }
+    roomSelect?.addEventListener("change", syncRoomCustomVisibility);
+    syncRoomCustomVisibility();
+
     document.getElementById("createBedBtn")?.addEventListener("click", async () => {
       const bedId = document.getElementById("newBedId").value.trim();
-      const room = document.getElementById("newBedRoom").value.trim();
+      const room = roomSelect.value === "__new__" ? roomCustom.value.trim() : roomSelect.value;
       if (!bedId) {
         UiUtils.toast("Enter a bed id", true);
+        return;
+      }
+      if (!room) {
+        UiUtils.toast("Choose or type a room", true);
         return;
       }
       await act(() => Api.createBed(bedId, room), `${bedId} created`);
