@@ -52,6 +52,7 @@ const CriticalAlarm = (() => {
         <div class="ca-bed-head">
           <span class="ca-bed-id">${UiUtils.escapeHtml(bed.bedId)}</span>
           <span class="ca-bed-room">${UiUtils.escapeHtml(bed.room || "")}</span>
+          ${bed.patientName ? `<span class="ca-patient-name">${UiUtils.escapeHtml(bed.patientName)}</span>` : ""}
         </div>
         <ul class="ca-causes">
           ${causesOf(bed).map((c) => `<li>${UiUtils.escapeHtml(c)}</li>`).join("")}

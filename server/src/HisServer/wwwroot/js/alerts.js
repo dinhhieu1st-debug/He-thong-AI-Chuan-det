@@ -75,8 +75,19 @@ const AlertsTab = (() => {
     return currentItems.filter((a) => `${a.bedId} ${a.message}`.toLowerCase().includes(term));
   }
 
+  /* Alerts carry no patient name of their own - they are a historical record
+   * of what a bed's vitals were doing, not of who was in it. Looked up live
+   * from State.beds instead: good enough for the active alerts a nurse is
+   * actually triaging (viewed minutes after they fire, same patient still in
+   * the bed), and avoids needing to freeze a patient name into every alert
+   * row at write time just to show one here. */
+  function patientNameOf(bedId) {
+    return State.beds.get(bedId)?.patientName || null;
+  }
+
   function alertRowHtml(alert) {
     const color = UiUtils.statusColor(alert.level);
+    const patientName = patientNameOf(alert.bedId);
     // Only unacknowledged alerts are selectable - bulk-acknowledging an
     // already-handled alert has nothing to do.
     const checkbox = alert.acknowledged ? `<span class="alert-item-select"></span>` : `
@@ -88,7 +99,8 @@ const AlertsTab = (() => {
         ${checkbox}
         <div class="stripe" style="background:${color};"></div>
         <div>
-          <div class="title" style="color:${color};">${UiUtils.escapeHtml(alert.level)} · ${UiUtils.escapeHtml(alert.bedId)}</div>
+          <div class="title" style="color:${color};">${UiUtils.escapeHtml(alert.level)} · ${UiUtils.escapeHtml(alert.bedId)}${
+            patientName ? ` · ${UiUtils.escapeHtml(patientName)}` : ""}</div>
           <div class="desc">${UiUtils.escapeHtml(alert.message)}</div>
           <div class="time">${UiUtils.escapeHtml(alert.room || "")} · ${UiUtils.formatDateTime(alert.createdAt)}</div>
           ${alert.acknowledged && alert.acknowledgementNote
@@ -111,10 +123,12 @@ const AlertsTab = (() => {
     }
 
     const color = UiUtils.statusColor(alert.level);
+    const patientName = patientNameOf(alert.bedId);
     panel.style.display = "block";
     panel.innerHTML = `
       <h3><span class="status-chip" style="background:${color};">${UiUtils.escapeHtml(alert.level)}</span></h3>
-      <div class="sub">${UiUtils.escapeHtml(alert.bedId)} · ${UiUtils.escapeHtml(alert.room || "")}</div>
+      <div class="sub">${UiUtils.escapeHtml(alert.bedId)} · ${UiUtils.escapeHtml(alert.room || "")}${
+        patientName ? ` · ${UiUtils.escapeHtml(patientName)}` : ""}</div>
       <div class="bed-message">${UiUtils.escapeHtml(alert.message)}</div>
       <div class="metric-row">
         <div class="metric"><b>${UiUtils.formatMetric(alert.spo2, "%")}</b><span>SpO2</span></div>

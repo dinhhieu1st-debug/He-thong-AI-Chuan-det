@@ -13,7 +13,8 @@ const DashboardTab = (() => {
         <div class="stripe" style="background:${color};"></div>
         <div class="body">
           <div class="row-top">
-            <div><div class="bed-id">${UiUtils.escapeHtml(bed.bedId)}</div><div class="bed-room">${UiUtils.escapeHtml(bed.room)}</div></div>
+            <div><div class="bed-id">${UiUtils.escapeHtml(bed.bedId)}</div><div class="bed-room">${UiUtils.escapeHtml(bed.room)}</div>${
+              bed.patientName ? `<div class="bed-patient-name">${UiUtils.escapeHtml(bed.patientName)}</div>` : ""}</div>
             <div class="chip-stack">
               <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
               ${UiUtils.culpritBadgeHtml(bed)}

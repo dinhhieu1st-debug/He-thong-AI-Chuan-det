@@ -686,6 +686,7 @@ body.no-scroll { overflow: hidden; }
 .ca-bed-head { display: flex; align-items: baseline; gap: 10px; }
 .ca-bed-id { font-size: 24px; font-weight: 700; }
 .ca-bed-room { font-size: 14px; color: var(--text-dim); }
+.ca-patient-name { font-size: 18px; font-weight: 700; color: var(--text); }
 
 .ca-causes {
   margin: 10px 0 12px; padding-left: 20px;
