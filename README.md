@@ -202,6 +202,7 @@ lại theo mục đích đọc ở đây cho dễ tìm.
 | [`docs/HUONG_DAN_A_Z.md`](docs/HUONG_DAN_A_Z.md) | **Đọc file này trước.** Toàn bộ hệ thống từ chip tới web, giải thích cả *vì sao* thiết kế như vậy, kèm bảng lỗi thường gặp |
 | [`server/README.md`](server/README.md) | Riêng HIS Server: API, DB, cách chạy |
 | [`docs/PHAN_QUYEN_VA_VAI_TRO.md`](docs/PHAN_QUYEN_VA_VAI_TRO.md) | Vì sao 3 vai (điều dưỡng/kỹ thuật/quản trị) được chia quyền như hiện tại — phân tích nghiệp vụ, không phải code |
+| [`docs/LUONG_SETUP_VA_TAM_NGUNG.md`](docs/LUONG_SETUP_VA_TAM_NGUNG.md) | **Thiết kế, CHƯA triển khai.** Luồng "đang thiết lập bệnh nhân mới" (60s HR baseline) và "tạm ngưng theo dõi" — vì sao cảnh báo cần nín trong hai lúc này, và những gì còn thiếu để làm |
 
 ### AI / Machine Learning
 | File | Nội dung |

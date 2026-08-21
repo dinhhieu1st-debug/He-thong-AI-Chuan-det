@@ -345,14 +345,7 @@ const BedsTab = (() => {
       </div>
       ${alertCardHtml(bed)}
       ${patientCardHtml(bed)}
-      ${faultCardHtml(bed)}
-      <div class="bd-card" data-cap="beds.manage">
-        <h4>Bed</h4>
-        <form id="editBedForm" class="bd-room-form">
-          <input type="text" id="editBedRoom" value="${UiUtils.escapeHtml(bed.room)}" placeholder="Room">
-          <button type="submit" class="btn primary">Save</button>
-        </form>
-      </div>`;
+      ${faultCardHtml(bed)}`;
   }
 
   /* The server sends every active cause in one string joined with " · ".
@@ -885,7 +878,7 @@ const BedsTab = (() => {
     const active = document.activeElement;
     const state = { values: {}, focusId: null, selStart: null, selEnd: null };
 
-    ["targetFlowInput", "targetDropsInput", "editBedRoom"].forEach((id) => {
+    ["targetFlowInput", "targetDropsInput"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) state.values[id] = el.value;
     });
@@ -1039,12 +1032,6 @@ const BedsTab = (() => {
     // Put back whatever the doctor was typing, AFTER every handler is bound.
     restoreFormState(formState);
 
-    document.getElementById("editBedForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const room = document.getElementById("editBedRoom").value.trim();
-      await Api.updateBed(bed.bedId, { room });
-    });
-
     bindSettingsHandlers(bed);
     bindPatientHandlers(bed);
     bindFaultHandlers(bed);
@@ -1146,21 +1133,6 @@ const BedsTab = (() => {
       const status = e.target.getAttribute("data-status");
       if (status) { selectedStatus = status; persist(); render(); }
       if (e.target.hasAttribute("data-my-beds")) { myBedsOnly = !myBedsOnly; persist(); render(); }
-    });
-
-    // Removed from the DOM for roles without beds.manage, so bind defensively.
-    document.getElementById("addBedBtn")?.addEventListener("click", () => {
-      document.getElementById("addBedModal").classList.remove("hidden");
-    });
-
-    document.getElementById("addBedForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const bedId = document.getElementById("newBedId").value.trim();
-      const room = document.getElementById("newBedRoom").value.trim();
-      if (!bedId) return;
-      await Api.createBed(bedId, room);
-      document.getElementById("addBedModal").classList.add("hidden");
-      document.getElementById("addBedForm").reset();
     });
 
     render();

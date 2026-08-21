@@ -141,7 +141,6 @@
           <select class="search-input room-select" id="bedRoomFilter"></select>
           <div class="chip-row" id="bedStatusFilters"></div>
           <span class="muted" id="bedsCount"></span>
-          <button class="btn primary" id="addBedBtn" data-cap="beds.manage">+ Add Bed</button>
         </div>
         <div class="split">
           <div class="main-col">
@@ -261,23 +260,6 @@
       <div class="tab-panel" id="tab-users" data-cap="users.manage"></div>
 
     </div>
-  </div>
-</div>
-
-<!-- ADD BED MODAL -->
-<div class="modal-backdrop hidden" id="addBedModal">
-  <div class="modal">
-    <h3>Add Bed</h3>
-    <form id="addBedForm">
-      <label>Bed ID</label>
-      <input type="text" id="newBedId" required>
-      <label>Room</label>
-      <input type="text" id="newBedRoom">
-      <div class="modal-actions">
-        <button type="button" class="btn" data-close-modal="addBedModal">Cancel</button>
-        <button type="submit" class="btn primary">Add</button>
-      </div>
-    </form>
   </div>
 </div>
 

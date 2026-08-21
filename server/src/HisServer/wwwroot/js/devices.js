@@ -214,16 +214,34 @@ const DevicesTab = (() => {
 
     document.getElementById("editDeviceForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      await Api.updateDevice(device.deviceId, {
-        deviceId: device.deviceId,
-        deviceType: device.deviceType,
-        assignedBedId: document.getElementById("editDeviceBedId").value.trim() || null,
-        room: document.getElementById("editDeviceRoom").value.trim() || null,
-        status: document.getElementById("editDeviceStatus").value,
-        batteryPercent: device.batteryPercent,
-        rssi: device.rssi,
-        eui64: device.eui64
-      });
+      const saveBtn = e.target.querySelector("button[type=submit]");
+      saveBtn.disabled = true;
+      try {
+        await Api.updateDevice(device.deviceId, {
+          deviceId: device.deviceId,
+          deviceType: device.deviceType,
+          assignedBedId: document.getElementById("editDeviceBedId").value.trim() || null,
+          room: document.getElementById("editDeviceRoom").value.trim() || null,
+          status: document.getElementById("editDeviceStatus").value,
+          batteryPercent: device.batteryPercent,
+          rssi: device.rssi,
+          eui64: device.eui64
+        });
+        UiUtils.toast(`${device.deviceId} saved`);
+        /* The push back over SignalR (DeviceUpdated) lands in State.devices
+         * and fires a fresh render(), but renderDetail() only patches the
+         * "volatile" fields for a panel already built for this device -
+         * room/status just typed here would otherwise sit stale in the
+         * header until the panel is closed and reopened. Forcing a rebuild
+         * (not calling renderDetail() here, which would still read the OLD
+         * `device` captured in this closure - let the incoming SignalR
+         * update trigger it with fresh data). */
+        builtDetailId = null;
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+      } finally {
+        saveBtn.disabled = false;
+      }
     });
 
     document.getElementById("deleteDeviceBtn").addEventListener("click", async () => {
@@ -691,19 +709,30 @@ const DevicesTab = (() => {
       e.preventDefault();
       const deviceId = document.getElementById("newDeviceId").value.trim();
       if (!deviceId) return;
-      const device = await Api.createDevice({
-        deviceId,
-        deviceType: document.getElementById("newDeviceType").value,
-        assignedBedId: document.getElementById("newDeviceBedId").value || null,
-        room: document.getElementById("newDeviceRoom").value || null,
-        status: "Pending",
-        batteryPercent: null,
-        rssi: null,
-        eui64: null
-      });
-      State.upsertDevice(device);
-      document.getElementById("addDeviceModal").classList.add("hidden");
-      document.getElementById("addDeviceForm").reset();
+      const submitBtn = e.target.querySelector("button[type=submit]");
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const device = await Api.createDevice({
+          deviceId,
+          deviceType: document.getElementById("newDeviceType").value,
+          assignedBedId: document.getElementById("newDeviceBedId").value || null,
+          room: document.getElementById("newDeviceRoom").value || null,
+          status: "Pending",
+          batteryPercent: null,
+          rssi: null,
+          eui64: null
+        });
+        State.upsertDevice(device);
+        document.getElementById("addDeviceModal").classList.add("hidden");
+        document.getElementById("addDeviceForm").reset();
+      } catch (err) {
+        /* Most likely cause: deviceId already exists (409) - the form stays
+         * open with what was typed so the technician can just fix the id,
+         * instead of losing the room/bed/type they already picked. */
+        UiUtils.toast(err.message, true);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
     });
 
     loadInitial();

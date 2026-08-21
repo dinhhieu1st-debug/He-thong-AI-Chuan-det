@@ -11,7 +11,7 @@ Tài liệu này tách riêng từ `docs/Script.md`, **chỉ giữ phần 🎥 q
 - [ ] Board xG26 đã flash firmware mới nhất, chạy ổn định, log qua serial console đọc được.
 - [ ] MAX30102, Load Cell (HX711), Drop Sensor đã gắn và hoạt động — không có kênh nào báo `CH_DISABLED`.
 - [ ] Raspberry Pi chạy `gateway/main.c`, đã kết nối Zigbee với board, terminal đang in JSON liên tục.
-- [ ] HIS Server + Dashboard chạy được. Có sẵn 2 tài khoản: **y tá** (`yta`) và **kỹ thuật viên** (`kythuat`).
+- [ ] HIS Server + Dashboard chạy được. Có sẵn 2 tài khoản: **y tá** (`yta`) và **kỹ thuật viên** (`kythuat`). Đây là tài khoản demo tự tạo, không có sẵn trong code/migration — phải tự seed/tạo thủ công trước ngày quay và test đăng nhập cả hai trước, đừng để đến lúc quay mới phát hiện thiếu.
 - [ ] Có sẵn 1 file `.ota` bản mới hơn trên máy/laptop dùng để quay — đúng mã nhà sản xuất xG26 (4169). Không cần SSH vào Pi, upload thẳng qua web (xem `docs/OTA.md` mục 4).
 - [ ] Đã tính lịch: nạp firmware thật mất khoảng **14 phút** — sắp xếp đủ thời gian, hoặc chuẩn bị sẵn máy quay timelapse.
 - [ ] Đèn phòng tắt được hoàn toàn (dùng cho cảnh LED).
@@ -64,7 +64,7 @@ Không cần quay: đồ họa `docs/images/scene08_zigbee_cluster.svg` (luồng
 
 Phần cần quay thật:
 
-1. **Raspberry Pi terminal chạy gateway.** Phóng to font terminal, quay dòng JSON thật đang chạy, ví dụ: `{"bedId":"BED-101","spo2":97,"heartRate":78,"dropsPerMin":98,...}`. Đây phải là terminal thật đang chạy — không dựng lại bằng đồ họa.
+1. **Raspberry Pi terminal chạy gateway.** Phóng to font terminal, quay dòng JSON thật đang chạy. Dòng thật (`gateway/main.c:481-492`) có ~25 field (room, dripRate, flowRate, các field `*Signal`, weightG, hrForecast16s…) — dài hơn nhiều so với ví dụ rút gọn `{"bedId":"BED-101","spo2":97,"heartRate":78,"dropsPerMin":98,...}` hay dùng làm caption minh họa. Đây phải là terminal thật đang chạy — không dựng lại bằng đồ họa, và đừng cắt/chỉnh cho khớp caption rút gọn.
 
 ---
 
@@ -83,7 +83,7 @@ Không cần quay: đồ họa `docs/images/scene10_config_path.svg` (đường 
 
 Phần cần quay thật:
 
-1. **Sửa Target Drops Per Minute.** Đổi từ 20 → 50, bấm **SAVE**, quay chậm rãi thao tác gõ số + bấm nút để dễ cắt/zoom lúc dựng.
+1. **Sửa ô "Drop rate (AI alert target)".** Gõ số mới vào ô "New target", đổi từ 20 → 50, bấm nút **Set** (đúng chữ trên UI — không phải "SAVE"), quay chậm rãi thao tác gõ số + bấm nút để dễ cắt/zoom lúc dựng.
 
 ---
 
@@ -91,7 +91,7 @@ Phần cần quay thật:
 
 Đây là cảnh lâu nhất vì có bước chờ thật (~14 phút).
 
-1. **Vào trang Devices, khối "Kho firmware (OTA)" ở đầu trang.** Đây là tính năng mới — upload trực tiếp qua web, không cần SSH.
+1. **Vào trang Devices, khối "Firmware library (OTA)" ở đầu trang** (đúng chữ trên UI — UI đang là tiếng Anh, không dịch). Đây là tính năng mới — upload trực tiếp qua web, không cần SSH.
 2. **Chọn file `.ota` → Upload.** Bảng thêm dòng mới ngay, hiện mã nhà sản xuất đọc từ chính file (không phải từ tên file). Nếu muốn, thử upload nhầm file `.gbl`/`.s37` để quay luôn cảnh bị từ chối — chứng minh việc kiểm tra là thật.
 3. **Kéo xuống khối FIRMWARE của thiết bị, bấm "Check for update".** Trạng thái đổi sang "Update available".
 4. **Bấm "Update" → xác nhận.** Quay thanh tiến độ % + dòng nhắc không rút nguồn thiết bị.
@@ -109,7 +109,7 @@ Cần ít nhất 2 góc máy chạy song song: Camera A quay Dashboard, Camera B
 
 1. Dashboard đang STABLE, HR/SpO₂ chạy bình thường.
 2. Rút ngón tay khỏi MAX30102 (Camera B bắt khoảnh khắc này).
-3. ~3 giây sau: LED chuyển 🟢→🟡, có tiếng BEEP (chu kỳ 1 giây — mức LINE_WARNING vì đây là mất tín hiệu, chưa phải nguy kịch bệnh nhân). **Mic thu tiếng bíp thật, không lồng hậu kỳ.**
+3. ~3 giây sau: LED chuyển 🟢→🟡 (mức LINE_WARNING vì đây là mất tín hiệu, chưa phải nguy kịch bệnh nhân). **Không có tiếng bíp ở bước này** — bản cập nhật mới nhất của `firmware/sensor_hub.c` đã tắt buzzer cho mức vàng, chỉ đèn đổi màu; buzzer chỉ kêu khi lên mức đỏ (VITALS_ALERT) hoặc CRITICAL. Đừng lồng tiếng bíp giả vào bước này.
 4. Dashboard đổi: STABLE → WARNING, SpO₂: 97 → LOST, hiện alert đúng chữ thật **"No signal from: SpO2"**.
 5. *(Tuỳ chọn)* Điện thoại nhận push notification thật (Camera thứ 3 nếu có người quay).
 6. Đặt lại ngón tay, đo lại.
