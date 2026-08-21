@@ -133,10 +133,11 @@ Admin vẫn có đủ công cụ để dựng và vận hành hệ thống:
 
 ## 5. "Thiết bị nào hỏng" được xác định thế nào
 
-Yêu cầu "xem thiết bị nào hỏng, thiết bị nào ổn" nghe đơn giản, nhưng hệ thống
-hiện tại **không trả lời được**: cột trạng thái trong bảng `devices` do người gõ
-tay, không ai kiểm chứng. Vì vậy phần này định nghĩa trạng thái **suy ra từ
-chính dòng dữ liệu đang chảy**:
+Yêu cầu "xem thiết bị nào hỏng, thiết bị nào ổn" nghe đơn giản, nhưng bản đầu
+tiên **không trả lời được**: cột trạng thái trong bảng `devices` do người gõ
+tay, không ai kiểm chứng — nên một thiết bị có thể nằm ở `ONLINE` cả tuần sau
+khi đã hết pin. Vì vậy trạng thái được định nghĩa lại thành thứ **suy ra từ
+chính dòng dữ liệu đang chảy**, và **đã triển khai xong**:
 
 | Trạng thái | Điều kiện | Kỹ thuật viên nên làm gì |
 |---|---|---|
@@ -152,6 +153,24 @@ mang theo cả bộ, hoặc kiểm tra nguồn điện và coordinator.
 Ngưỡng 90 giây không tự nghĩ ra: nó khớp với `Offline.ThresholdSeconds` của
 server, vốn đã khớp với chu kỳ báo cáo tối đa 60 giây của firmware. Một con số,
 dùng nhất quán ở cả ba nơi.
+
+**Ai tính ra trạng thái nào** — quan trọng khi đi tìm chỗ sửa:
+
+| Trạng thái | Tính ở đâu | Khi nào chạy |
+|---|---|---|
+| 🟢 Online · 🟡 Sensor fault | `DeviceHealthEvaluator`, gọi từ `BedTcpIngestionService` | Mỗi khi **có gói dữ liệu tới** |
+| 🔴 Offline | `DeviceOfflineScanService` | Nền, mỗi `Offline:ScanIntervalSeconds` |
+| ⚪ Pending | Đặt lúc thiết bị join lần đầu | Một lần |
+
+Hai hàng đầu là lý do phải có hàng thứ hai: đường ingestion **chỉ chạy khi có
+dữ liệu**, nên rút điện một thiết bị thì không còn gì chạy để hạ nó xuống
+Offline — cần một tiến trình nền quét theo đồng hồ.
+
+> **Hai khoảng trống còn lại, ghi rõ để không ai tưởng là bug:**
+> **Gateway** không bao giờ gửi `BedReading` nên không tự suy ra được trạng
+> thái — muốn có thì cần heartbeat riêng từ `zigbee2mqtt/bridge/state`.
+> Trạng thái **Warning** đặt tay chỉ "dính" với thiết bị không có luồng dữ
+> liệu; trên thiết bị đang sống nó bị gói kế tiếp ghi đè trong khoảng 1 giây.
 
 ---
 

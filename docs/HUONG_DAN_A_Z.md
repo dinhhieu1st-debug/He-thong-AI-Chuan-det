@@ -1292,8 +1292,22 @@ giường hiện tại), `signalr-client.js` lắng nghe sự kiện realtime v�
 | **Dashboard** | Tổng quan: số giường theo trạng thái, lưới thẻ giường, cảnh báo mới nhất |
 | **Beds & Rooms** | Danh sách đầy đủ, lọc theo phòng/trạng thái, trang chi tiết 1 giường, thêm giường mới |
 | **Alerts** | Lịch sử cảnh báo, lọc theo mức độ/đã-xác-nhận, xác nhận (acknowledge) |
-| **Devices** | Danh sách thiết bị vật lý (gateway/XG26/BLE), trạng thái pin/tín hiệu |
+| **Devices** | Danh sách thiết bị vật lý (gateway/XG26/BLE), trạng thái + chất lượng liên kết Zigbee (LQI), thư viện firmware OTA |
 | **System Log** | Hợp nhất log Alert + Vital theo thời gian, lọc theo ngày/loại, export CSV |
+| **Fault reports** | Y tá báo hỏng thiết bị, kỹ thuật viên ghi chẩn đoán và xử lý |
+| **Bed directory** | Danh mục giường/phòng của quản trị viên — thêm, đổi phòng, xoá giường |
+| **Users** | Tài khoản, vai trò, và phân công phòng/giường cho từng người |
+| **My shift** | Trang cá nhân: tài khoản, đổi mật khẩu, và phạm vi phụ trách — **nội dung khác nhau theo vai trò** (xem dưới) |
+
+Mỗi tab chỉ hiện với vai trò có quyền tương ứng (`data-cap` trong
+`index.html`, đối chiếu với `Capabilities.cs` ở server). **My shift** là tab
+duy nhất mọi vai trò đều thấy, nhưng nội dung không giống nhau:
+
+| Vai trò | My shift hiện gì |
+|---|---|
+| Điều dưỡng | 4 ô thống kê + bảng toàn bộ giường trong khoa, giường thuộc ca trực đánh dấu `mine` và xếp lên đầu |
+| Kỹ thuật viên | Tài khoản + **"Equipment duty"** (phòng/giường phụ trách **thiết bị**, không phải bệnh nhân) |
+| Quản trị viên | Chỉ tài khoản + đổi mật khẩu — quản trị không đi theo ca trực hay khu vực nào |
 
 Mỗi thẻ giường hiện 1 hàng "chấm tín hiệu" (`signalRowHtml` trong
 `ui-utils.js`): HR / SpO2 / Flow / Drip / Line — xanh = ổn, xám = mất tín

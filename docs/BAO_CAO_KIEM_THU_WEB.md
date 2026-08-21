@@ -5,6 +5,19 @@
 **Phiên bản firmware thiết bị lúc kiểm thử:** v5
 **Địa chỉ:** `http://localhost:5100`
 
+> ### ⏱ Đây là ảnh chụp tại ngày kiểm thử, không phải mô tả bản hiện tại
+>
+> Kết quả dưới đây là **những gì đã quan sát được ngày 19/08/2026** và được giữ
+> nguyên — viết lại chúng theo code mới sẽ là báo cáo một phép thử chưa từng
+> chạy. Sau ngày đó giao diện đã đổi ở vài chỗ, đáng chú ý nhất là **mục 7.4 và
+> 7.5**: trang *My shift* nay khác nhau theo vai trò (kỹ thuật viên có mục
+> "Equipment duty", quản trị viên bỏ hẳn phần phạm vi phụ trách), và tab
+> *Devices* đã bỏ hai ô Battery/RSSI để thay bằng Link Quality.
+>
+> Danh sách thay đổi kể từ ngày này, kèm cách kiểm chứng lại, nằm ở
+> [`BAN_GIAO_UI_UX.md`](BAN_GIAO_UI_UX.md). **Cần một lượt kiểm thử mới** để
+> báo cáo phản ánh đúng bản đang chạy.
+
 ---
 
 ## 1. Tóm tắt kết quả

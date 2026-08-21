@@ -15,7 +15,8 @@ src/HisServer/        ASP.NET Core app (backend + static web frontend)
   Api/                 REST endpoint definitions
   Hubs/                SignalR hub (live push to the browser)
   Ingestion/            TCP vitals listener (port 5000) + wire-format parser
-  Domain/                Status thresholds, alert-transition rules, offline scanner
+  Domain/                Status thresholds, alert-transition rules, device health,
+                         and the two offline scanners (one for beds, one for devices)
   Data/                  MySQL access (Dapper + MySqlConnector)
   Services/              Vitals-save throttling, FCM push
   Models/                Shared DTOs
@@ -53,10 +54,16 @@ fails fast at startup if it isn't set.
 | MySQL connection string | `ConnectionStrings__MySql` | *(required, no default)* | e.g. `Server=localhost;Port=3306;Database=his_server;Uid=...;Pwd=...;` |
 | Bed vitals TCP ingestion port | `Tcp__Port` | `5000` | Newline-delimited JSON, one reading per line |
 | Vitals history save interval | `VitalsSave__IntervalSeconds` | `10` | How often a bed's readings get written to `vital_samples` |
-| Offline detection threshold | `Offline__ThresholdSeconds` | `3` | No data within this window ⇒ bed marked Offline |
-| Offline scan interval | `Offline__ScanIntervalSeconds` | `1` | How often the offline scanner runs |
+| Offline detection threshold | `Offline__ThresholdSeconds` | `90` | No data within this window ⇒ bed **and its device** marked Offline |
+| Offline scan interval | `Offline__ScanIntervalSeconds` | `5` | How often both offline scanners run |
 | Firebase project ID | `Firebase__ProjectId` | *(empty = push disabled)* | |
 | Firebase service account path | `FPT_FIREBASE_SERVICE_ACCOUNT` | *(empty = push disabled)* | Path to the service account JSON file |
+
+> **"Default" above means the value this repo ships in `appsettings.json`**, not
+> the fallback baked into the options classes. The two differ for the `Offline`
+> settings: `OfflineOptions` falls back to 3s/1s if the section is missing
+> entirely, but the shipped config sets 90s/5s. Read `appsettings.json` — not
+> the C# defaults — when working out why a bed took N seconds to go Offline.
 
 Local development example:
 
