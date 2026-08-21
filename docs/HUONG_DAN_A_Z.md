@@ -571,8 +571,8 @@ giây. Chi tiết ở [`AI_HOAT_DONG_THE_NAO.md`](AI_HOAT_DONG_THE_NAO.md) mục
 
 **Đèn và còi** (`firmware/sensor_hub.c`). Ba đèn xanh/vàng/đỏ và một còi, mỗi
 mức cảnh báo **chỉ sáng đúng một đèn**; cấp nguy cấp nhất dùng **đỏ nhấp nháy**
-chứ không phải đỏ + vàng cùng lúc. Nhịp còi khác nhau theo mức (1 s / 0,3 s /
-0,15 s) và chạy **không chặn** vòng lặp chính.
+chứ không phải đỏ + vàng cùng lúc. **Còi chỉ kêu ở mức đỏ** (0,3 s) và đỏ khẩn (0,15 s); mức vàng có đèn nhưng
+không có tiếng. Nhịp còi chạy **không chặn** vòng lặp chính.
 
 Chân trên mikroBUS (BRD2709A):
 
@@ -581,7 +581,7 @@ Chân trên mikroBUS (BRD2709A):
 | Đèn xanh | PA07 | PWM |
 | Đèn vàng | PA04 | TX |
 | Đèn đỏ | PA05 | RX |
-| **Còi** | **PC04** | **CS** |
+| **Còi** | **PC06** | — |
 | HX711 DT | PC01 | MISO |
 | HX711 SCK | PC03 | SCK |
 | Cảm biến giọt | PD02 | AN |
@@ -610,6 +610,49 @@ Mỗi lần bật nguồn có **tự kiểm tra**: sáng lần lượt xanh → 
 tiếng ngắn, chưa tới một giây. Đây là cách duy nhất phân biệt *"bộ báo động
 hỏng"* với *"ca trực yên bình"* — hai thứ trông giống hệt nhau cho tới đúng lúc
 cần phân biệt. **Không nghe tiếng nào nghĩa là đấu dây, không phải phần mềm.**
+
+### 1.6.7 Chế độ chờ — thiết bị chỉ báo động khi được giao việc
+
+Mỗi giường có hai trạng thái: **CHỜ** và **ĐANG THEO DÕI**. Y tá bấm nút
+*Start monitoring* trong chi tiết giường sau khi đã treo bình, kẹp cảm biến và
+tare cân.
+
+Ở chế độ **CHỜ**, thiết bị:
+
+| Vẫn làm | Không làm |
+|---|---|
+| Đọc cảm biến, hiện số lên OLED và **gửi đầy đủ lên server như thường** | Chạy ba model AI |
+| Nhận lệnh đặt y lệnh, tare, hiệu chuẩn nhịp tim | Chạy luật lâm sàng |
+| | Báo động, bật đèn cảnh báo, kêu còi |
+
+**Vì sao vẫn hiện số mà không báo động:** y tá đang lắp thiết bị cần thấy kẹp
+SpO2 đã ăn tín hiệu chưa, giọt đã đếm được chưa, cân đã về 0 chưa. Màn hình
+trống thì họ không có cách nào biết mình đã lắp xong hay chưa. Nhưng mọi con số
+trong lúc lắp đặt đều là rác — SpO2 bằng 0 vì chưa kẹp vào ngón tay, cân đang bị
+tay đè lên — và mọi cảnh báo sinh ra từ chúng đều là báo giả. **Một khoa quen
+với báo giả là một khoa sẽ bỏ qua tiếng còi thật.**
+
+**Bỏ qua hẳn AI chứ không chạy rồi giấu kết quả.** Nhét quãng lắp đặt vào cửa sổ
+64 giây thì ngay khi bắt đầu theo dõi, model sẽ dự báo dựa trên khoảng thời gian
+không có bệnh nhân nào. Vì vậy lúc bấm bắt đầu, cửa sổ được **xoá sạch** và đo
+lại từ đầu.
+
+**Trạng thái nằm ở CHIP và được lưu vào NVM3**, không nằm ở server. Hai lý do:
+
+- Mất mạng thì máy đầu giường vẫn biết nó đang được giao việc hay chưa. Nếu giữ
+  ở server, mất mạng là nó lại tự báo động trong lúc chưa ai bảo nó bắt đầu —
+  đúng tình huống nó phải im nhất.
+- Lưu lại nên **một lần chớp điện giữa ca truyền không làm thiết bị lặng lẽ
+  ngừng theo dõi**. Mất theo dõi trong im lặng nguy hiểm hơn nhiều so với một
+  tiếng còi thừa.
+
+Máy mới cắm điện lần đầu (chưa có bản ghi NVM3) thì mặc định là **CHỜ**.
+
+Server cũng chặn độc lập: `VitalsStatusEvaluator` trả về `Stable` ngay khi thấy
+`monitoring=false`, nên kể cả thiết bị đời cũ có gửi cảnh báo lên thì cũng không
+sinh ra alert. Thiết bị **không** báo trường này thì mặc định coi là **đang theo
+dõi** — hiểu nhầm một giường đang giám sát thật thành "chờ" là chiều sai nguy
+hiểm hơn.
 
 ### 1.7 Màn hình OLED đầu giường
 

@@ -260,6 +260,33 @@ public static class BedEndpoints
                 new { bedId, targetDropsPerMin = request.TargetDropsPerMin });
         }).RequireAuthorization(Capabilities.ControlBed);
 
+        /* Bắt đầu / tạm dừng theo dõi.
+         *
+         * Đây là nút y tá bấm sau khi đã treo bình, kẹp cảm biến và tare cân
+         * xong. Trước khi bấm, thiết bị vẫn đọc và vẫn hiện số nhưng KHÔNG chạy
+         * AI và KHÔNG báo động - vì mọi con số trong lúc lắp đặt đều là rác, và
+         * một khoa quen với báo giả là một khoa sẽ bỏ qua tiếng còi thật.
+         *
+         * Trạng thái nằm ở THIẾT BỊ chứ không phải ở server: nếu giữ trên server
+         * thì mất mạng là chiếc máy đầu giường lại tự báo động trong lúc chưa ai
+         * bảo nó bắt đầu, và đó đúng là tình huống nó phải im nhất. */
+        group.MapPost("/{bedId}/monitoring", async (
+            string bedId,
+            MonitoringRequest request,
+            BedStateStore store,
+            BedConnectionRegistry connectionRegistry) =>
+        {
+            if (store.Get(bedId) is null)
+            {
+                return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
+            }
+
+            var value = request.Enabled ? 1 : 0;
+            return await SendDeviceCommandAsync(bedId,
+                $$"""{"cmd":"set_monitoring","value":{{value}}}""", connectionRegistry,
+                new { bedId, monitoring = request.Enabled });
+        }).RequireAuthorization(Capabilities.ControlBed);
+
         group.MapPost("/{bedId}/tare", async (
             string bedId,
             BedStateStore store,
@@ -316,6 +343,9 @@ public static class BedEndpoints
 }
 
 public sealed record CreateBedRequest(string BedId, string? Room);
+
+/// <summary>Bật (true) hoặc tạm dừng (false) việc theo dõi ở một giường.</summary>
+public sealed record MonitoringRequest(bool Enabled);
 
 public sealed record UpdateBedRequest(string? Room, string? DeviceId);
 

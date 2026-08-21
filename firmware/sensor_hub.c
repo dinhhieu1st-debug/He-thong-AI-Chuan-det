@@ -161,13 +161,25 @@ static float target_drops_per_min = SET_DROPS_DPM;
  * unchanged, and app.c re-writes the SAME value into the Zigbee attribute
  * every second. */
 #define SMART_IV_NVM3_KEY_TARGETS  0x0A001U
-#define SMART_IV_TARGETS_MAGIC     0x53495631U   /* "SIV1" - guards against reading a stale/foreign record */
+#define SMART_IV_TARGETS_MAGIC     0x53495632U   /* "SIV2" - guards against reading a stale/foreign record */
 
 typedef struct {
   uint32_t magic;
   float    flow_ml_h;
   float    drops_per_min;
+  uint8_t  monitoring;      /* xem sh_monitoring_active() */
 } sh_persisted_targets_t;
+
+/* Theo dõi đang BẬT hay đang CHỜ.
+ *
+ * Mặc định là CHỜ: một thiết bị vừa cắm điện chưa hề được kẹp lên bệnh nhân
+ * nào, và mọi tiếng còi lúc đó đều là báo giả - đúng thứ làm cả khoa học cách
+ * phớt lờ tiếng còi.
+ *
+ * NHƯNG trạng thái này được LƯU LẠI, nên một lần chớp điện giữa ca truyền
+ * không làm thiết bị lặng lẽ ngừng theo dõi rồi chờ ai đó nhận ra. Mất theo dõi
+ * trong im lặng nguy hiểm hơn nhiều so với một tiếng còi thừa. */
+static bool monitoring_active = false;
 
 static void targets_save(void)
 {
@@ -175,6 +187,7 @@ static void targets_save(void)
     .magic         = SMART_IV_TARGETS_MAGIC,
     .flow_ml_h     = target_flow_ml_h,
     .drops_per_min = target_drops_per_min,
+    .monitoring    = monitoring_active ? 1U : 0U,
   };
 
   Ecode_t st = nvm3_writeData(nvm3_defaultHandle, SMART_IV_NVM3_KEY_TARGETS,
@@ -208,6 +221,8 @@ static void targets_load(void)
     printf("[NVM3] Saved targets unreadable/foreign - keeping defaults\r\n");
     return;
   }
+
+  monitoring_active = (rec.monitoring != 0U);
 
   /* Sanity-check before trusting flash contents: a corrupted record must
    * never be able to push a nonsense prescription into the AI's ratio math
@@ -961,7 +976,18 @@ static void max30102_poll(void)
  *  so it stays fully NON-BLOCKING - no delay() may ever be used, since the
  *  Zigbee stack and the drop sensor both need the main loop to keep turning.
  * ========================================================================== */
-#define ALERT_ACTIVE_HIGH   1     /* 0 if your LED/buzzer modules are active-low */
+#define ALERT_ACTIVE_HIGH   1     /* 0 if your LED modules are active-low */
+
+/* Còi đấu NGƯỢC MỨC so với ba đèn: kéo chân xuống THẤP thì nó kêu.
+ *
+ * Tách riêng khỏi ALERT_ACTIVE_HIGH chứ không dùng chung, vì ba đèn vẫn là
+ * active-high. Dùng chung một hằng số thì sửa cho còi kêu đúng sẽ làm cả ba
+ * đèn sáng ngược - xanh khi có báo động và tắt khi bình thường.
+ *
+ * Hệ quả quan trọng nhất nằm ở lúc khởi tạo: với còi active-low, mức "im" là
+ * mức CAO. Đặt chân về thấp lúc boot - việc mà một cái còi active-high coi là
+ * tắt - sẽ làm còi kêu liên tục ngay từ khi cắm điện. */
+#define BUZZER_ACTIVE_HIGH  0
 
 #define LED_GREEN_PORT   gpioPortA
 #define LED_GREEN_PIN    7        /* mikroBUS PWM = PA07 */
@@ -970,7 +996,7 @@ static void max30102_poll(void)
 #define LED_RED_PORT     gpioPortA
 #define LED_RED_PIN      5        /* mikroBUS RX  = PA05 */
 #define BUZZER_PORT      gpioPortC
-#define BUZZER_PIN_NUM   4        /* mikroBUS CS = PC04 */
+#define BUZZER_PIN_NUM   6        /* PC06 */
 
 /* --- No two peripherals may share a pin ------------------------------------
  *
@@ -1007,7 +1033,7 @@ _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
                               HX711_DOUT_PORT, HX711_DOUT_PIN),
                "Buzzer and HX711 DOUT are on the same pin. On BRD2709A the "
                "load cell data line is PC01 = mikroBUS MISO; the buzzer is on "
-               "PC04 = mikroBUS CS. Move the wire, or move the scale.");
+               "PC06. Move the wire, or move the scale.");
 _Static_assert(SH_PINS_DIFFER(BUZZER_PORT, BUZZER_PIN_NUM,
                               HX711_SCK_PORT, HX711_SCK_PIN),
                "Buzzer and HX711 SCK are on the same pin (PC03 = mikroBUS SCK).");
@@ -1053,6 +1079,8 @@ _Static_assert(SH_PINS_DIFFER(HX711_DOUT_PORT, HX711_DOUT_PIN,
 
 #define BUZZER_PERIOD_CRITICAL_MS 150U    /* urgent beep = both systems failing */
 #define BUZZER_PERIOD_RED_MS      300U    /* fast beep = danger    (matches the .ino) */
+/* Mức vàng KHÔNG kêu nữa - xem buzzer_should_sound(). Giữ lại hằng số này thì
+ * chỉ tổ làm người đọc sau tưởng còi có kêu ở mức vàng. */
 
 static alert_level_t alert_level        = ALERT_LEVEL_NORMAL;
 static bool          buzzer_on          = false;
@@ -1067,12 +1095,27 @@ static void alert_pin_write(GPIO_Port_TypeDef port, unsigned int pin, bool on)
 #endif
 }
 
+/* Ghi mức cho còi, theo đúng chiều của nó. on = muốn kêu. */
+static void buzzer_write(bool on)
+{
+#if BUZZER_ACTIVE_HIGH
+  if (on) { GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN_NUM); }
+  else    { GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN_NUM); }
+#else
+  if (on) { GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN_NUM); }
+  else    { GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN_NUM); }
+#endif
+}
+
 static void alert_init(void)
 {
   GPIO_PinModeSet(LED_GREEN_PORT,  LED_GREEN_PIN,  gpioModePushPull, 0);
   GPIO_PinModeSet(LED_YELLOW_PORT, LED_YELLOW_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(LED_RED_PORT,    LED_RED_PIN,    gpioModePushPull, 0);
-  GPIO_PinModeSet(BUZZER_PORT,     BUZZER_PIN_NUM, gpioModePushPull, 0);
+  /* Mức khởi tạo phải là mức IM của chính cái còi này, không phải 0. Với còi
+   * active-low, đặt 0 ở đây là nó hú ngay từ giây đầu tiên cắm điện. */
+  GPIO_PinModeSet(BUZZER_PORT, BUZZER_PIN_NUM, gpioModePushPull,
+                  BUZZER_ACTIVE_HIGH ? 0 : 1);
 
   /* --- Alarm self-test ---------------------------------------------------
    *
@@ -1088,7 +1131,7 @@ static void alert_init(void)
   alert_pin_write(LED_GREEN_PORT,  LED_GREEN_PIN,  false);
   alert_pin_write(LED_YELLOW_PORT, LED_YELLOW_PIN, false);
   alert_pin_write(LED_RED_PORT,    LED_RED_PIN,    false);
-  alert_pin_write(BUZZER_PORT,     BUZZER_PIN_NUM, false);
+  buzzer_write(false);
 
   printf("[ALERT] Self-test: green, yellow, red, buzzer...\r\n");
 
@@ -1107,23 +1150,37 @@ static void alert_init(void)
    * Nghe được kiểu nào thì biết còi loại nào — và nếu không nghe kiểu nào cả
    * thì vấn đề nằm ở dây hoặc ở chính cái còi, không phải ở phần mềm. */
   printf("[ALERT] Buzzer test 1/2: muc DC (coi chu dong se keu)\r\n");
-  alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, true);
+  buzzer_write(true);
   sl_udelay_wait(600000U);
-  alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+  buzzer_write(false);
   sl_udelay_wait(400000U);
 
   printf("[ALERT] Buzzer test 2/2: tan so 1.4 kHz (coi thu dong se keu)\r\n");
   for (uint32_t i = 0; i < 1700U; i++) {          /* ~600 ms ở 1,4 kHz */
-    alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, (i & 1U) == 0U);
+    buzzer_write((i & 1U) == 0U);
     sl_udelay_wait(BUZZER_TONE_HALF_PERIOD_US);
   }
-  alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+  buzzer_write(false);
 
   printf("[ALERT] Self-test done. No beep or no lamp here means WIRING, "
          "not the alarm logic.\r\n");
 
   /* Settle into the quiet state: green on, nothing wrong yet. */
   alert_pin_write(LED_GREEN_PORT, LED_GREEN_PIN, true);
+}
+
+/* Còi CHỈ kêu khi đèn ĐỎ - tức là khi bệnh nhân đang có vấn đề.
+ *
+ * Mức vàng (sự cố đường truyền: tắc dây, chảy tự do, lệch y lệnh) có đèn nhưng
+ * KHÔNG có tiếng. Đó là việc thật và phải có người đi xử lý, nhưng cho nó cùng
+ * tiếng còi với tụt oxy là cách nhanh nhất khiến cả khoa thôi phản ứng với
+ * tiếng còi - và khi đó tiếng còi thật cũng mất tác dụng theo.
+ *
+ * Cùng đúng một logic đã dùng cho màu sắc: đỏ dành riêng cho bệnh nhân đang
+ * nguy hiểm. Giờ tiếng còi cũng vậy. */
+static bool buzzer_should_sound(alert_level_t level)
+{
+  return level == ALERT_LEVEL_VITALS_ALERT || level == ALERT_LEVEL_CRITICAL;
 }
 
 void sh_alert_set_level(alert_level_t level)
@@ -1139,7 +1196,7 @@ void sh_alert_set_level(alert_level_t level)
    * but silent, so a low bag or a kinked line doesn't sound the same alarm
    * as a patient in trouble. */
   buzzer_last_toggle = now_ms();
-  buzzer_on = (level == ALERT_LEVEL_VITALS_ALERT || level == ALERT_LEVEL_CRITICAL);
+  buzzer_on = buzzer_should_sound(level);
 
   /* EXACTLY ONE lamp is lit at a time.
    *
@@ -1159,7 +1216,7 @@ void sh_alert_set_level(alert_level_t level)
   alert_pin_write(LED_RED_PORT,    LED_RED_PIN,
                   level == ALERT_LEVEL_VITALS_ALERT
                   || level == ALERT_LEVEL_CRITICAL);
-  alert_pin_write(BUZZER_PORT,     BUZZER_PIN_NUM, buzzer_on);
+  buzzer_write(buzzer_on);
 
   printf("[ALERT] Level -> %s\r\n", sh_alert_level_name(level));
 }
@@ -1181,18 +1238,16 @@ const char *sh_alert_level_name(alert_level_t level)
 
 static void alert_poll(void)
 {
-  /* Yellow (line only) gets its lamp but never the buzzer - only red and
-   * critical are loud enough to pull a nurse across the ward. */
-  bool buzzer_should_sound = (alert_level == ALERT_LEVEL_VITALS_ALERT
-                            || alert_level == ALERT_LEVEL_CRITICAL);
-  if (!buzzer_should_sound) {
+  if (!buzzer_should_sound(alert_level)) {
     if (buzzer_on) {
       buzzer_on = false;
-      alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+      buzzer_write(false);
     }
     return;
   }
 
+  /* Chỉ còn hai nhịp: đỏ và đỏ khẩn. Mức vàng đã bị chặn ở trên nên không có
+   * nhịp nào cho nó nữa. */
   uint32_t period = (alert_level == ALERT_LEVEL_CRITICAL)
                     ? BUZZER_PERIOD_CRITICAL_MS
                     : BUZZER_PERIOD_RED_MS;
@@ -1207,7 +1262,7 @@ static void alert_poll(void)
     if (now_micros - tone_last_us >= BUZZER_TONE_HALF_PERIOD_US) {
       tone_last_us = now_micros;
       tone_level = !tone_level;
-      alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, tone_level);
+      buzzer_write(tone_level);
     }
   }
 
@@ -1215,7 +1270,7 @@ static void alert_poll(void)
     buzzer_last_toggle = now;
     buzzer_on = !buzzer_on;
     /* Hết pha bíp thì tắt hẳn, đừng để chân dừng ở mức cao. */
-    if (!buzzer_on) alert_pin_write(BUZZER_PORT, BUZZER_PIN_NUM, false);
+    if (!buzzer_on) buzzer_write(false);
 
     /* Critical is the one level that flashes its lamp, so that it needs only
      * one lamp to be distinguishable from a patient alert. Every other level
@@ -1476,6 +1531,26 @@ ch_state_t sh_drops_state(void)
 #else
   return CH_DISABLED;
 #endif
+}
+
+/* Bật/tắt theo dõi. Trả về true nếu trạng thái THẬT SỰ đổi, để chỗ gọi biết
+ * lúc nào cần dọn lại cửa sổ dữ liệu của AI. */
+bool sh_set_monitoring_active(bool active)
+{
+  if (active == monitoring_active) {
+    return false;
+  }
+  monitoring_active = active;
+  targets_save();
+  printf("[MONITOR] %s\r\n", active
+         ? "BAT theo doi - AI va bao dong bat dau chay"
+         : "CHO - khong chay AI, khong bao dong, khong coi");
+  return true;
+}
+
+bool sh_monitoring_active(void)
+{
+  return monitoring_active;
 }
 
 uint32_t sh_total_drops(void)

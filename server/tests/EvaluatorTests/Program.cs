@@ -35,6 +35,37 @@ Console.WriteLine("\n== A healthy bed stays Stable ==");
           VitalsStatusEvaluator.Evaluate(r, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 }
 
+Console.WriteLine("\n== Standby: nothing is judged until the nurse starts monitoring ==");
+Console.WriteLine("   While the bag is being hung and the sensors clipped on, every");
+Console.WriteLine("   reading is rubbish and every alarm from it is a false one.");
+{
+    // The worst case that could possibly be on screen mid-setup: no finger on
+    // the probe, no drops yet, and the device's own verdict already at its
+    // highest level. None of it may raise anything while standby.
+    var setup = Normal() with
+    {
+        Monitoring = false,
+        Spo2 = 0, HeartRate = 0, DripRate = 0,
+        Spo2Signal = false, HeartRateSignal = false,
+        AlertLevel = 3, LineBranch = true, PatientBranch = true, LineBlocked = true
+    };
+    Check("standby -> Stable, whatever the numbers say",
+          VitalsStatusEvaluator.Evaluate(setup) == BedStatus.Stable,
+          VitalsStatusEvaluator.Evaluate(setup).ToString());
+
+    // ...and the moment it is armed, the same reading is Critical. Standby must
+    // suppress the alarm, not lose it.
+    var armed = setup with { Monitoring = true };
+    Check("the same reading, once armed, is Critical",
+          VitalsStatusEvaluator.Evaluate(armed) == BedStatus.Critical,
+          VitalsStatusEvaluator.Evaluate(armed).ToString());
+
+    // A device too old to report the field must never be mistaken for standby:
+    // silently stopping to watch a real patient is the dangerous direction.
+    Check("a reading with no monitoring field defaults to monitoring",
+          Normal().Monitoring, "Monitoring=true");
+}
+
 Console.WriteLine("\n== A line fault is a Warning, NOT Critical ==");
 Console.WriteLine("   The patient is fine. Escalating this to Critical is how a ward");
 Console.WriteLine("   learns to ignore the device.");

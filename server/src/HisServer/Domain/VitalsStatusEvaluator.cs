@@ -86,6 +86,21 @@ public static class VitalsStatusEvaluator
 
     public static BedStatus Evaluate(BedReading reading, MetricHysteresis previous)
     {
+        /* Chưa theo dõi thì chưa phán xét gì cả.
+         *
+         * Ở chế độ chờ, y tá đang treo bình, kẹp cảm biến và tare cân. SpO2 đọc
+         * 0 vì chưa kẹp vào ngón tay, giọt chưa chảy, cân đang bị tay đè lên -
+         * mọi con số đều là rác, và mọi cảnh báo sinh ra từ chúng đều là báo
+         * giả. Một khoa quen với báo giả là một khoa sẽ bỏ qua tiếng còi thật.
+         *
+         * Trả về Stable chứ không phải Offline: thiết bị vẫn đang nói chuyện
+         * bình thường, chỉ là chưa được giao việc. Offline nghĩa là mất liên
+         * lạc, một chuyện hoàn toàn khác và cần người đi kiểm tra. */
+        if (!reading.Monitoring)
+        {
+            return BedStatus.Stable;
+        }
+
         // The device's own four-level verdict comes first when it is available.
         // It is decided on-chip from three independent models plus the hard
         // clinical rules plus the load-cell cross-check, and it has information

@@ -40,7 +40,7 @@ const BedsTab = (() => {
   function bedCardHtml(bed) {
     const color = UiUtils.statusColor(bed.status);
     return `
-      <div class="bed-card" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
+      <div class="bed-card${bed.monitoring === false ? " standby" : ""}" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
         <div class="stripe" style="background:${color};"></div>
         <div class="body">
           <div class="row-top">
@@ -56,6 +56,9 @@ const BedsTab = (() => {
             <div class="vital">Drip<b>${UiUtils.formatMetric(bed.dripRate, "%")}</b></div>
           </div>
           ${UiUtils.signalRowHtml(bed)}
+          ${bed.monitoring === false
+            ? `<div><span class="bed-standby-tag">STANDBY — not monitoring</span></div>`
+            : ""}
           <div class="bed-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
         </div>
       </div>`;
@@ -502,10 +505,44 @@ const BedsTab = (() => {
     }
   }
 
+  /* Bắt đầu / tạm dừng theo dõi.
+   *
+   * Đặt ở TRÊN CÙNG khối cài đặt, vì đây là việc cuối cùng y tá làm sau khi
+   * treo bình, kẹp cảm biến và tare cân - và là thứ quyết định thiết bị có
+   * được phép báo động hay không. Nút phải nói rõ nó đang ở trạng thái nào,
+   * chứ không chỉ nói nó sẽ làm gì khi bấm: một cái nút ghi "Bắt đầu" thì
+   * không phân biệt được "chưa bắt đầu" với "đã bắt đầu rồi". */
+  function monitoringSectionHtml(bed) {
+    const on = bed.monitoring !== false;
+    return `
+      <div class="settings-block monitoring-block ${on ? "is-on" : "is-standby"}">
+        <label>Monitoring</label>
+        <div class="monitoring-state">
+          <span class="status-chip" style="background:${on ? "#1ea050" : "#8a97a8"};">
+            ${on ? "MONITORING" : "STANDBY"}
+          </span>
+          <span class="muted">${on
+            ? "AI and alarms are running for this bed."
+            : "Sensors are read and shown, but no AI and no alarms yet."}</span>
+        </div>
+        <div class="inline-form" style="margin-top:8px;">
+          <button type="button" id="monitoringBtn" class="btn ${on ? "" : "primary"}">
+            ${on ? "Pause monitoring" : "Start monitoring"}
+          </button>
+        </div>
+        ${on ? "" : `<div class="muted" style="margin-top:6px;font-size:12px;">
+          Hang the bag, attach the sensors and tare the scale first — readings
+          taken while setting up would otherwise be the AI's first impression
+          of this patient.</div>`}
+      </div>`;
+  }
+
   function settingsSectionHtml(bed) {
     return `
       <div class="bed-settings">
         <h4>Doctor-configurable settings</h4>
+
+        ${monitoringSectionHtml(bed)}
 
         <div class="settings-block">
           <label>Load cell</label>
@@ -548,6 +585,31 @@ const BedsTab = (() => {
         input.value = "";
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not set target drop rate (${err.message})`, true);
+      }
+    });
+
+    document.getElementById("monitoringBtn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("monitoringBtn");
+      const turningOn = bed.monitoring === false;
+
+      /* Tạm dừng thì hỏi lại, bắt đầu thì không. Dừng theo dõi một giường đang
+       * truyền dịch là làm chiếc máy im trong lúc bệnh nhân vẫn nằm đó. */
+      if (!turningOn && !confirm(
+            `Pause monitoring for ${bed.bedId}?\n\n`
+          + `The device keeps reading and showing values, but will raise no `
+          + `alarms for this patient until monitoring is started again.`)) {
+        return;
+      }
+
+      btn.disabled = true;
+      try {
+        await Api.setMonitoring(bed.bedId, turningOn);
+        UiUtils.toast(turningOn
+          ? `${bed.bedId}: monitoring started`
+          : `${bed.bedId}: monitoring paused`);
+      } catch (err) {
+        UiUtils.toast(err.message, true);
+        btn.disabled = false;
       }
     });
 

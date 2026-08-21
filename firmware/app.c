@@ -240,6 +240,7 @@ static void zb_configure_reporting(void)
     { ZCL_TARGET_DROPS_PER_MIN_ATTRIBUTE_ID,        1,  1 },
     { ZCL_HR_BASELINE_BPM_ATTRIBUTE_ID,             1,  1 },
     { ZCL_TARE_EVENT_COUNT_ATTRIBUTE_ID,            1,  1 },
+    { ZCL_MONITORING_ACTIVE_ATTRIBUTE_ID,           1,  1 },
     { ZCL_HR_BASELINE_EVENT_COUNT_ATTRIBUTE_ID,     1,  1 },
 
     /* Live 60s countdown - ticks once a second while calibrating, then sits
@@ -354,6 +355,13 @@ static void zb_report_ai_result(int16_t hr, uint16_t spo2, uint16_t flow_x100,
 
 static void zb_report_ts_result(const fusion_result_t *f)
 {
+  /* Trạng thái theo dõi đi kèm mỗi lần báo cáo, để bảng điều khiển không phải
+   * đoán và để nút bật/tắt trên web luôn phản ánh đúng thứ chip đang làm. */
+  uint8_t monitoring = sh_monitoring_active() ? 1U : 0U;
+  sl_zigbee_af_write_manufacturer_specific_server_attribute(
+      ZB_EP_VITALS, ZCL_SMART_IV_VITALS_CLUSTER_ID, ZCL_MONITORING_ACTIVE_ATTRIBUTE_ID,
+      SMART_IV_MFG_CODE, &monitoring, ZCL_INT8U_ATTRIBUTE_TYPE);
+
   const bool usable = (f->vitals_ready || f->drip_ready);
 
   uint16_t flags = (uint16_t)((usable                 ? 0x0001u : 0u)
@@ -500,6 +508,26 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
     }
     sh_set_target_drops_per_min((float)new_target_dpm);
     printf("[ZB] Doctor set a new target drop rate: %u dpm\r\n", (unsigned)new_target_dpm);
+    return;
+  }
+
+  if (attributeId == ZCL_MONITORING_ACTIVE_ATTRIBUTE_ID) {
+    bool want = (*value != 0);
+
+    /* Chỉ phản ứng khi khác giá trị đang chạy: chính firmware cũng ghi lại
+     * thuộc tính này mỗi giây để báo trạng thái lên, và nếu không chặn thì
+     * mỗi lần tự ghi lại kích hoạt callback này một lần. */
+    if (want == sh_monitoring_active()) {
+      return;
+    }
+
+    if (sh_set_monitoring_active(want) && want) {
+      /* Bắt đầu theo dõi = bắt đầu lại từ đầu. Cửa sổ 64 giây của AI phải sạch:
+       * quãng vừa rồi là lúc treo bình và kẹp cảm biến, đưa đoạn đó vào model
+       * thì dự báo đầu tiên sẽ dựa trên khoảng thời gian không có bệnh nhân. */
+      ai_fusion_init();
+      printf("[MONITOR] Da xoa cua so du lieu cu, bat dau do lai tu bay gio\r\n");
+    }
     return;
   }
 
@@ -785,10 +813,42 @@ void app_process_action(void)
   if (now - last_ai >= AI_PERIOD_MS) {
     last_ai = now;
 
+    /* CHẾ ĐỘ CHỜ: chưa ai bấm "bắt đầu theo dõi".
+     *
+     * Không chạy model, không chạy luật lâm sàng, không báo động, không còi.
+     * Cảm biến vẫn đọc và màn hình vẫn hiện số (khối ở dưới), vì y tá cần nhìn
+     * thấy kẹp SpO2 đã ăn tín hiệu chưa và cân đã về 0 chưa TRƯỚC khi bấm bắt
+     * đầu - nếu màn hình cũng trống thì họ không có cách nào biết mình đã lắp
+     * xong hay chưa.
+     *
+     * Bỏ qua hẳn ai_fusion_step() chứ không chạy rồi giấu kết quả: dữ liệu lúc
+     * đang treo bình và kẹp cảm biến là rác, và nhét rác vào cửa sổ 64 giây thì
+     * ngay khi bắt đầu theo dõi, model sẽ dự báo dựa trên quãng thời gian
+     * không có bệnh nhân nào. */
     /* One call runs all three models, the clinical rules and the load-cell
      * cross-check, and returns the finished 4-level decision. */
     fusion_result_t f;
-    ai_fusion_step(&f);
+
+    if (sh_monitoring_active()) {
+      ai_fusion_step(&f);
+    } else {
+      /* CHẾ ĐỘ CHỜ: không chạy model, không chạy luật, không phán quyết gì.
+       *
+       * Nhưng vẫn đi TIẾP xuống toàn bộ đường báo cáo phía dưới, không thoát
+       * sớm: sinh hiệu, cân, y lệnh, số giọt vẫn chảy lên server và vẫn hiện
+       * trên màn hình như thường. Y tá đang lắp thiết bị cần nhìn thấy những
+       * con số đó - thứ duy nhất bị tắt là quyền phán xét và quyền kêu.
+       *
+       * Một kết quả rỗng ở mức NORMAL, chứ không phải "mọi thứ ổn": khác nhau
+       * ở chỗ dòng chữ trên màn hình ghi STANDBY, và cờ monitoring gửi kèm nói
+       * rõ vì sao không có phán quyết nào. */
+      static const char *const standby_cause[] = { "STANDBY - NOT ARMED" };
+      memset(&f, 0, sizeof(f));
+      f.level       = ALERT_LEVEL_NORMAL;
+      f.headline    = standby_cause[0];
+      f.causes[0]   = standby_cause[0];
+      f.cause_count = 1;
+    }
 
     /* Drive the local LEDs/buzzer straight away, BEFORE the printf/Zigbee
      * work below - the bedside indicator should never wait on the network. */
@@ -940,7 +1000,8 @@ void app_process_action(void)
      * the server needs changing. A channel without signal is sent as null, not
      * 0, following the convention used throughout: 0 bpm reads like a patient
      * in cardiac arrest, whereas null means "no measurement". */
-    printf("[JSON]{\"heart_rate\":");
+    printf("[JSON]{\"monitoring\":%s,\"heart_rate\":",
+           sh_monitoring_active() ? "true" : "false");
     if (hr_ok) printf("%d", hr); else printf("null");
     printf(",\"spo2\":");
     if (spo2_ok) printf("%d", spo2); else printf("null");

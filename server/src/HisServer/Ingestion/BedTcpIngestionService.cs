@@ -588,6 +588,7 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.FlowSignal = reading.FlowSignal;
             state.DripRateSignal = reading.DripRateSignal;
             state.LineBlocked = reading.LineBlocked;
+            state.Monitoring = reading.Monitoring;
             state.AeAlarm = reading.AeAlarm;
             state.WeightG = reading.WeightG;
             state.DropsPerMin = reading.DropsPerMin;

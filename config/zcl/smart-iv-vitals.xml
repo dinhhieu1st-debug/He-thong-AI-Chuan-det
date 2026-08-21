@@ -45,5 +45,15 @@
          thu khien y ta thoi tin cai may. -->
     <attribute side="server" code="0x0016" define="REMAINING_ML" type="int16u" writable="true" default="0xFFFF" optional="false">RemainingMl</attribute>
     <attribute side="server" code="0x0017" define="REMAINING_MIN" type="int16u" writable="true" default="0xFFFF" optional="false">RemainingMin</attribute>
+
+    <!-- Theo dõi đang BẬT hay đang ở chế độ chờ.
+         0 = chờ (chưa theo dõi): thiết bị không chạy AI, không báo động, không
+         kêu còi. Đây là trạng thái lúc y tá còn đang treo bình, kẹp cảm biến,
+         tare cân - giai đoạn mà mọi số đo đều là rác và mọi tiếng còi đều là
+         báo giả.
+         1 = đang theo dõi.
+         Ghi được từ server để y tá bấm nút bắt đầu; thiết bị cũng báo ngược giá
+         trị hiện tại lên để bảng điều khiển không đoán. -->
+    <attribute side="server" code="0x0018" define="MONITORING_ACTIVE" type="int8u" writable="true" default="0x00" optional="false">MonitoringActive</attribute>
   </cluster>
 </configurator>

@@ -1089,3 +1089,17 @@ body.no-scroll { overflow: hidden; }
   border-left: 3px solid var(--accent);
   padding-left: 6px;
 }
+
+/* Khối bật/tắt theo dõi trong chi tiết giường. Viền trái đổi màu để trạng thái
+   đọc được từ xa, không phải dò chữ. */
+.monitoring-block { border-left: 3px solid #1ea050; padding-left: 10px; }
+.monitoring-block.is-standby { border-left-color: #8a97a8; background: #f6f8fa; }
+.monitoring-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Giường đang ở chế độ chờ: làm nhạt đi và ghi rõ, để không ai nhìn một giường
+   chưa được theo dõi rồi tưởng nó đang bình thường. */
+.bed-card.standby { opacity: .72; }
+.bed-card.standby .bed-standby-tag {
+  display: inline-block; margin-top: 6px; padding: 1px 7px; border-radius: 9px;
+  background: #8a97a8; color: white; font-size: 10.5px; font-weight: 600;
+}

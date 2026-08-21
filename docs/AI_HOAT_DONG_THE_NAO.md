@@ -203,13 +203,23 @@ nhánh BỆNH NHÂN    = Model 2 báo bất thường  HOẶC  Model 3 báo bấ
 | Cấp | Điều kiện | Đèn / còi | Màn hình | Y tá làm gì |
 |---|---|---|---|---|
 | **0 — XANH** | cả hai nhánh im | xanh, không còi | *NORMAL* | không cần làm gì |
-| **1 — VÀNG** | chỉ nhánh đường truyền | vàng, còi chậm 1 giây | *CHECK IV LINE* | xem dây, buồng giọt, kim |
+| **1 — VÀNG** | chỉ nhánh đường truyền | vàng, **KHÔNG có tiếng** | *CHECK IV LINE* | xem dây, buồng giọt, kim |
 | **2 — ĐỎ** | chỉ nhánh bệnh nhân | đỏ **đứng yên**, còi nhanh 0,3 giây | *PATIENT ALERT* | tới giường ngay |
 | **3 — ĐỎ KHẨN** | **cả hai cùng lúc** | đỏ **nhấp nháy**, còi rất nhanh 0,15 giây | *DANGER: OVERLOAD* | **ngừng truyền**, gọi bác sĩ |
 
 Cấp 3 không phải "cấp 2 nhưng to hơn". Dịch chảy ồ ạt *cùng lúc* sinh hiệu sụp
 là hình ảnh của **quá tải dịch hoặc phản vệ** — và xử trí đầu tiên là **khoá dây
 truyền**, khác hẳn cấp 2. Vì vậy nó có mã riêng, màu riêng, nhịp còi riêng.
+
+### Còi chỉ kêu khi đèn ĐỎ
+
+Mức vàng có đèn nhưng **không có tiếng**. Sự cố đường truyền — tắc dây, chảy tự
+do, lệch y lệnh — là việc thật và phải có người đi xử lý, nhưng cho nó cùng tiếng
+còi với tụt oxy là cách nhanh nhất khiến cả khoa thôi phản ứng với tiếng còi. Và
+khi đã quen phớt lờ, tiếng còi **thật** cũng mất tác dụng theo.
+
+Đây đúng là logic đã dùng cho màu sắc, nay áp cho cả âm thanh: **đỏ dành riêng
+cho bệnh nhân đang nguy hiểm**. Đèn để thông báo, còi để gọi người chạy tới.
 
 ### Mỗi lúc chỉ MỘT đèn sáng
 
