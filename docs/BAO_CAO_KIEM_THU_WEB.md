@@ -14,9 +14,10 @@
 > "Equipment duty", quản trị viên bỏ hẳn phần phạm vi phụ trách), và tab
 > *Devices* đã bỏ hai ô Battery/RSSI để thay bằng Link Quality.
 >
-> Danh sách thay đổi kể từ ngày này, kèm cách kiểm chứng lại, nằm ở
-> [`BAN_GIAO_UI_UX.md`](BAN_GIAO_UI_UX.md). **Cần một lượt kiểm thử mới** để
-> báo cáo phản ánh đúng bản đang chạy.
+> **Lượt kiểm thử mới đã chạy:** xem
+> [`BAO_CAO_KIEM_THU_2026-08-22.md`](BAO_CAO_KIEM_THU_2026-08-22.md) — 97 ca,
+> phản ánh đúng bản đang chạy. File này giữ nguyên làm hồ sơ lịch sử.
+> Danh sách thay đổi kể từ ngày 19/08 nằm ở [`BAN_GIAO_UI_UX.md`](BAN_GIAO_UI_UX.md).
 
 ---
 

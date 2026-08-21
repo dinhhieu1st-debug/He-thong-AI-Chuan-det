@@ -36,7 +36,8 @@ API, schema, biến cấu hình, cách chạy.
 |---|---|
 | [`BAN_GIAO_UI_UX.md`](BAN_GIAO_UI_UX.md) | Đợt gần nhất đã sửa gì, test bằng gì, còn khoảng trống nào |
 | [`PHAN_QUYEN_VA_VAI_TRO.md`](PHAN_QUYEN_VA_VAI_TRO.md) | Vì sao ba vai trò chia quyền như hiện tại — **đọc trước khi đổi phân quyền** |
-| [`BAO_CAO_KIEM_THU_WEB.md`](BAO_CAO_KIEM_THU_WEB.md) | Báo cáo kiểm thử ba vai trò, kèm mã HTTP thực tế — **ảnh chụp ngày 19/08/2026**, giao diện đã đổi vài chỗ kể từ đó |
+| [`BAO_CAO_KIEM_THU_2026-08-22.md`](BAO_CAO_KIEM_THU_2026-08-22.md) | **Báo cáo kiểm thử mới nhất** — 97 ca, sau đợt UI/UX, kèm 2 mục cần phần cứng mới kiểm được |
+| [`BAO_CAO_KIEM_THU_WEB.md`](BAO_CAO_KIEM_THU_WEB.md) | Báo cáo cũ ngày 19/08/2026 — giữ làm hồ sơ lịch sử, giao diện đã đổi vài chỗ kể từ đó |
 | [`LUONG_SETUP_VA_TAM_NGUNG.md`](LUONG_SETUP_VA_TAM_NGUNG.md) | **Thiết kế, CHƯA triển khai** — luồng thiết lập bệnh nhân mới và tạm ngưng theo dõi |
 
 ### Sửa firmware hoặc gateway
