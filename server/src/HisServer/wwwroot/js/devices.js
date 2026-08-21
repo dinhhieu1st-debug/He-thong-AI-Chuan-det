@@ -140,8 +140,11 @@ const DevicesTab = (() => {
 
   function detailVolatileHtml(device) {
     return {
-      detailBattery: UiUtils.formatMetric(device.batteryPercent, "%"),
-      detailRssi:    UiUtils.formatMetric(device.rssi, " dBm"),
+      // Zigbee LQI (0-255), real - reported by the coordinator on every
+      // packet. Battery and RSSI(dBm) used to live here too, but nothing in
+      // the firmware or gateway ever sent either one; showing a metric that
+      // never has a value is worse than not showing it at all.
+      detailLinkQuality: UiUtils.formatMetric(device.linkQuality, "/255"),
       detailLastSeen:`Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}`,
       detailLastData:`Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}`,
     };
@@ -173,8 +176,7 @@ const DevicesTab = (() => {
       <h3>${UiUtils.escapeHtml(device.deviceId)}</h3>
       <div class="sub">${UiUtils.escapeHtml(device.deviceType.toUpperCase())} · ${UiUtils.escapeHtml((device.status || "").toUpperCase())}</div>
       <div class="metric-row">
-        <div class="metric"><b id="detailBattery">${UiUtils.formatMetric(device.batteryPercent, "%")}</b><span>Battery</span></div>
-        <div class="metric"><b id="detailRssi">${UiUtils.formatMetric(device.rssi, " dBm")}</b><span>RSSI</span></div>
+        <div class="metric"><b id="detailLinkQuality">${UiUtils.formatMetric(device.linkQuality, "/255")}</b><span>Link Quality</span></div>
       </div>
       <div class="bed-updated">EUI-64: ${UiUtils.escapeHtml(device.eui64 || "--")}</div>
       <div class="bed-updated" id="detailLastSeen">Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}</div>
@@ -190,8 +192,13 @@ const DevicesTab = (() => {
         <label>Room</label>
         <input type="text" id="editDeviceRoom" value="${UiUtils.escapeHtml(device.room || "")}">
         <label>Status</label>
+        <div class="bed-updated">
+          Current: ${DEVICE_STATUS_LABEL[statusKey(device)] || (device.status || "").toUpperCase()}
+          — Online, Sensor Fault and Offline are computed automatically from
+          live data and cannot be set here.
+        </div>
         <select id="editDeviceStatus">
-          ${["Online", "Pending", "Warning", "Offline"].map((s) =>
+          ${["Pending", "Warning"].map((s) =>
             `<option value="${s}" ${s.toUpperCase() === (device.status || "").toUpperCase() ? "selected" : ""}>${s}</option>`).join("")}
         </select>
         <button type="submit" class="btn primary">Save</button>
@@ -211,8 +218,6 @@ const DevicesTab = (() => {
           assignedBedId: document.getElementById("editDeviceBedId").value.trim() || null,
           room: document.getElementById("editDeviceRoom").value.trim() || null,
           status: document.getElementById("editDeviceStatus").value,
-          batteryPercent: device.batteryPercent,
-          rssi: device.rssi,
           eui64: device.eui64
         });
         UiUtils.toast(`${device.deviceId} saved`);
@@ -334,8 +339,6 @@ const DevicesTab = (() => {
         // device assigned to BED-101 is in whatever room BED-101 is in.
         room: bed ? bed.room : device.room,
         status: "Online",
-        batteryPercent: device.batteryPercent,
-        rssi: device.rssi,
         eui64: device.eui64 || deviceId
       });
       UiUtils.toast(`${deviceId} assigned to ${bedId}`);
@@ -714,8 +717,6 @@ const DevicesTab = (() => {
           assignedBedId: document.getElementById("newDeviceBedId").value || null,
           room: document.getElementById("newDeviceRoom").value || null,
           status: "Pending",
-          batteryPercent: null,
-          rssi: null,
           eui64: null
         });
         State.upsertDevice(device);

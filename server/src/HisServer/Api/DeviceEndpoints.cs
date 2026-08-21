@@ -65,6 +65,19 @@ public static class DeviceEndpoints
             }
 
             var device = ToRecord(request with { DeviceId = deviceId });
+
+            /* Health columns belong to the ingestion path (UpdateHealthAsync),
+             * never to this form - a technician editing the room or bed has no
+             * opinion on link quality or when data last arrived. Upsert writes
+             * every column, so without this the very next Save would wipe a
+             * live device's LinkQuality/LastDataAt/ChannelsLost back to null,
+             * making it look like it had never reported - the mirror image of
+             * the bug UpdateHealthAsync's own doc comment was written to avoid. */
+            device.LinkQuality = existing.LinkQuality;
+            device.ChannelsLost = existing.ChannelsLost;
+            device.LastDataAt = existing.LastDataAt;
+            device.LastSeenAt = request.LastSeenAt ?? existing.LastSeenAt;
+
             await repository.UpsertAsync(device);
             await SyncBedDeviceLinkAsync(deviceId, oldBedId: existing.AssignedBedId, newBedId: device.AssignedBedId,
                 bedStore, bedRepository, hub);
