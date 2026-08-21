@@ -91,11 +91,6 @@
     <div class="topbar">
       <h1 id="pageTitle">Dashboard</h1>
       <div class="topbar-right">
-        <div class="global-search" id="globalSearchWrap">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
-          <input type="text" id="globalSearchInput" placeholder="Search bed or device..." autocomplete="off">
-          <div class="global-search-results" id="globalSearchResults" style="display:none;"></div>
-        </div>
         <div class="conn-pill" data-cap="ward.view">
           <span class="conn-dot" id="connDot"></span>
           <span id="connText">No data yet</span>
@@ -209,8 +204,10 @@
             whose <b>manufacturer code matches</b> and whose <b>version is higher</b>
             than the one it is running — the file size is not part of that decision.
           </div>
-          <div class="inline-form">
-            <input type="file" id="otaFileInput" accept=".ota">
+          <div class="inline-form ota-upload-row">
+            <label class="btn file-picker-btn" for="otaFileInput">Choose file</label>
+            <span class="file-picker-name muted" id="otaFileName">No file selected</span>
+            <input type="file" id="otaFileInput" accept=".ota" class="visually-hidden-file">
             <button class="btn primary" id="otaUploadBtn">Upload</button>
           </div>
           <div id="otaImageList" style="margin-top:10px;"></div>
@@ -321,7 +318,6 @@
 <script src="js/profile.js"></script>
 <script src="js/users.js"></script>
 <script src="js/critical-alarm.js"></script>
-<script src="js/global-search.js"></script>
 <script src="js/notification-history.js"></script>
 <script src="js/main.js"></script>
 </body>

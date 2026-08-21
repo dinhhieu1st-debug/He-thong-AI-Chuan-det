@@ -44,7 +44,11 @@ const BedsTab = (() => {
         <div class="stripe" style="background:${color};"></div>
         <div class="body">
           <div class="row-top">
-            <div><div class="bed-id">${UiUtils.escapeHtml(bed.bedId)}</div><div class="bed-room">${UiUtils.escapeHtml(bed.room)}</div></div>
+            <div>
+              <div class="bed-id">${UiUtils.escapeHtml(bed.bedId)}</div>
+              <div class="bed-room">${UiUtils.escapeHtml(bed.room)}</div>
+              ${bed.patientName ? `<div class="bed-patient-name">${UiUtils.escapeHtml(bed.patientName)}</div>` : ""}
+            </div>
             <div class="chip-stack">
               <span class="status-chip" style="background:${color};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
               ${UiUtils.culpritBadgeHtml(bed)}
@@ -403,7 +407,7 @@ const BedsTab = (() => {
             <input type="text" id="patientCodeInput" placeholder="Patient ID"
                    value="${UiUtils.escapeHtml(bed.patientCode || "")}">
             <div class="bd-patient-actions">
-              <button type="submit" class="btn primary">${occupied ? "Updated" : "Admit patient"}</button>
+              <button type="submit" class="btn primary">${occupied ? "Update" : "Admit patient"}</button>
               ${occupied ? `<button type="button" class="btn" id="dischargeBtn">Discharge</button>` : ""}
             </div>
           </form>
@@ -530,10 +534,15 @@ const BedsTab = (() => {
             ${on ? "Pause monitoring" : "Start monitoring"}
           </button>
         </div>
-        ${on ? "" : `<div class="muted" style="margin-top:6px;font-size:12px;">
-          Hang the bag, attach the sensors and tare the scale first — readings
-          taken while setting up would otherwise be the AI's first impression
-          of this patient.</div>`}
+        <div class="muted" style="margin-top:6px;font-size:12px;">
+          ${on
+            ? `Pauses AI and alarms for this bed only. Not for taking a reading —
+               use "Reset scale (tare)" or "Recalibrate 60s baseline" below for
+               that; neither one needs monitoring paused first.`
+            : `Hang the bag, attach the sensors and tare the scale first —
+               readings taken while setting up would otherwise be the AI's
+               first impression of this patient.`}
+        </div>
       </div>`;
   }
 
@@ -594,10 +603,13 @@ const BedsTab = (() => {
 
       /* Tạm dừng thì hỏi lại, bắt đầu thì không. Dừng theo dõi một giường đang
        * truyền dịch là làm chiếc máy im trong lúc bệnh nhân vẫn nằm đó. */
-      if (!turningOn && !confirm(
+      if (!turningOn && !(await UiUtils.confirm(
             `Pause monitoring for ${bed.bedId}?\n\n`
           + `The device keeps reading and showing values, but will raise no `
-          + `alarms for this patient until monitoring is started again.`)) {
+          + `alarms for this patient until monitoring is started again.\n\n`
+          + `This is not the same as taking a sample — Reset scale and `
+          + `Recalibrate baseline below do not need monitoring paused.`,
+          { title: "Pause monitoring?", confirmLabel: "Pause monitoring", danger: true }))) {
         return;
       }
 
@@ -1050,6 +1062,7 @@ const BedsTab = (() => {
         <div class="bd-ident">
           <span class="bd-bed-id">${UiUtils.escapeHtml(bed.bedId)}</span>
           <span class="bd-room">${UiUtils.escapeHtml(bed.room)}</span>
+          ${bed.patientName ? `<span class="bd-patient-name-header">${UiUtils.escapeHtml(bed.patientName)}</span>` : ""}
         </div>
         <span class="status-chip" style="background:${statusColor};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
         ${UiUtils.culpritBadgeHtml(bed)}
@@ -1127,7 +1140,8 @@ const BedsTab = (() => {
     });
 
     document.getElementById("dischargeBtn")?.addEventListener("click", async () => {
-      if (!confirm(`Discharge the patient in ${bed.bedId}?`)) return;
+      if (!(await UiUtils.confirm(`Discharge the patient in ${bed.bedId}?`,
+            { title: "Discharge patient?", confirmLabel: "Discharge", danger: true }))) return;
       try {
         // Clearing the name is the discharge; the server clears code and
         // admission time with it so nothing is left to misread later.

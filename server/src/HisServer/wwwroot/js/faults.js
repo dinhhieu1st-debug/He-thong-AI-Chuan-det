@@ -150,7 +150,8 @@ const FaultsTab = (() => {
 
     host.querySelectorAll("[data-resolve]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const note = prompt("What fixed it? (optional)");
+        const note = await UiUtils.prompt("What fixed it? (optional)",
+          { title: "Resolve fault report", placeholder: "What fixed it?", confirmLabel: "Resolve" });
         if (note === null) return;   // cancelled, as opposed to left blank
         await act(() => Api.resolveFaultReport(btn.getAttribute("data-resolve"), note),
                   "Marked as resolved");

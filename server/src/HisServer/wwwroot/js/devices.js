@@ -32,15 +32,6 @@ const DevicesTab = (() => {
     return (device.status || "").toUpperCase().replace("_", "");
   }
 
-  /* Signal strength means nothing to most readers as a raw 0-255, and the
-   * decision it drives is coarse: is this bed's radio link fine, marginal, or
-   * the reason it keeps dropping out. */
-  function linkLabel(linkQuality) {
-    if (linkQuality == null) return "--";
-    const quality = linkQuality >= 120 ? "good" : linkQuality >= 60 ? "fair" : "weak";
-    return `${linkQuality}/255 (${quality})`;
-  }
-
   function matchesFilters(device) {
     if (typeFilter !== "all" && device.deviceType.toLowerCase() !== typeFilter) return false;
     if (searchTerm) {
@@ -129,7 +120,6 @@ const DevicesTab = (() => {
           <span>Room: ${UiUtils.escapeHtml(device.room || "--")}</span>
         </div>
         <div class="meta-row">
-          <span>Signal: ${linkLabel(device.linkQuality)}</span>
           <span>Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}</span>
         </div>
         ${device.channelsLost
@@ -154,7 +144,6 @@ const DevicesTab = (() => {
       detailRssi:    UiUtils.formatMetric(device.rssi, " dBm"),
       detailLastSeen:`Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}`,
       detailLastData:`Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}`,
-      detailSignal:  `Signal: ${linkLabel(device.linkQuality)}`,
     };
   }
 
@@ -190,7 +179,6 @@ const DevicesTab = (() => {
       <div class="bed-updated">EUI-64: ${UiUtils.escapeHtml(device.eui64 || "--")}</div>
       <div class="bed-updated" id="detailLastSeen">Last seen: ${UiUtils.formatDateTime(device.lastSeenAt)}</div>
       <div class="bed-updated" id="detailLastData">Last data: ${device.lastDataAt ? UiUtils.formatDateTime(device.lastDataAt) : "--"}</div>
-      <div class="bed-updated" id="detailSignal">Signal: ${linkLabel(device.linkQuality)}</div>
       ${device.channelsLost
         ? `<div class="bed-updated device-fault-line">No signal from: ${UiUtils.escapeHtml(device.channelsLost)}</div>`
         : ""}
@@ -264,7 +252,7 @@ const DevicesTab = (() => {
           + `If the device is still on the Zigbee network it will reappear as `
           + `unassigned and need assigning to a bed again.`;
 
-      if (!confirm(warning)) return;
+      if (!(await UiUtils.confirm(warning, { title: "Remove device?", confirmLabel: "Remove", danger: true }))) return;
 
       try {
         await Api.deleteDevice(device.deviceId);
@@ -491,9 +479,10 @@ const DevicesTab = (() => {
     host.querySelectorAll("[data-ota-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const name = btn.getAttribute("data-ota-del");
-        if (!confirm(`Remove ${name} from the firmware library?\n\n`
+        if (!(await UiUtils.confirm(`Remove ${name} from the firmware library?\n\n`
                    + `Devices already running this image are unaffected — it just `
-                   + `stops being offered to anything from now on.`)) return;
+                   + `stops being offered to anything from now on.`,
+                   { title: "Remove firmware image?", confirmLabel: "Remove", danger: true }))) return;
         try {
           await Api.otaDeleteImage(name);
           renderOtaLibrary();
@@ -541,10 +530,11 @@ const DevicesTab = (() => {
         /* Nạp firmware mất vài phút và không huỷ giữa chừng được, nên hỏi lại
          * một lần. Đây là thao tác duy nhất ở trang này có thể làm một giường
          * ngừng theo dõi. */
-        if (!window.confirm(
+        if (!(await UiUtils.confirm(
               `Update the firmware on ${id}?\n\n` +
               `This takes several minutes and cannot be stopped once started. ` +
-              `Do not disconnect the device's power while it runs.`)) {
+              `Do not disconnect the device's power while it runs.`,
+              { title: "Update firmware?", confirmLabel: "Update", danger: true }))) {
           return;
         }
         btn.disabled = true;
@@ -677,6 +667,11 @@ const DevicesTab = (() => {
       fillBedChoices(e.target.value);
     });
 
+    document.getElementById("otaFileInput")?.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      document.getElementById("otaFileName").textContent = file ? file.name : "No file selected";
+    });
+
     document.getElementById("otaUploadBtn")?.addEventListener("click", async () => {
       const input = document.getElementById("otaFileInput");
       const file = input.files && input.files[0];
@@ -691,6 +686,7 @@ const DevicesTab = (() => {
         UiUtils.toast(`Uploaded: ${image.headerText || image.fileName} `
                     + `(code ${image.manufacturerCode}, v${image.fileVersion})`);
         input.value = "";
+        document.getElementById("otaFileName").textContent = "No file selected";
         renderOtaLibrary();
       } catch (err) {
         UiUtils.toast(err.message, true);

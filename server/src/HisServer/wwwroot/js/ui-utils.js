@@ -109,6 +109,89 @@ const UiUtils = (() => {
     }, 4000);
   }
 
+  /* Replaces the browser's native confirm(), which renders as an unstyled
+   * "localhost says" dialog outside the console's own theme (so it stayed
+   * bright white even in dark mode) and blocks the whole tab's JS while
+   * open. Returns a Promise<boolean> so callers just `await` it the same
+   * way they used to read confirm()'s return value.
+   *
+   * message may contain "\n\n" to separate paragraphs, matching how the
+   * existing confirm() call sites already wrote their text. */
+  function confirm(message, opts = {}) {
+    const { title = "Confirm", confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false } = opts;
+    return new Promise((resolve) => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      const body = String(message).split("\n\n")
+        .map((p) => `<p>${escapeHtml(p)}</p>`).join("");
+      backdrop.innerHTML = `
+        <div class="modal-card confirm-card">
+          <h3>${escapeHtml(title)}</h3>
+          <div class="confirm-body">${body}</div>
+          <div class="modal-actions">
+            <button type="button" class="btn" id="confirmCancelBtn">${escapeHtml(cancelLabel)}</button>
+            <button type="button" class="btn ${danger ? "danger" : "primary"}" id="confirmOkBtn">${escapeHtml(confirmLabel)}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+
+      const settle = (result) => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+        resolve(result);
+      };
+      const onKeydown = (e) => { if (e.key === "Escape") settle(false); };
+
+      backdrop.querySelector("#confirmCancelBtn").addEventListener("click", () => settle(false));
+      backdrop.querySelector("#confirmOkBtn").addEventListener("click", () => settle(true));
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) settle(false); });
+      document.addEventListener("keydown", onKeydown);
+      backdrop.querySelector("#confirmOkBtn").focus();
+    });
+  }
+
+  /* Replaces the browser's native prompt(), same reasoning as confirm()
+   * above. Returns a Promise<string|null> - null means cancelled, matching
+   * what prompt() itself returns. */
+  function prompt(message, opts = {}) {
+    const { title = "Enter a value", defaultValue = "", placeholder = "",
+            inputType = "text", confirmLabel = "OK" } = opts;
+    return new Promise((resolve) => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      backdrop.innerHTML = `
+        <form class="modal-card confirm-card" id="uiPromptForm">
+          <h3>${escapeHtml(title)}</h3>
+          <div class="confirm-body"><p>${escapeHtml(message)}</p></div>
+          <input type="${escapeHtml(inputType)}" id="uiPromptInput"
+                 placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(defaultValue)}">
+          <div class="modal-actions">
+            <button type="button" class="btn" id="uiPromptCancelBtn">Cancel</button>
+            <button type="submit" class="btn primary">${escapeHtml(confirmLabel)}</button>
+          </div>
+        </form>`;
+      document.body.appendChild(backdrop);
+
+      const input = backdrop.querySelector("#uiPromptInput");
+      const settle = (result) => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+        resolve(result);
+      };
+      const onKeydown = (e) => { if (e.key === "Escape") settle(null); };
+
+      backdrop.querySelector("#uiPromptCancelBtn").addEventListener("click", () => settle(null));
+      backdrop.querySelector("#uiPromptForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        settle(input.value);
+      });
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) settle(null); });
+      document.addEventListener("keydown", onKeydown);
+      input.focus();
+      input.select();
+    });
+  }
+
   function getToastHistory() {
     return toastHistory;
   }
@@ -146,7 +229,7 @@ const UiUtils = (() => {
   }
 
   return {
-    statusColor, culpritBadgeHtml, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast,
+    statusColor, culpritBadgeHtml, escapeHtml, formatDateTime, formatMetric, signalRowHtml, toast, confirm, prompt,
     getToastHistory, getUnseenErrorCount, markToastHistorySeen,
     severityCompare, loadFilterState, saveFilterState
   };

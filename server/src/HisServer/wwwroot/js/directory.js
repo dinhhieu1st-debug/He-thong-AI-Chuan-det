@@ -108,11 +108,12 @@ const DirectoryTab = (() => {
          * this dialog is about the one case it does allow: an empty bed being
          * retired. It says what survives, because "delete" next to a hospital
          * bed reasonably makes people wonder whether the records go too. */
-        if (!confirm(`Remove bed ${bedId} from the ward directory?\n\n`
+        if (!(await UiUtils.confirm(`Remove bed ${bedId} from the ward directory?\n\n`
                    + `Past vitals and alerts recorded for this bed are kept — `
                    + `they are the clinical record and are not deleted.\n\n`
                    + `A bed that still has a patient admitted, or a device `
-                   + `assigned to it, cannot be removed.`)) return;
+                   + `assigned to it, cannot be removed.`,
+                   { title: "Remove bed?", confirmLabel: "Remove", danger: true }))) return;
 
         await act(() => Api.deleteBed(bedId), `${bedId} removed`);
       });
@@ -121,7 +122,8 @@ const DirectoryTab = (() => {
     host.querySelectorAll("[data-edit-room]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const bedId = btn.getAttribute("data-edit-room");
-        const room = prompt(`Room for ${bedId}:`, btn.getAttribute("data-room"));
+        const room = await UiUtils.prompt(`Room for ${bedId}:`,
+          { title: "Change room", defaultValue: btn.getAttribute("data-room") || "", placeholder: "Room", confirmLabel: "Save" });
         if (room === null) return;
         await act(() => Api.updateBed(bedId, { room: room.trim() }), `${bedId} updated`);
       });

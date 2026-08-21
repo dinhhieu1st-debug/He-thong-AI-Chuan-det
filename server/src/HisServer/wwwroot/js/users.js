@@ -164,14 +164,16 @@ const UsersTab = (() => {
       /* The administrator types the new password and passes it on out of band.
        * It is marked "must change", so the owner replaces it at next login and
        * the administrator's copy stops being valid. */
-      const next = prompt("New password (at least 8 characters):");
+      const next = await UiUtils.prompt("New password (at least 8 characters):",
+        { title: "Reset password", inputType: "password", placeholder: "New password", confirmLabel: "Reset" });
       if (!next) return;
       await guard(() => Api.resetUserPassword(userId, next),
                   "Password reset. The user must change it at next sign-in.");
     });
 
     document.getElementById("deleteUserBtn")?.addEventListener("click", async () => {
-      if (!confirm(`Delete account '${selected.user.username}'? This cannot be undone.`)) return;
+      if (!(await UiUtils.confirm(`Delete account '${selected.user.username}'? This cannot be undone.`,
+            { title: "Delete account?", confirmLabel: "Delete", danger: true }))) return;
       await guard(async () => {
         await Api.deleteUser(userId);
         selected = null;

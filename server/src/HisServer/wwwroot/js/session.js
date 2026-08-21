@@ -71,15 +71,28 @@ const Session = (() => {
   /* Change-password dialog, also used as the forced first-login step. When it
    * is forced there is no cancel button: an administrator-issued password is
    * known to somebody other than its owner, so the console stays closed until
-   * it is replaced. */
+   * it is replaced.
+   *
+   * Returns a Promise that resolves once the password has actually been
+   * changed - main.js awaits this for the forced case so the ward, its
+   * alerts and SignalR never even start loading behind the dialog. Before
+   * this, the dashboard (including the full-screen Critical banner) was
+   * already initialised by the time the dialog appeared, and the semi-
+   * transparent backdrop let a nurse see live patient data while still being
+   * forced through the password step. */
   function promptChangePassword({ forced = false } = {}) {
     /* One dialog at a time. Two stacked dialogs look identical, so typing goes
      * into the top one while the one underneath stays behind it - the user
      * appears to change their password and nothing happens. */
-    if (document.querySelector(".modal-backdrop[data-dialog='password']")) return;
+    const existing = document.querySelector(".modal-backdrop[data-dialog='password']");
+    if (existing) return existing._donePromise || Promise.resolve();
+
+    let resolveDone;
+    const done = new Promise((resolve) => { resolveDone = resolve; });
 
     const backdrop = document.createElement("div");
     backdrop.dataset.dialog = "password";
+    backdrop._donePromise = done;
     backdrop.className = "modal-backdrop";
     backdrop.innerHTML = `
       <form class="modal-card" id="pwForm">
@@ -102,7 +115,10 @@ const Session = (() => {
     document.body.appendChild(backdrop);
 
     const errorBox = backdrop.querySelector("#pwError");
-    backdrop.querySelector("#pwCancel")?.addEventListener("click", () => backdrop.remove());
+    backdrop.querySelector("#pwCancel")?.addEventListener("click", () => {
+      backdrop.remove();
+      resolveDone();
+    });
 
     backdrop.querySelector("#pwForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -117,11 +133,14 @@ const Session = (() => {
         if (me) me.mustChangePassword = false;
         backdrop.remove();
         UiUtils.toast("Password changed");
+        resolveDone();
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = "block";
       }
     });
+
+    return done;
   }
 
   async function logout() {

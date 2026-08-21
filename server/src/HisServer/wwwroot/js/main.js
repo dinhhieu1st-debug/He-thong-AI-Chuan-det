@@ -84,10 +84,19 @@
   const me = await Session.load();
   if (!me) return;
 
+  /* An administrator-issued password is not one the owner has chosen. This
+   * has to happen before ANYTHING else loads - the ward grid, alerts and the
+   * full-screen Critical banner all used to initialise first and only THEN
+   * get covered by a semi-transparent dialog, so a nurse forced through this
+   * step could already see live patient data (and a critical alarm) behind
+   * it. Awaiting it here means nothing clinical exists in the DOM yet. */
+  if (me.mustChangePassword) {
+    await Session.promptChangePassword({ forced: true });
+  }
+
   Session.renderIdentity();
   Session.applyTo(document);
   document.getElementById("logoutBtn")?.addEventListener("click", () => Session.logout());
-  GlobalSearch.init();
   NotificationHistory.init();
 
   /* Bed data comes from one of two endpoints depending on the role: the full
@@ -132,10 +141,4 @@
   if (landing) switchTab(landing[1]);
 
   await MonitoringHub.start();
-
-  /* A password an administrator typed is not one the owner has chosen. The
-   * dialog has no cancel, so the console stays unusable until it is replaced. */
-  if (me.mustChangePassword) {
-    Session.promptChangePassword({ forced: true });
-  }
 })();
