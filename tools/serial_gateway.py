@@ -162,6 +162,12 @@ def main():
 
         text = raw.decode(errors="replace").strip()
         if PREFIX not in text:
+            # Not a vitals packet, but diagnostic lines like "[Drop] counted=..."
+            # or "[ALERT] Level -> ..." are worth seeing live instead of being
+            # silently swallowed - they're often the only way to tell a false
+            # trigger from a real one.
+            if text.startswith("["):
+                print(f"[BOARD] {text}", flush=True)
             continue
 
         payload = text[text.index(PREFIX) + len(PREFIX):]

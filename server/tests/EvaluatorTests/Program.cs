@@ -50,15 +50,15 @@ Console.WriteLine("   reading is rubbish and every alarm from it is a false one.
         AlertLevel = 3, LineBranch = true, PatientBranch = true, LineBlocked = true
     };
     Check("standby -> Stable, whatever the numbers say",
-          VitalsStatusEvaluator.Evaluate(setup) == BedStatus.Stable,
-          VitalsStatusEvaluator.Evaluate(setup).ToString());
+          VitalsStatusEvaluator.Evaluate(setup, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable,
+          VitalsStatusEvaluator.Evaluate(setup, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 
     // ...and the moment it is armed, the same reading is Critical. Standby must
     // suppress the alarm, not lose it.
     var armed = setup with { Monitoring = true };
     Check("the same reading, once armed, is Critical",
-          VitalsStatusEvaluator.Evaluate(armed) == BedStatus.Critical,
-          VitalsStatusEvaluator.Evaluate(armed).ToString());
+          VitalsStatusEvaluator.Evaluate(armed, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical,
+          VitalsStatusEvaluator.Evaluate(armed, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 
     // A device too old to report the field must never be mistaken for standby:
     // silently stopping to watch a real patient is the dangerous direction.

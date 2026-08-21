@@ -28,6 +28,8 @@ public static class DeviceEndpoints
         group.MapPost("/", async (
             UpsertDeviceRequest request,
             DeviceRepository repository,
+            BedStateStore bedStore,
+            BedRepository bedRepository,
             IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceId))
@@ -42,6 +44,8 @@ public static class DeviceEndpoints
 
             var device = ToRecord(request);
             await repository.UpsertAsync(device);
+            await SyncBedDeviceLinkAsync(device.DeviceId, oldBedId: null, newBedId: device.AssignedBedId,
+                bedStore, bedRepository, hub);
             await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
             return Results.Created($"/api/devices/{device.DeviceId}", DeviceDto.From(device));
         }).RequireAuthorization(Capabilities.ManageDevices);
@@ -50,15 +54,20 @@ public static class DeviceEndpoints
             string deviceId,
             UpsertDeviceRequest request,
             DeviceRepository repository,
+            BedStateStore bedStore,
+            BedRepository bedRepository,
             IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
-            if (await repository.GetAsync(deviceId) is null)
+            var existing = await repository.GetAsync(deviceId);
+            if (existing is null)
             {
                 return Results.NotFound();
             }
 
             var device = ToRecord(request with { DeviceId = deviceId });
             await repository.UpsertAsync(device);
+            await SyncBedDeviceLinkAsync(deviceId, oldBedId: existing.AssignedBedId, newBedId: device.AssignedBedId,
+                bedStore, bedRepository, hub);
             await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
             return Results.Ok(DeviceDto.From(device));
         }).RequireAuthorization(Capabilities.ManageDevices);
@@ -152,11 +161,61 @@ public static class DeviceEndpoints
                 : Results.Ok(new { gateways = delivered });
         });
 
-        group.MapDelete("/{deviceId}", async (string deviceId, DeviceRepository repository) =>
+        group.MapDelete("/{deviceId}", async (
+            string deviceId,
+            DeviceRepository repository,
+            BedStateStore bedStore,
+            BedRepository bedRepository,
+            IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
+            var existing = await repository.GetAsync(deviceId);
             var deleted = await repository.DeleteAsync(deviceId);
+            if (deleted && existing is not null)
+            {
+                await SyncBedDeviceLinkAsync(deviceId, oldBedId: existing.AssignedBedId, newBedId: null,
+                    bedStore, bedRepository, hub);
+            }
             return deleted ? Results.NoContent() : Results.NotFound();
         }).RequireAuthorization(Capabilities.ManageDevices);
+    }
+
+    /// <summary>
+    /// Keeps beds.device_id (what the nurse's bed API reports) in step with
+    /// devices.assigned_bed_id (what the technician just set) - the two used
+    /// to be written independently, so a device assigned here never showed up
+    /// on the nurse's side at all.
+    ///
+    /// Clears the OLD bed's link first: a device reassigned from BED-101 to
+    /// BED-102 must stop claiming BED-101, or two beds would report owning
+    /// the same physical unit.
+    /// </summary>
+    private static async Task SyncBedDeviceLinkAsync(
+        string deviceId, string? oldBedId, string? newBedId,
+        BedStateStore bedStore, BedRepository bedRepository,
+        IHubContext<MonitoringHub, IMonitoringClient> hub)
+    {
+        if (!string.IsNullOrWhiteSpace(oldBedId)
+            && !string.Equals(oldBedId, newBedId, StringComparison.OrdinalIgnoreCase))
+        {
+            var oldBed = bedStore.Get(oldBedId);
+            if (oldBed is not null && string.Equals(oldBed.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                oldBed = bedStore.Upsert(oldBedId, state => state.DeviceId = null);
+                await bedRepository.UpsertAsync(oldBed);
+                await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(oldBed));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(newBedId))
+        {
+            var newBed = bedStore.Get(newBedId);
+            if (newBed is not null)
+            {
+                newBed = bedStore.Upsert(newBedId, state => state.DeviceId = deviceId);
+                await bedRepository.UpsertAsync(newBed);
+                await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(newBed));
+            }
+        }
     }
 
     private static DeviceRecord ToRecord(UpsertDeviceRequest request) => new()

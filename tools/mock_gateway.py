@@ -42,6 +42,13 @@ BEDS = [
     # (device AlertLevel 3), so the dual "CRITICAL (line + patient)" banner
     # and its distinct buzzer cadence can be demoed on request.
     {"bedId": "BED-402", "room": "ICU-1", "scenario": "critical_dual"},
+    # Filming rehearsal only (video-demo branch): stands in for a finger
+    # lifted off MAX30102 - stable, then SpO2 signal drops out for a
+    # window, then recovers. Real Scene 12 footage must use real hardware
+    # (~3s to CH_LOST per VITAL_TIMEOUT_MS); this just previews the
+    # Dashboard/alert reaction on a separate bed so BED-101 stays free for
+    # the real board.
+    {"bedId": "BED-501", "room": "ICU-1", "scenario": "signal_lost_demo"},
 ]
 
 # deviceId -> bedId, matching the devices created via the admin API during the
@@ -246,6 +253,14 @@ def make_reading(bed, t):
             line_blocked = True
             drip = 0
 
+    # Rehearsal for Scene 12: SpO2 signal drops out for 15s every 60s cycle,
+    # then recovers - long enough to see and shoot on a monitor, unlike the
+    # real ~3s hardware timeout.
+    spo2_signal = True
+    if bed["scenario"] == "signal_lost_demo":
+        cycle = t % 60
+        spo2_signal = not (20 <= cycle < 35)
+
     # Standby/armed toggle. Vitals still flow the whole time (matches real
     # firmware behaviour - only the AI/alarm judgement is withheld while
     # monitoring=False), only the "monitoring" flag cycles.
@@ -381,7 +396,7 @@ def make_reading(bed, t):
         "lineBlocked": line_blocked,
         "aeAlarm": False,
         "hrSignal": True,
-        "spo2Signal": True,
+        "spo2Signal": spo2_signal,
         "flowSignal": True,
         "dropsSignal": True,
         "linkQuality": random.randint(150, 220),
