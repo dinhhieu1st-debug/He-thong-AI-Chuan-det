@@ -1,0 +1,89 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Silicon Labs: Build Application",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\tools\\build_firmware.ps1"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Silicon Labs: Build Bootloader",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\tools\\build_bootloader.ps1"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Silicon Labs: Flash Application",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\tools\\flash_firmware.ps1",
+        "-SerialNo",
+        "${input:jlinkSerial}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Silicon Labs: Flash Bootloader Only",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\tools\\flash_bootloader.ps1",
+        "-SerialNo",
+        "${input:jlinkSerial}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Silicon Labs: Flash Bootloader + Application",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\tools\\flash_bootloader_and_app.ps1",
+        "-SerialNo",
+        "${input:jlinkSerial}"
+      ],
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "jlinkSerial",
+      "type": "promptString",
+      "description": "J-Link serial number (leave empty when only one board is connected)",
+      "default": ""
+    }
+  ]
+}

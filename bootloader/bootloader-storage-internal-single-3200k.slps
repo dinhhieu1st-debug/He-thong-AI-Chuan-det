@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="ASCII"?>
+<model:MDescriptors xmlns:model="http://www.silabs.com/ss/Studio.ecore">
+  <descriptors name="bootloader-storage-internal-single-3200k">
+    <properties key="projectCommon.sdkId" value="com.silabs.sdk.stack.sisdk:2025.12.3._-331361249-3061574361-3577321243"/>
+    <properties key="universalConfig.relativeWorkspacePath" value="..\bootloader-storage-internal-single-3200k.slcw"/>
+    <properties key="universalConfig.generationDirectory" value="..\..\..\..\..\..\..\..\..\..\..\..\Documents\IoT_Challenge-main\IoT_Challenge-main\bootloader"/>
+    <properties key="universalConfig.toolchainCompatibility" value="iar llvm gcc"/>
+    <properties key="projectCommon.boardIds" value="brd2709a:0.0.0.A03"/>
+    <properties key="projectCommon.kitId" value=""/>
+    <properties key="projectCommon.partId" value="mcu.arm.efr32.mg26.efr32mg26b510f3200im48"/>
+    <properties key="projectCommon.toolchainLocations" value="{&quot;toolchainLocations&quot;:{&quot;gcc&quot;:&quot;file:///C:/Users/admin/.silabs/slt/installs/conan/p/gcc-ab83b3403fdca6/p/&quot;},&quot;use&quot;:true}"/>
+    <properties key="projectCommon.overwriteCopiedSources" value="false"/>
+    <properties key="projectCommon.importModeId" value="LINK_LIBRARIES"/>
+  </descriptors>
+</model:MDescriptors>
