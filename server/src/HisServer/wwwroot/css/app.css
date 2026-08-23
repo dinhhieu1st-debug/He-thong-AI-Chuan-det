@@ -507,6 +507,7 @@ body.no-scroll { overflow: hidden; }
 .bd-channel-state { font-weight: 600; }
 .bd-channel-state.is-ok { color: var(--stable); }
 .bd-channel-state.is-lost { color: var(--offline); }
+.bd-channel-state.is-warn { color: var(--warning); }
 
 .bd-card-alert.sev-critical {
   border-color: var(--critical); background: var(--critical-tint);

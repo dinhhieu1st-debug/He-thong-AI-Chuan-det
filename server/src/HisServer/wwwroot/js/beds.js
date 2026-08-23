@@ -319,16 +319,25 @@ const BedsTab = (() => {
      * a nurse reads first and the trace they check second never disagree.
      * A channel with no signal is dimmed and never coloured by severity: a
      * reading of 0 from an unplugged probe is not a dangerous reading. */
+    // A lost channel shows "--", never the raw reading (which is often a
+    // stale or physically-impossible 0 from an unplugged probe) - a nurse
+    // must never be able to read "0%"/"0 bpm" as a real patient value.
     const tile = (key, unit, label, ok) => {
       const color = (METRIC_BY_KEY[key] || {}).color || "#2470c8";
       const sev = ok === false ? "ok" : severityOfValue(key, bed[key]);
       const cls = (ok === false ? " is-lost" : "") + (sev === "ok" ? "" : ` sev-${sev}`);
+      const value = ok === false ? "--" : UiUtils.formatMetric(bed[key], "");
       return `
         <div class="bd-vital${cls}" style="--vital-color:${color};">
-          <span class="v">${UiUtils.formatMetric(bed[key], "")}<span class="u">${UiUtils.escapeHtml(unit)}</span></span>
+          <span class="v">${value}${ok === false ? "" : `<span class="u">${UiUtils.escapeHtml(unit)}</span>`}</span>
           <span class="k">${UiUtils.escapeHtml(label)}${ok === false ? " · no signal" : ""}</span>
         </div>`;
     };
+
+    // Computed once and shared between the Active alert card and the Sensor
+    // channels row highlight below, so both read the exact same verdict.
+    const causes = UiUtils.buildAlertCauses(bed);
+    const lineCauseActive = causes.some((c) => c.type === "line");
 
     return `
       <div class="bd-card">
@@ -341,17 +350,104 @@ const BedsTab = (() => {
           ${tile("weightG", " g", "IV bag weight", bed.flowSignal)}
         </div>
       </div>
+      ${aiBaselineCardHtml(bed)}
+      ${activeAlertCardHtml(bed, causes)}
       <div class="bd-card">
         <h4>Sensor channels</h4>
         <div class="bd-channels">
           ${channelRow("Heart rate", bed.heartRateSignal)}
           ${channelRow("SpO2", bed.spo2Signal)}
           ${channelRow("Flow", bed.flowSignal)}
-          ${channelRow("Drip", bed.dripRateSignal)}
+          ${channelRow("Drip", bed.dripRateSignal, "Signal OK", "No signal", lineCauseActive && bed.dripRateSignal)}
           ${channelRow("IV line", !bed.lineBlocked, "Flowing", "Blocked / free-flow")}
         </div>
-      </div>
-      ${alertCardHtml(bed)}`;
+      </div>`;
+  }
+
+  /* AI-learned HR/SpO2 baseline (vitals_ai.hr_baseline / vitals_ai.spo2_baseline
+   * on the chip), NOT the 16s forecast and NOT the live reading - those answer
+   * different questions ("where is it heading" / "what is it now" vs "what does
+   * this AI consider this patient's normal").
+   *
+   * Readiness is vitalsTrainingSamples reaching 64 (vitals_ai.history_samples on
+   * the chip) - the same counter the Monitoring block's "HR+SpO2: n/64" progress
+   * bar already uses, so the two never disagree.
+   *
+   * SpO2 is always shown as "--": the firmware reports a learned HR baseline
+   * over Zigbee (ATTR_HR_BASELINE_BPM) but has no equivalent attribute for the
+   * SpO2 baseline it computes internally (vitals_ai.spo2_baseline never leaves
+   * the chip). Showing anything else here - the current SpO2, or the 16s
+   * forecast - would be a fabricated baseline, which is worse than "--". */
+  function baselineTileHtml(value, unit, label, ready, note) {
+    return `
+      <div class="bd-vital${ready ? "" : " is-lost"}">
+        <span class="v">${UiUtils.escapeHtml(value)}${unit ? `<span class="u">${UiUtils.escapeHtml(unit)}</span>` : ""}</span>
+        <span class="k">${UiUtils.escapeHtml(label)}${note ? ` · ${UiUtils.escapeHtml(note)}` : ""}</span>
+      </div>`;
+  }
+
+  function aiBaselineCardHtml(bed) {
+    const samples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const ready = samples >= 64;
+
+    const hrTile = ready
+      ? baselineTileHtml(bed.hrBaselineBpm != null ? String(bed.hrBaselineBpm) : "--", " bpm", "Heart rate", true)
+      : baselineTileHtml("Learning…", "", "Heart rate", false);
+    const spo2Tile = ready
+      ? baselineTileHtml("--", "", "SpO2", false, "not reported by firmware")
+      : baselineTileHtml("Learning…", "", "SpO2", false);
+
+    return `
+      <div class="bd-card">
+        <h4>AI learned baseline</h4>
+        ${ready
+          ? `<div class="status-line status-line-done">✓ READY · 64/64</div>`
+          : `<div class="status-line status-line-active">${samples} / 64 samples</div>`}
+        <div class="bd-vitals">${hrTile}${spo2Tile}</div>
+      </div>`;
+  }
+
+  /* One line of text per active cause, built from buildAlertCauses() - never
+   * from re-deriving WARNING/CRITICAL here. A bed with no cause list AND an
+   * active status (a v2 device's canonical fallback text, e.g. "Level 3
+   * critical alert from XG26") still falls back to the server's own message
+   * rather than showing nothing. */
+  function causeItemHtml(cause) {
+    let detail = "";
+    if (cause.type === "line") {
+      detail = ` — ${cause.value}${cause.target && cause.target !== "--" ? ` / target ${cause.target}` : ""}`;
+      if (cause.weight) detail += ` · bag ${cause.weight}`;
+    } else if (cause.threshold) {
+      detail = ` — ${cause.value} (limit ${cause.threshold})`;
+    } else if (cause.value && cause.value !== "--") {
+      detail = ` — ${cause.value}`;
+    }
+    return `<li><b>${UiUtils.escapeHtml(cause.sensor)}</b> · ${UiUtils.escapeHtml(cause.channel)}: ${UiUtils.escapeHtml(cause.reason)}${detail}</li>`;
+  }
+
+  function activeAlertCardHtml(bed, causes) {
+    const status = (bed.status || "").toLowerCase();
+    const active = status === "warning" || status === "critical";
+
+    if (!active) {
+      return `
+        <div class="bd-card bd-card-alert">
+          <h4>Active alert</h4>
+          <div class="status-line status-line-done">✓ No active alert</div>
+        </div>`;
+    }
+
+    const list = causes.length > 0
+      ? causes.map(causeItemHtml).join("")
+      : `<li>${UiUtils.escapeHtml(bed.alertMessage || "Vitals require attention")}</li>`;
+    const badge = status === "critical" ? "🔴 CRITICAL" : "⚠ WARNING";
+
+    return `
+      <div class="bd-card bd-card-alert sev-${status}">
+        <h4>Active alert${causes.length > 1 ? ` · ${causes.length} active causes` : ""}</h4>
+        <div class="status-line status-line-active">${badge}</div>
+        <ul class="bd-alert-list">${list}</ul>
+      </div>`;
   }
 
   function vitalsSectionHtml(bed) {
@@ -363,30 +459,13 @@ const BedsTab = (() => {
       ${faultCardHtml(bed)}`;
   }
 
-  /* The server sends every active cause in one string joined with " · ".
-   * Splitting it back into separate lines matters clinically: "Critically low
-   * SpO2 · IV line blocked · No signal from: HR" read as one run-on sentence
-   * is how the second and third problems get missed. */
-  function alertCardHtml(bed) {
-    if (!bed.alertMessage) return "";
-
-    const causes = String(bed.alertMessage).split(" · ").filter((c) => c.trim() !== "");
-    const critical = (bed.status || "").toLowerCase() === "critical";
-
-    return `
-      <div class="bd-card bd-card-alert${critical ? " sev-critical" : " sev-warning"}">
-        <h4>Active alert${causes.length > 1 ? ` · ${causes.length} problems` : ""}</h4>
-        <ul class="bd-alert-list">
-          ${causes.map((c) => `<li>${UiUtils.escapeHtml(c)}</li>`).join("")}
-        </ul>
-      </div>`;
-  }
-
-  function channelRow(label, ok, okText = "Signal OK", lostText = "No signal") {
+  function channelRow(label, ok, okText = "Signal OK", lostText = "No signal", warn = false) {
+    const cls = warn ? "is-warn" : (ok ? "is-ok" : "is-lost");
+    const text = warn ? "WARNING" : (ok ? okText : lostText);
     return `
       <div class="bd-channel">
         <span class="bd-channel-name">${UiUtils.escapeHtml(label)}</span>
-        <span class="bd-channel-state ${ok ? "is-ok" : "is-lost"}">${ok ? okText : lostText}</span>
+        <span class="bd-channel-state ${cls}">${UiUtils.escapeHtml(text)}</span>
       </div>`;
   }
 
@@ -830,14 +909,19 @@ const BedsTab = (() => {
     const last = liveSamples[liveSamples.length - 1];
     if (last && new Date(last.recordedAt).getTime() === t.getTime()) return;
 
+    // A lost channel becomes a chart GAP (null), same as the stored history
+    // already does - never the raw reading, which can be a stale or
+    // physically-impossible 0 from an unplugged probe. Charts.metricChart
+    // skips nulls when drawing the line AND when picking the "now" corner
+    // value, so a disconnected sensor never paints as a flatlining 0.
     liveSamples.push({
       recordedAt: bed.lastUpdated,
-      spo2: bed.spo2,
-      heartRate: bed.heartRate,
-      flowRate: bed.flowRate,
-      dripRate: bed.dripRate,
-      dropsPerMin: bed.dropsPerMin,
-      weightG: bed.weightG,
+      spo2: bed.spo2Signal ? bed.spo2 : null,
+      heartRate: bed.heartRateSignal ? bed.heartRate : null,
+      flowRate: bed.flowSignal ? bed.flowRate : null,
+      dripRate: bed.dripRateSignal ? bed.dripRate : null,
+      dropsPerMin: bed.dripRateSignal ? bed.dropsPerMin : null,
+      weightG: bed.flowSignal ? bed.weightG : null,
       lineBlocked: bed.lineBlocked,
       aeAlarm: bed.aeAlarm
     });
