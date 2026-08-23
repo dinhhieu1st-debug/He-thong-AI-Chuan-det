@@ -37,7 +37,7 @@
 	#define ZCL_GENERATED_MIN_MAX_DEFAULTS { { { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 }, { .ptrToDefaultValue = (uint8_t*)0x00 } } }
 
 
-#define ZCL_GENERATED_ATTRIBUTE_COUNT (37)
+#define ZCL_GENERATED_ATTRIBUTE_COUNT (44)
 
 // This is an array of sl_zigbee_af_attribute_metadata_t structures.
 #define ZCL_GENERATED_ATTRIBUTES { \
@@ -77,7 +77,14 @@
 		  { 0x0018, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 33 Cluster: Smart IV Vitals, Attribute: MonitoringActive, Side: server*/ \
 		  { 0x0019, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 34 Cluster: Smart IV Vitals, Attribute: DropTrainingSamples, Side: server*/ \
 		  { 0x001A, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 35 Cluster: Smart IV Vitals, Attribute: VitalsTrainingSamples, Side: server*/ \
-		  { 0x001B, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } } /* 36 Cluster: Smart IV Vitals, Attribute: AlertsArmed, Side: server*/ \
+		  { 0x001B, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 36 Cluster: Smart IV Vitals, Attribute: AlertsArmed, Side: server*/ \
+		  { 0x001C, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 37 Cluster: Smart IV Vitals, Attribute: DropIntervalMs, Side: server*/ \
+		  { 0x001D, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x0000  } }, /* 38 Cluster: Smart IV Vitals, Attribute: DropEventCount, Side: server*/ \
+		  { 0x001E, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x01  } }, /* 39 Cluster: Smart IV Vitals, Attribute: ServerDropLevel, Side: server*/ \
+		  { 0x001F, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_WRITABLE| ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x00  } }, /* 40 Cluster: Smart IV Vitals, Attribute: VitalsTestMode, Side: server*/ \
+		  { 0x0020, ZCL_INT16S_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x8000  } }, /* 41 Cluster: Smart IV Vitals, Attribute: AiInputHeartRate, Side: server*/ \
+		  { 0x0021, ZCL_INT16U_ATTRIBUTE_TYPE, 2, (ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0xFFFF  } }, /* 42 Cluster: Smart IV Vitals, Attribute: AiInputSpo2, Side: server*/ \
+		  { 0x0022, ZCL_INT8U_ATTRIBUTE_TYPE, 1, (ATTRIBUTE_MASK_MANUFACTURER_SPECIFIC), { (uint8_t*)0x01  } } /* 43 Cluster: Smart IV Vitals, Attribute: VitalsLevel, Side: server*/ \
 		 }
 
  
@@ -88,7 +95,7 @@
 #define ZCL_GENERATED_CLUSTERS { \
   { 0x0000, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[0]), 5, 0, CLUSTER_MASK_SERVER, NULL }, /* 0, Endpoint Id: 1, Cluster: Basic, Side: server*/ \
 	  { 0x0019, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[5]), 4, 15, CLUSTER_MASK_CLIENT, NULL }, /* 1, Endpoint Id: 1, Cluster: Over the Air Bootloading, Side: client*/ \
-	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[9]), 28, 47, CLUSTER_MASK_SERVER, NULL } /* 2, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
+	  { 0xFC01, (sl_zigbee_af_attribute_metadata_t*)&(generatedAttributes[9]), 35, 58, CLUSTER_MASK_SERVER, NULL } /* 2, Endpoint Id: 2, Cluster: Smart IV Vitals, Side: server*/ \
 	 }
 
  
@@ -97,7 +104,7 @@
 // This is an array of sl_zigbee_af_endpoint_type_t structures.
 #define ZCL_GENERATED_ENDPOINT_TYPES { \
   { ((sl_zigbee_af_cluster_t*)&(generatedClusters[0])), 2, 15 }, \
-	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[2])), 1, 47 }, \
+	  { ((sl_zigbee_af_cluster_t*)&(generatedClusters[2])), 1, 58 }, \
 	 } 
 // Largest attribute size is needed for various buffers
 #define ZCL_ATTRIBUTE_LARGEST (33)
@@ -106,7 +113,7 @@
 #define ZCL_ATTRIBUTE_SINGLETONS_SIZE (70)
 
 // Total size of attribute storage
-#define ZCL_ATTRIBUTE_MAX_SIZE (62)
+#define ZCL_ATTRIBUTE_MAX_SIZE (73)
 
 // Number of fixed endpoints	
 #define ZCL_FIXED_ENDPOINT_COUNT (2)
@@ -171,7 +178,7 @@
 		  { 2, 0x1049 },  \
 	 } 
 // This is an array of sl_zigbee_af_manufacturer_code_entry_t structures for attributes.
-#define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (28)
+#define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODE_COUNT (35)
 #define ZCL_GENERATED_ATTRIBUTE_MANUFACTURER_CODES { \
 									  { 9, 0x1049 },  \
 	  { 10, 0x1049 },  \
@@ -201,9 +208,16 @@
 	  { 34, 0x1049 },  \
 	  { 35, 0x1049 },  \
 	  { 36, 0x1049 },  \
+	  { 37, 0x1049 },  \
+	  { 38, 0x1049 },  \
+	  { 39, 0x1049 },  \
+	  { 40, 0x1049 },  \
+	  { 41, 0x1049 },  \
+	  { 42, 0x1049 },  \
+	  { 43, 0x1049 },  \
 	 } 
 // Array of sl_zigbee_af_plugin_reporting_entry_t structures.
-#define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS_TABLE_SIZE (26)
+#define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS_TABLE_SIZE (33)
 #define SL_ZIGBEE_ZCL_GENERATED_REPORTING_CONFIG_DEFAULTS { \
   { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0000, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: HeartRate */ \
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0001, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: Spo2 */ \
@@ -231,6 +245,13 @@
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0019, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: DropTrainingSamples */ \
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x001A, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: VitalsTrainingSamples */ \
 	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x001B, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: AlertsArmed */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x001C, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: DropIntervalMs */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x001D, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: DropEventCount */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x001E, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: ServerDropLevel */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x001F, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: VitalsTestMode */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0020, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: AiInputHeartRate */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0021, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: AiInputSpo2 */ \
+	  { SL_ZIGBEE_ZCL_REPORTING_DIRECTION_REPORTED, 0x0002, 0xFC01, 0x0022, CLUSTER_MASK_SERVER, 0x1049, .data.reported={ 1, 60, 0 } }, /* Endpoint Id: 2, Cluster: Smart IV Vitals, Attribute: VitalsLevel */ \
 	 } 
 
 #define SL_ZIGBEE_ZCL_MANUFACTURER_CODE 0x1049
@@ -284,6 +305,13 @@
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_DROP_TRAINING_SAMPLES_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_VITALS_TRAINING_SAMPLES_ATTRIBUTE
 #define ZCL_USING_SMART_IV_VITALS_CLUSTER_ALERTS_ARMED_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_DROP_INTERVAL_MS_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_DROP_EVENT_COUNT_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_SERVER_DROP_LEVEL_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_VITALS_TEST_MODE_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_AI_INPUT_HEART_RATE_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_AI_INPUT_SPO2_ATTRIBUTE
+#define ZCL_USING_SMART_IV_VITALS_CLUSTER_VITALS_LEVEL_ATTRIBUTE
 
 #define SL_ZIGBEE_AF_SUPPORT_COMMAND_DISCOVERY
 

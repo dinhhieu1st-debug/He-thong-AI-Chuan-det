@@ -49,5 +49,15 @@
     <attribute side="server" code="0x0019" define="DROP_TRAINING_SAMPLES" type="int8u" writable="true" default="0x00" optional="false">DropTrainingSamples</attribute>
     <attribute side="server" code="0x001A" define="VITALS_TRAINING_SAMPLES" type="int8u" writable="true" default="0x00" optional="false">VitalsTrainingSamples</attribute>
     <attribute side="server" code="0x001B" define="ALERTS_ARMED" type="int8u" writable="true" default="0x00" optional="false">AlertsArmed</attribute>
+    <!-- Raw drop timing is reported to the HIS server.  The server classifies
+         the drip condition and writes SERVER_DROP_LEVEL back to the device;
+         firmware then fuses that result with the on-device vital level. -->
+    <attribute side="server" code="0x001C" define="DROP_INTERVAL_MS" type="int16u" writable="true" default="0x0000" optional="false">DropIntervalMs</attribute>
+    <attribute side="server" code="0x001D" define="DROP_EVENT_COUNT" type="int16u" writable="true" default="0x0000" optional="false">DropEventCount</attribute>
+    <attribute side="server" code="0x001E" define="SERVER_DROP_LEVEL" type="int8u" writable="true" default="0x01" optional="false">ServerDropLevel</attribute>
+    <attribute side="server" code="0x001F" define="VITALS_TEST_MODE" type="int8u" writable="true" default="0x00" optional="false">VitalsTestMode</attribute>
+    <attribute side="server" code="0x0020" define="AI_INPUT_HEART_RATE" type="int16s" writable="false" default="0x8000" optional="false">AiInputHeartRate</attribute>
+    <attribute side="server" code="0x0021" define="AI_INPUT_SPO2" type="int16u" writable="false" default="0xFFFF" optional="false">AiInputSpo2</attribute>
+    <attribute side="server" code="0x0022" define="VITALS_LEVEL" type="int8u" writable="false" default="0x01" optional="false">VitalsLevel</attribute>
   </cluster>
 </configurator>

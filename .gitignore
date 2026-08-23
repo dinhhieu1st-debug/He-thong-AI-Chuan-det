@@ -23,6 +23,7 @@ vscode.conf
 *.log
 *.tmp
 *.bak
+.tmp-main-audit/
 __pycache__/
 .DS_Store
 Thumbs.db

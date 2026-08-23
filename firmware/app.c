@@ -72,6 +72,13 @@
 #define ATTR_DROP_TRAINING_SAMPLES 0x0019U
 #define ATTR_VITALS_TRAINING_SAMPLES 0x001AU
 #define ATTR_ALERTS_ARMED          0x001BU
+#define ATTR_DROP_INTERVAL_MS      0x001CU
+#define ATTR_DROP_EVENT_COUNT      0x001DU
+#define ATTR_SERVER_DROP_LEVEL     0x001EU
+#define ATTR_VITALS_TEST_MODE      0x001FU
+#define ATTR_AI_INPUT_HEART_RATE   0x0020U
+#define ATTR_AI_INPUT_SPO2         0x0021U
+#define ATTR_VITALS_LEVEL          0x0022U
 
 typedef enum { ALERT_GREEN = 0, ALERT_YELLOW = 1, ALERT_RED = 2 } alert_level_t;
 typedef enum { SYSTEM_TARING = 0, SYSTEM_WAITING_AI_SET, SYSTEM_MONITORING } system_state_t;
@@ -218,6 +225,10 @@ static void configure_zigbee_reporting(void)
     { ATTR_DROP_TRAINING_SAMPLES, 1U,  1U },
     { ATTR_VITALS_TRAINING_SAMPLES, 1U, 1U },
     { ATTR_ALERTS_ARMED,          1U,  1U },
+    { ATTR_VITALS_TEST_MODE,      1U,  1U },
+    { ATTR_AI_INPUT_HEART_RATE,   1U,  1U },
+    { ATTR_AI_INPUT_SPO2,         1U,  1U },
+    { ATTR_VITALS_LEVEL,          1U,  1U },
     { ATTR_TS_FLAGS,              1U,  1U },
     { ATTR_HR_FORECAST_16S,       5U,  2U },
     { ATTR_SPO2_FORECAST_16S,     5U,  1U },
@@ -373,6 +384,8 @@ static void reset_hr_baseline(void)
 
 static void publish_zigbee_attributes(int16_t current_hr,
                                       int16_t current_spo2,
+                                      int16_t ai_input_hr,
+                                      int16_t ai_input_spo2,
                                       bool current_vitals_valid,
                                       float current_weight_kg,
                                       float current_drops_per_minute)
@@ -386,13 +399,13 @@ static void publish_zigbee_attributes(int16_t current_hr,
 
   /* AlarmBitmap layout is shared with zigbee2mqtt_smart_iv_converter.js. */
   if (alerts_armed && !current_vitals_valid) { alarm_bitmap |= 0x0001U; }
-  if (alerts_armed && current_vitals_valid && (current_spo2 < 90
+  if (alerts_armed && current_vitals_valid && (ai_input_spo2 < 90
       || (vitals_ai.baseline_samples >= 60U && vitals_ai.spo2_baseline > 0.0f
-          && absolute_float((float)current_spo2 - vitals_ai.spo2_baseline)
+          && absolute_float((float)ai_input_spo2 - vitals_ai.spo2_baseline)
              / vitals_ai.spo2_baseline >= 0.15f))) { alarm_bitmap |= 0x0002U; }
-  if (alerts_armed && current_vitals_valid && (current_hr < 45 || current_hr > 150
+  if (alerts_armed && current_vitals_valid && (ai_input_hr < 45 || ai_input_hr > 150
       || (vitals_ai.baseline_samples >= 60U && vitals_ai.hr_baseline > 0.0f
-          && absolute_float((float)current_hr - vitals_ai.hr_baseline)
+          && absolute_float((float)ai_input_hr - vitals_ai.hr_baseline)
              / vitals_ai.hr_baseline >= 0.15f))) { alarm_bitmap |= 0x0004U; }
   if (alerts_armed && drip_level > 1U) { alarm_bitmap |= 0x0008U; }
   if (alerts_armed && vitals_ai.ai_anomaly) { alarm_bitmap |= 0x0010U; }
@@ -442,6 +455,19 @@ static void publish_zigbee_attributes(int16_t current_hr,
   write_zcl_u8(ATTR_DROP_TRAINING_SAMPLES, drop_training_samples);
   write_zcl_u8(ATTR_VITALS_TRAINING_SAMPLES, vitals_ai.history_samples);
   write_zcl_u8(ATTR_ALERTS_ARMED, alerts_armed ? 1U : 0U);
+  write_zcl_u16(ATTR_DROP_INTERVAL_MS,
+                (uint16_t)(drop_sensor_last_interval_seconds() * 1000.0f + 0.5f),
+                ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_DROP_EVENT_COUNT, (uint16_t)drop_sensor_count(),
+                ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u8(ATTR_SERVER_DROP_LEVEL, drip_level);
+  write_zcl_u8(ATTR_VITALS_TEST_MODE, fake_vitals_level);
+  write_zcl_i16(ATTR_AI_INPUT_HEART_RATE,
+                current_vitals_valid ? ai_input_hr : (int16_t)0x8000);
+  write_zcl_u16(ATTR_AI_INPUT_SPO2,
+                current_vitals_valid ? (uint16_t)ai_input_spo2 : UINT16_MAX,
+                ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u8(ATTR_VITALS_LEVEL, vitals_ai.level);
   write_zcl_i16(ATTR_HEART_RATE,
                 current_vitals_valid ? current_hr : (int16_t)0x8000);
   write_zcl_u16(ATTR_SPO2,
@@ -477,12 +503,13 @@ static void publish_zigbee_attributes(int16_t current_hr,
   hr_baseline_just_completed = false;
 }
 
-/* The final alert is the more severe of the two independent branches - a
- * dangerous drip fault must never be diluted just because vitals happen to
- * be fine right now, and vice versa. */
+/* Exact two-branch fusion contract:
+ * 1+1 -> 1, 3+3 -> 3, every other combination -> 2. */
 static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 {
-  return vitals_level > drops_level ? vitals_level : drops_level;
+  if (vitals_level == 1U && drops_level == 1U) { return 1U; }
+  if (vitals_level == 3U && drops_level == 3U) { return 3U; }
+  return 2U;
 }
 
 static void update_final_alert(void)
@@ -831,6 +858,35 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
     return;
   }
 
+  if (attribute_id == ATTR_SERVER_DROP_LEVEL) {
+    uint8_t next = *value;
+    if (system_state == SYSTEM_MONITORING && next >= 1U && next <= 3U) {
+      drip_level = next;
+      if (alerts_armed) { update_final_alert(); }
+      printf("[ZB] Server drip decision level=%u.\r\n", (unsigned)next);
+    }
+    return;
+  }
+
+  if (attribute_id == ATTR_VITALS_TEST_MODE) {
+    uint8_t next = *value;
+    if (next != 0U && next != 2U && next != 3U) {
+      write_zcl_u8(ATTR_VITALS_TEST_MODE, fake_vitals_level);
+      return;
+    }
+    if (fake_vitals_level == next) { return; }
+    if (fake_vitals_level == 0U && next != 0U) {
+      vitals_ai_begin_test();
+    } else if (fake_vitals_level != 0U && next == 0U) {
+      vitals_ai_end_test(&vitals_ai);
+    }
+    fake_vitals_level = next;
+    if (alerts_armed) { update_final_alert(); }
+    printf("[ZB] Vitals test mode=%u (0=real,2=attention,3=alarm).\r\n",
+           (unsigned)next);
+    return;
+  }
+
   if (attribute_id == ATTR_TARE_COMMAND) {
     if (*value != 0U) {
       start_runtime_tare(now_ms());
@@ -1035,7 +1091,7 @@ static void publish_display(void)
       ai_spo2 = (int16_t)(vitals_ai.spo2_baseline + 0.5f);
     } else if (fake_ready && fake_vitals_level == 3U) {
       ai_heart_rate = (int16_t)(vitals_ai.hr_baseline * 0.75f + 0.5f);
-      ai_spo2 = (int16_t)(vitals_ai.spo2_baseline + 0.5f);
+      ai_spo2 = (int16_t)(vitals_ai.spo2_baseline * 0.75f + 0.5f);
     }
     /* Feed each real measurement to AI once; held display values are not
        repeated as if they were new sensor samples. */
@@ -1077,13 +1133,15 @@ static void publish_display(void)
     bool spo2_cause = ai_spo2 < 90 || relative_spo2 >= 0.15f;
     /* Keep the learned/AI values intact, but never expose a held value as a
      * current measurement after the sensor signal has expired. */
-    int16_t output_heart_rate = vitals_valid ? ai_heart_rate : 0;
-    int16_t output_spo2 = vitals_valid ? ai_spo2 : 0;
+    /* Fake values exist only on the AI decision path. OLED, telemetry and
+       Zigbee continue to expose the real sensor readings for comparison. */
+    int16_t output_heart_rate = vitals_valid ? heart_rate : 0;
+    int16_t output_spo2 = vitals_valid ? spo2 : 0;
     if (runtime_tare_in_progress) {
       oled_display_message("MONITORING ON", "TARING SCALE",
                            "AI STATE KEPT", "ALARM STATE KEPT");
     } else {
-      oled_display_monitor(ai_heart_rate, ai_spo2, vitals_valid, weight_kg,
+      oled_display_monitor(heart_rate, spo2, vitals_valid, weight_kg,
                            hx711_sensor_connected() && hx711_sensor_tared(),
                            interval, (float)target_interval_ms / 1000.0f,
                            rate, (uint8_t)alert_level + 1U, vitals_ai.level,
@@ -1094,7 +1152,8 @@ static void publish_display(void)
                            vitals_ai.history_samples, drop_training_samples, alerts_armed,
                            vitals_ai_baseline_recalibrating());
     }
-    publish_zigbee_attributes(output_heart_rate, output_spo2, vitals_valid,
+    publish_zigbee_attributes(output_heart_rate, output_spo2,
+                              ai_heart_rate, ai_spo2, vitals_valid,
                               weight_kg, rate);
     printf("TELEMETRY,%d,%d,%.3f,%.3f,%.1f,%.1f,%u,%u,%u,%.1f,%.1f,%u,%u,%u,%u,%u\r\n",
            output_heart_rate, output_spo2, (double)weight_kg, (double)interval,

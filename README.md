@@ -1,344 +1,251 @@
-# Hệ thống AI Chuẩn đét
+# Hệ thống AI Chuẩn Đét
 
-> Smart IV Monitor — hệ thống thử nghiệm giám sát bệnh nhân đang truyền dịch bằng EFR32xG26, cảm biến nhỏ giọt, loadcell, HR/SpO2 và AI.
-
-Project kết hợp firmware nhúng và ứng dụng máy tính để theo dõi đồng thời:
-
-- nhịp tim (HR);
-- nồng độ oxy máu (SpO2);
-- khối lượng bịch dịch;
-- khoảng cách và tốc độ nhỏ giọt;
-- cảnh báo ba mức bằng OLED, LED và buzzer;
-- AI MLP/LSTM phân tích chuỗi 20 khoảng giọt;
-- AI sinh hiệu chạy trực tiếp trên G26 bằng TensorFlow Lite Micro.
-
-> **Lưu ý:** đây là prototype nghiên cứu/học tập, chưa được kiểm định để thay thế thiết bị y tế hoặc quyết định lâm sàng.
-
-## 1. Hệ thống hoạt động như thế nào?
+Smart IV Monitor là hệ thống thử nghiệm giám sát truyền dịch theo chuỗi:
 
 ```text
-MAX30102 ── HR/SpO2 ───────┐
-Photodiode ── khoảng giọt ─┼─> EFR32xG26 ─> OLED/LED/Buzzer
-HX711 ── khối lượng ───────┘       │
-                                   ├─ USB COM ─> GUI Python ─> MLP + LSTM
-                                   └─ Zigbee ZCL EP2 ─> Gateway/Zigbee2MQTT
+Cảm biến -> EFR32xG26 -> Zigbee ZCL -> Zigbee2MQTT trên Raspberry Pi
+         -> Gateway TCP -> HIS Server -> giao diện web thời gian thực
 ```
 
-1. G26 tự trừ bì loadcell trong 10 giây. Trong thời gian này không treo bịch.
-2. OLED báo sẵn sàng; người dùng treo bịch dịch và mở ứng dụng máy tính.
-3. Người dùng chọn tốc độ giọt theo giọt/phút.
-4. Firmware đọc cảm biến, cập nhật OLED và ghi dữ liệu vào Zigbee ZCL Attribute.
-5. GUI phân tích chuỗi nhỏ giọt bằng MLP/LSTM và gửi mức nhỏ giọt về G26.
-6. G26 kết hợp mức sinh hiệu và mức nhỏ giọt để điều khiển cảnh báo cuối.
+Hệ thống theo dõi HR, SpO2, tốc độ/khoảng cách giọt, khối lượng bịch dịch,
+AI chuỗi thời gian và cảnh báo ba mức. Đây là prototype nghiên cứu, chưa phải
+thiết bị y tế đã kiểm định và không thay thế giám sát lâm sàng.
 
-## 2. Phần cứng
+## 1. Thành phần và giao thức
 
-### Bo mạch
+| Thành phần | Vai trò |
+|---|---|
+| EFR32xG26 / BRD2709A | Đọc cảm biến, AI, OLED, LED/buzzer và Zigbee |
+| MAX30102 | HR và SpO2 |
+| Photodiode | Phát hiện giọt dịch |
+| HX711 + loadcell | Khối lượng bịch dịch |
+| Raspberry Pi ARM64 | Mosquitto, Zigbee2MQTT, coordinator và gateway |
+| HIS Server .NET 8 | Nhận TCP `5000`, lưu dữ liệu, phục vụ web `5194` |
 
-- Silicon Labs BRD2709A / EFR32xG26.
-- OLED SSD1306 0.96 inch, 128×64, địa chỉ I²C `0x3C`.
-- Cảm biến HR/SpO2 MAX30102, địa chỉ I²C `0x57`.
-- Photodiode/module cảm biến giọt có ngõ ra số.
-- Loadcell và HX711.
-- Ba LED xanh/vàng/đỏ.
-- Buzzer active-low, điều khiển qua transistor.
+G26 không gửi JSON trực tiếp. Firmware report ZCL Attribute tại Endpoint 2,
+custom cluster `0xFC01`, manufacturer code `0x1049`. Converter trên Pi chuyển
+attribute thành MQTT JSON; gateway chuyển dữ liệu tới HIS Server.
 
-### Sơ đồ chân cố định
+## 2. Sơ đồ chân G26
 
-| Thiết bị | Tín hiệu | Chân G26 |
+| Thiết bị | Tín hiệu | Chân |
 |---|---|---|
-| Cảm biến giọt | D0/OUT | PD02 |
-| HX711 | DOUT | PC01 |
-| HX711 | SCK | PC03 |
-| MAX30102 + OLED | SCL | PC05 |
-| MAX30102 + OLED | SDA | PC07 |
-| LED xanh | OUT | PA07 |
-| LED vàng | OUT | PA04 |
-| LED đỏ | OUT | PA05 |
+| Cảm biến giọt | OUT | PD02 |
+| HX711 | DOUT / SCK | PC01 / PC03 |
+| MAX30102 + OLED | SCL / SDA | PC05 / PC07 |
+| LED xanh / vàng / đỏ | OUT | PA07 / PA04 / PA05 |
 | Buzzer active-low | OUT | PC06 |
-| Nút trừ bì BTN0 | INPUT | PB00 |
+| Nút trừ bì | INPUT | PB00 |
 
-Tất cả module dùng logic **3.3 V** và phải chung GND. SDA/SCL nên có điện trở kéo lên 3.3 V khoảng `4.7 kΩ`; dây I²C nên ngắn và tránh dây buzzer.
+Các module dùng logic 3.3 V và chung GND. Nên kéo lên SDA/SCL khoảng `4.7 kΩ`,
+dùng dây I2C ngắn và đặt xa dây buzzer.
 
-## 3. Cài đặt nhanh
+## 3. Chuẩn bị và tải source
 
-### Yêu cầu
-
-- Windows 10/11.
-- Silicon Labs Tools/Simplicity Studio có compiler, CMake và Commander.
-- Python 3.10 trở lên.
-- Cáp USB hỗ trợ truyền dữ liệu.
-
-### Tải source
+Máy Windows cần Git, .NET 8 SDK, MySQL 8 và Silicon Labs
+Tools/Simplicity Studio (CMake + Commander). Pi cần có runtime
+`~/pi-aarch64`, coordinator tại `/dev/ttyACM0` và quyền serial.
 
 ```powershell
-git clone https://github.com/dinhhieu1st-debug/He-thong-AI-Chuan-det.git
-cd He-thong-AI-Chuan-det
+cd C:\Users\<USER>\Documents
+git clone --branch smart-iv-end-to-end-2026-08-24 --single-branch `
+  https://github.com/dinhhieu1st-debug/He-thong-AI-Chuan-det.git
+cd .\He-thong-AI-Chuan-det
 ```
 
-### Cài thư viện Python
+## 4. Build và nạp firmware G26
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r host_ai\requirements.txt
-```
-
-### Build firmware
+Kết nối BRD2709A bằng USB, mở PowerShell tại thư mục repository:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
-```
-
-File tạo ra:
-
-```text
-cmake_gcc/build/base/smart-iv-monitor.hex
-```
-
-### Nạp firmware
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\flash_firmware.ps1
 ```
 
-Nếu có nhiều kit, truyền serial number:
+Firmware được tạo tại `cmake_gcc/build/base/smart-iv-monitor.hex`.
+
+Nếu kit chưa có Gecko Bootloader hoặc vừa erase toàn chip:
 
 ```powershell
-.\tools\flash_firmware.ps1 -SerialNo <SERIAL_NUMBER>
+powershell -ExecutionPolicy Bypass -File .\tools\build_bootloader.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\flash_bootloader_and_app.ps1
 ```
 
-### Mở ứng dụng giám sát
+Nếu cắm nhiều kit:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\run_ai_gui.ps1
+.\tools\flash_firmware.ps1 -SerialNo <DEBUG_ADAPTER_SERIAL>
 ```
 
-Sau đó:
+Reset G26 sau khi nạp. Không treo bịch trong lúc OLED báo đang trừ bì.
 
-1. chọn đúng cổng COM;
-2. nhấn **Kết nối**;
-3. chờ G26 trừ bì xong;
-4. treo bịch dịch;
-5. chọn preset hoặc nhập khoảng tùy chỉnh;
-6. nhấn **Xác nhận tốc độ**;
-7. theo dõi tab **Giám sát AI**.
+## 5. Cấu hình và chạy HIS Server
 
-## 4. Đọc giao diện OLED
+Không ghi mật khẩu database vào Git. Cấu hình lần đầu bằng user-secrets:
 
-| Nhãn | Ý nghĩa | Đơn vị |
-|---|---|---|
-| `HR` | Nhịp tim hiện tại | BPM |
-| `O2` | SpO2 hiện tại | % |
-| `DR` | Tốc độ giọt thực tế | giọt/phút |
-| `GP` | Khoảng cách giữa hai giọt | giây |
-| `BG` | Khối lượng bịch dịch | kg |
-| `ST` | Tốc độ giọt đã đặt | giọt/phút |
+```powershell
+cd .\demo1\server\src\HisServer
+dotnet user-secrets set "ConnectionStrings:MySql" `
+  "Server=localhost;Port=3306;Database=his_server;Uid=<DB_USER>;Pwd=<DB_PASSWORD>;SslMode=None;AllowPublicKeyRetrieval=True;"
+```
 
-Hai dòng cuối hiển thị trạng thái như `NORMAL`, `L2: CAUTION`, `L3 CRITICAL` và nguyên nhân `HR`, `SPO2`, `DROP` hoặc tổ hợp của chúng.
+Nếu database chưa có schema, chạy `demo1/server/database/schema.sql`, sau đó
+các file trong `demo1/server/database/migrations` theo thứ tự tên.
 
-Khi MAX30102 không còn trả về mẫu hợp lệ trong 3 giây, OLED hiển thị `--` thay vì giữ số HR/SpO2 cũ. Baseline và lịch sử AI vẫn được giữ để cảm biến có thể tiếp tục mà không phải học lại.
+Mỗi lần khởi động, mở một PowerShell riêng và giữ nó chạy:
 
-## 5. Logic cảnh báo
+```powershell
+cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det\demo1\server\src\HisServer
+dotnet run --launch-profile http
+```
+
+Kết quả đúng:
+
+```text
+Bed vitals TCP ingestion listening on port 5000
+Now listening on: http://0.0.0.0:5194
+```
+
+Mở `http://localhost:5194`. Tài khoản demo nằm trong migration
+`2026-08-21_seed_demo_accounts.sql`; phải đổi mật khẩu khi triển khai thật.
+
+Nếu gặp `SocketException (10048)`, kiểm tra tiến trình đang giữ cổng:
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 5000,5194 |
+  Select-Object LocalAddress,LocalPort,OwningProcess
+```
+
+### Mở firewall cho Pi (chạy một lần)
+
+Mở PowerShell bằng **Run as administrator**:
+
+```powershell
+cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
+powershell -ExecutionPolicy Bypass -File .\tools\configure_pi_firewall.ps1
+ipconfig
+```
+
+Ghi lại IPv4 của card mạng cùng mạng với Pi; đó là `<WINDOWS_IP>`.
+
+## 6. Khởi động Raspberry Pi
+
+Từ PowerShell Windows:
+
+```powershell
+ssh iotchallenge@<PI_IP>
+```
+
+Trong terminal Pi:
+
+```bash
+cd ~/pi-aarch64
+bash run.sh <WINDOWS_IP>
+```
+
+Ví dụ Windows có IP `192.168.137.1`:
+
+```bash
+cd ~/pi-aarch64 && bash run.sh 192.168.137.1
+```
+
+Giữ terminal Pi chạy. Kết quả đúng phải lần lượt khởi động Mosquitto,
+Zigbee2MQTT và gateway, sau đó hiện `Đã kết nối MQTT`.
+
+- Zigbee2MQTT: `http://<PI_IP>:8080`.
+- Nhấn `Ctrl+C` tại terminal Pi để dừng stack đúng cách.
+- Chỉ dùng `bash run.sh 127.0.0.1` khi SSH reverse tunnel tới Windows đã được
+  cấu hình và đang hoạt động.
+
+Không công khai mật khẩu SSH, database hoặc khóa riêng trong repository.
+
+## 7. Thứ tự khởi động toàn hệ thống
+
+1. Cấp nguồn cảm biến, G26 và coordinator.
+2. Chạy HIS Server trên Windows.
+3. Chạy `bash run.sh <WINDOWS_IP>` trên Pi.
+4. Kiểm tra Zigbee2MQTT thấy `SmartIV-Sensor` online.
+5. Mở `http://localhost:5194`, đăng nhập và vào `BED-01`.
+6. Chờ trừ bì xong, treo bịch rồi đặt tốc độ giọt trên server.
+7. Nhấn `Start monitoring` sau khi lắp cảm biến đúng vị trí.
+8. Chờ đủ 20 mẫu giọt và 64 mẫu sinh hiệu trước khi đánh giá AI.
+
+## 8. Kiểm tra kết nối
+
+Trên Windows:
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 5000,5194
+Get-NetTCPConnection -State Established -LocalPort 5000
+```
+
+Trên Pi:
+
+```bash
+ss -tn | grep ':5000'
+tail -n 50 ~/pi-aarch64/logs/gateway.log
+tail -n 50 ~/pi-aarch64/logs/zigbee2mqtt.log
+```
+
+Hệ thống đúng khi cổng 5194 mở được, cổng 5000 có kết nối `ESTABLISHED`,
+Zigbee2MQTT nhận payload mới và `BED-01` cập nhật theo thời gian thực.
+
+## 9. Logic cảnh báo
 
 ### Nhỏ giọt
 
-- Sai lệch được so với **mốc động** thay vì chỉ dùng mốc đặt cố định.
-- Mốc động chỉ đi chậm dần khi từng thay đổi nhỏ vẫn nằm trong vùng bình thường.
-- Tốc độ bám tối đa mỗi giọt và tổng độ trôi đều bị giới hạn.
-- Xung đột ngột, mất giọt và sai lệch lớn không được học theo.
-- `±200 ms`: bình thường.
-- Trên `200 ms` đến `800 ms`: chú ý.
-- Trên `800 ms`: cảnh báo.
-- Watchdog firmware phát hiện khi quá lâu không có giọt.
-
-MLP và LSTM dùng cửa sổ 20 giọt. Kết quả AI được hiển thị để phân tích xu hướng; cơ cấu chấp hành nhỏ giọt vẫn theo dải an toàn vật lý đã cấu hình.
+- `±200 ms`: mức 1.
+- Trên `200 ms` đến `800 ms`: mức 2.
+- Trên `800 ms` hoặc mất giọt: mức 3.
+- Mốc động chỉ bám thay đổi nhỏ hợp lệ; xung nhiễu, sai lệch lớn và mất giọt
+  không được học theo.
 
 ### Sinh hiệu
 
-- Hệ thống học 60 mẫu để tạo HR/SpO2 nền.
-- Tiếp tục nạp đủ lịch sử 64 mẫu cho AI sinh hiệu.
+- Học 60 mẫu tạo baseline, nạp đủ lịch sử 64 mẫu cho AI.
 - Lệch dưới 15%: mức 1.
-- Lệch từ 15% đến dưới 20%: mức 2.
-- Lệch từ 20% trở lên: mức 3.
-- Ngưỡng cứng vẫn được áp dụng: HR dưới 45, HR trên 150 hoặc SpO2 dưới 90 tạo mức 3.
+- Từ 15% đến dưới 20%: mức 2.
+- Từ 20% trở lên: mức 3.
+- HR dưới 45, HR trên 150 hoặc SpO2 dưới 90: mức 3.
 
-### Ghép cảnh báo cuối
+### Ghép mức cuối
 
-| Sinh hiệu | Nhỏ giọt | Đầu ra cuối |
+| Sinh hiệu | Nhỏ giọt | Đầu ra |
 |---:|---:|---:|
 | 1 | 1 | 1 |
 | 3 | 3 | 3 |
-| Các tổ hợp còn lại | | 2 |
-
-### LED và buzzer
+| mọi tổ hợp còn lại | | 2 |
 
 - Mức 1: LED xanh, buzzer tắt.
 - Mức 2: LED vàng; buzzer kêu 0.5 giây, nghỉ 3 giây.
-- Mức 3: LED đỏ nhấp nháy; buzzer bật/tắt nhanh 0.25 giây.
-- Buzzer active-low: PC06 LOW là kêu, HIGH là tắt.
+- Mức 3: LED đỏ nhấp nháy; buzzer đảo mỗi 0.25 giây.
+- Buzzer active-low: PC06 LOW kêu, HIGH tắt.
 
-## 6. Chế độ kiểm thử sinh hiệu
+## 10. Kiểm thử sinh hiệu trên web
 
-Tab giám sát có ba lựa chọn:
+- `Real data`: dùng cảm biến thật và phục hồi lịch sử AI.
+- `Fake HR L2`: tạo HR lệch khoảng 17% để kiểm tra mức 2.
+- `Fake HR+O2 L3`: tạo HR/SpO2 lệch khoảng 25% để kiểm tra mức 3.
 
-- **Tắt fake**: dùng cảm biến thật và khôi phục lịch sử AI trước khi test.
-- **Fake mức 2**: tạo HR lệch khoảng 17% so với baseline.
-- **Fake mức 3**: tạo HR lệch khoảng 25% so với baseline.
+`Real HR/SpO2` vẫn là dữ liệu cảm biến; `AI test HR/SpO2` là dữ liệu nhánh test
+trên G26. Tắt fake không bắt thiết bị học lại.
 
-HR/SpO2 thô vẫn hiển thị dữ liệu cảm biến thật để đối chiếu. Khi tắt fake, baseline và lịch sử AI thật được phục hồi, không phải học lại từ đầu.
+## 11. Xử lý lỗi nhanh
 
-## 7. Dữ liệu và mô hình AI
+- Web không có BED-01: kiểm tra Pi, `<WINDOWS_IP>`, firewall và TCP 5000.
+- HR/SpO2 là `--`: kiểm tra tay, nguồn 3.3 V, GND, PC05/PC07 và pull-up I2C.
+- Bỏ tay mà hiện `--` là đúng; firmware không được giữ số cũ để gửi đi.
+- Nút điều khiển timeout: gateway TCP chưa kết nối; kiểm tra cổng 5000.
+- UI giữ nguyên BED-01 sau refresh và không khóa vĩnh viễn nút điều khiển.
 
-Schema dữ liệu giọt:
-
-```text
-timestamp_ms,drop_number,target_interval_ms,actual_interval_ms
-```
-
-Feature AI:
-
-```text
-ratio = actual_interval / expected_interval
-error_percent = (ratio - 1) × 100
-delta_ratio = ratio hiện tại - ratio trước
-```
-
-- MLP NumPy: `host_ai/models/mlp_baseline/`.
-- LSTM ONNX: `host_ai/models/lstm/`.
-- Dataset thật: `host_ai/data/raw/`.
-- Dataset mô phỏng: `host_ai/data/synthetic/`.
-- Thông tin dataset: `host_ai/DATASET_CARD.md`.
-- Model card: `host_ai/models/*/MODEL_CARD.md`.
-
-Dataset mô phỏng được tách riêng với dữ liệu thật và có các tình huống stable, gradually slowing/speeding, rapid change, disturbance, missing drop, recovery và irregular.
-
-## 8. Giao thức Serial chính
-
-Baudrate: `115200`.
-
-| Dòng/lệnh | Ý nghĩa |
-|---|---|
-| `AI_READY` | G26 đã trừ bì và chờ tốc độ |
-| `SET,<dpm>` | GUI gửi tốc độ đặt theo giọt/phút (`1..240`) |
-| `AI_SET_OK,<dpm>` | G26 xác nhận tốc độ theo giọt/phút |
-| `SETUP_DROP,<dpm>` | Tốc độ đang chạy trước khi đặt, theo giọt/phút |
-| `<time>,<count>,<target>,<actual>` | Bản ghi một giọt |
-| `LEVEL,<1..3>` | GUI gửi mức nhỏ giọt |
-| `DROP_TIMEOUT,<ms>` | Firmware báo quá lâu không có giọt |
-| `VITAL_RAW,<time>,<hr>,<spo2>` | Dữ liệu sinh hiệu thô |
-| `TELEMETRY,...` | Toàn bộ thông số hiển thị |
-| `FAKE_VITAL,<0|2|3>` | Chọn chế độ test sinh hiệu |
-
-## 9. Zigbee ZCL Attribute
-
-XG26 **không tạo hoặc gửi JSON trực tiếp**. Firmware ghi dữ liệu vào custom ZCL cluster; gateway và converter Zigbee2MQTT chịu trách nhiệm chuyển attribute thành JSON.
-
-| Thành phần | Giá trị |
-|---|---|
-| Endpoint | `2` |
-| Cluster | `0xFC01` — Smart IV Vitals |
-| Manufacturer Code | `0x1049` |
-| Model Identifier | `SmartIV-Sensor` |
-| Reporting | tối thiểu 1 giây, tối đa 60 giây |
-
-| Attribute | Tên | Kiểu | Nội dung |
-|---:|---|---|---|
-| `0x0000` | HeartRate | int16s | BPM; `0` khi mất tín hiệu |
-| `0x0001` | Spo2 | int16u | %; `0` khi mất tín hiệu |
-| `0x0002` | FlowRatio | int16u | tốc độ thực tế/mốc đặt, % |
-| `0x0003` | DropRatio | int16s | tốc độ thực tế/mốc đặt, % |
-| `0x0004` | AlarmBitmap | bitmap16 | trạng thái cảnh báo |
-| `0x0005` | WeightG | int16u | gram |
-| `0x0006` | DropsPerMin | int16u | giọt/phút |
-| `0x0007` | TargetFlowMlH | int16u | ml/h; `0xFFFF` nếu chưa có nguồn dữ liệu |
-| `0x0008` | TargetDropsPerMin | int16u | giọt/phút |
-| `0x000F` | TsFlags | bitmap16 | trạng thái AI chuỗi thời gian |
-| `0x0010` | HrForecast16s | int16u | HR dự báo sau 16 giây |
-| `0x0011` | Spo2Forecast16s | int16u | SpO2 dự báo sau 16 giây |
-| `0x0012` | HrTrendBpmPerMin | int16s | xu hướng HR mỗi phút |
-| `0x0013` | TsAnomalyScoreX100 | int16u | điểm bất thường ×100 |
-| `0x0014` | DropsForecast16s | int16u | dự báo giọt; `0xFFFF` nếu chưa khả dụng |
-| `0x0015` | DropsTrendDpmPerMin | int16s | xu hướng giọt mỗi phút |
-| `0x0016` | RemainingMl | int16u | ml còn lại; `0xFFFF` nếu chưa khả dụng |
-| `0x0017` | RemainingMin | int16u | phút còn lại; `0xFFFF` nếu chưa khả dụng |
-| `0x0018` | MonitoringActive | int8u | `1` đang giám sát, `0` chưa giám sát |
-
-`AlarmBitmap` dùng bit 0 cho mức chú ý, bit 1 cho mức đỏ, bit 2 cho sinh hiệu và bit 3 cho nhỏ giọt. Khi mất tín hiệu HR/SpO2, forecast tương ứng cũng chuyển sang `0xFFFF`.
-
-Ví dụ HR 75 BPM, SpO2 98%, tỷ lệ dòng/giọt 100%, cân 496 g và 20 giọt/phút được report trên EP2/`0xFC01` như sau:
-
-```text
-0x0000 = 75
-0x0001 = 98
-0x0002 = 100
-0x0003 = 100
-0x0005 = 496
-0x0006 = 20
-```
-
-## 10. Cấu trúc source
-
-```text
-firmware/                 Driver cảm biến, OLED, cảnh báo và AI sinh hiệu
-firmware/models/          Model TFLite Micro đã nhúng
-host_ai/inference/        GUI desktop và inference realtime
-host_ai/models/           MLP/LSTM và cấu hình inference
-host_ai/data/             Dataset thật, processed và synthetic
-host_ai/training/         Mã huấn luyện mô hình
-host_ai/scripts/          Logger và công cụ dataset
-tools/                    Build, flash, serial monitor và chạy GUI
-autogen/, config/         Thành phần sinh bởi Silicon Labs
-cmake_gcc/                Cấu hình build GCC
-bootloader/               Bootloader project
-```
-
-## 11. Xử lý lỗi thường gặp
-
-### GUI không có dữ liệu
-
-- Chọn đúng COM và đóng Serial Monitor khác.
-- Kiểm tra baudrate 115200.
-- Chờ `AI_READY`, sau đó xác nhận tốc độ.
-- Nạp đúng firmware mới nhất.
-
-### HR/SpO2 lúc có lúc không
-
-Firmware hiện hỗ trợ I²C clock stretching, tự phục hồi bus sau lỗi giao tiếp và đọc lại tối đa ba lần nếu gặp một khung HR/SpO2 tạm thời không hợp lệ. Không nên tăng thời gian giữ số để che lỗi, vì khi người dùng bỏ tay hệ thống phải xóa dữ liệu cũ.
-
-- Dùng nguồn 3.3 V ổn định và chung GND.
-- Dùng pull-up SDA/SCL khoảng 4.7 kΩ.
-- Rút ngắn dây PC05/PC07 và tránh dây buzzer.
-- Giữ ngón tay cố định, che ánh sáng ngoài.
-- Kiểm tra log `VITAL_RAW`: nếu log vẫn chạy nhưng GUI mất số thì kiểm tra phần mềm; nếu `VITAL_RAW` dừng quá 3 giây khi tay vẫn giữ nguyên thì kiểm tra nguồn, SDA/SCL và pull-up của bus dùng chung OLED/MAX30102.
-- Khi bỏ tay thật, OLED và GUI hiện `--`; ZCL `HeartRate`/`Spo2` về `0`.
-
-### Nhỏ giọt xuất hiện khoảng cực ngắn
-
-- Kiểm tra log firmware có dòng `Anti-double-pulse gap`.
-- Kiểm tra dây photodiode, mức logic 3.3 V và nhiễu nguồn.
-- Không đặt dây tín hiệu sát dây buzzer.
-- So sánh khoảng thực tế với `moc dong` trong log GUI.
-
-### Buzzer kêu ngược
-
-Buzzer của hệ thống là active-low: LOW kêu, HIGH tắt. Không đảo lại logic nếu không thay phần cứng kích transistor.
-
-## 12. Kiểm tra trước khi commit
+## 12. Build kiểm tra trước phát hành
 
 ```powershell
-python -m py_compile host_ai\inference\desktop_gui.py
+cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
 powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
+dotnet build .\demo1\server\HisServer.sln
+dotnet run --project .\demo1\server\tests\EvaluatorTests\EvaluatorTests.csproj
 ```
 
-## 13. Giới hạn an toàn
-
-- Các model hiện tại là prototype nghiên cứu.
-- Dataset synthetic không thay thế kiểm định trên nhiều bộ dây truyền và điều kiện thực tế.
-- Cần kiểm định độc lập, phân tích rủi ro và chứng nhận phù hợp trước mọi ứng dụng y tế.
-- Không dựa duy nhất vào hệ thống này để theo dõi hoặc điều trị bệnh nhân.
-
-## Nguồn tham khảo của module AI nhỏ giọt
-
-Pipeline AI nhỏ giọt ban đầu được phát triển tại [AI-nho-giot](https://github.com/dinhhieu1st-debug/AI-nho-giot) và đã được tích hợp, điều chỉnh cho EFR32xG26 trong repository này.
+Tài liệu sâu hơn nằm trong `demo1/docs`, `gateway-pi/README.md` và
+`demo1/server/README.md`.

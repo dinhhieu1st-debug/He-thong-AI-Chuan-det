@@ -43,13 +43,26 @@ try {
         'ZCL_REMAINING_ML_ATTRIBUTE_ID',
         'ZCL_REMAINING_MIN_ATTRIBUTE_ID',
         'ZCL_MONITORING_ACTIVE_ATTRIBUTE_ID'
+        'ZCL_DROP_INTERVAL_MS_ATTRIBUTE_ID'
+        'ZCL_DROP_EVENT_COUNT_ATTRIBUTE_ID'
+        'ZCL_SERVER_DROP_LEVEL_ATTRIBUTE_ID'
+        'ZCL_VITALS_TEST_MODE_ATTRIBUTE_ID'
+        'ZCL_AI_INPUT_HEART_RATE_ATTRIBUTE_ID'
+        'ZCL_AI_INPUT_SPO2_ATTRIBUTE_ID'
+        'ZCL_VITALS_LEVEL_ATTRIBUTE_ID'
     )
     $zapIds = Get-Content -Raw (Join-Path $projectRoot 'autogen\zap-id.h')
     $missing = @($required | Where-Object { $zapIds -notmatch [regex]::Escape($_) })
     if ($missing.Count -gt 0) {
         throw "Generated zap-id.h is missing custom attributes: $($missing -join ', ')"
     }
-    Write-Host 'SLC generation complete; all 10 extended custom ZCL attributes are present.'
+    $zapConfig = Get-Content -Raw (Join-Path $projectRoot 'autogen\zap-config.h')
+    $missingTable = @('0x001F', '0x0020', '0x0021', '0x0022') |
+        Where-Object { $zapConfig -notmatch [regex]::Escape($_) }
+    if ($missingTable.Count -gt 0) {
+        throw "Generated endpoint attribute table is missing: $($missingTable -join ', ')"
+    }
+    Write-Host 'SLC generation complete; all extended custom ZCL attributes are present.'
 } finally {
     $env:_JAVA_OPTIONS = $oldJavaOptions
     Pop-Location

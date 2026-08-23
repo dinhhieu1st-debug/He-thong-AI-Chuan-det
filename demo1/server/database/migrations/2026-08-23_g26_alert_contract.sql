@@ -1,0 +1,39 @@
+USE his_server;
+
+DROP PROCEDURE IF EXISTS migrate_g26_alert_contract;
+DELIMITER //
+CREATE PROCEDURE migrate_g26_alert_contract()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='final_alert_level') THEN
+    ALTER TABLE beds ADD COLUMN final_alert_level TINYINT UNSIGNED NULL AFTER last_seen_hr_baseline_event_count;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='line_branch') THEN
+    ALTER TABLE beds ADD COLUMN line_branch BOOLEAN NOT NULL DEFAULT FALSE AFTER final_alert_level;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='patient_branch') THEN
+    ALTER TABLE beds ADD COLUMN patient_branch BOOLEAN NOT NULL DEFAULT FALSE AFTER line_branch;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='spo2_alarm') THEN
+    ALTER TABLE beds ADD COLUMN spo2_alarm BOOLEAN NOT NULL DEFAULT FALSE AFTER patient_branch;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='heart_rate_alarm') THEN
+    ALTER TABLE beds ADD COLUMN heart_rate_alarm BOOLEAN NOT NULL DEFAULT FALSE AFTER spo2_alarm;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='drop_training_samples') THEN
+    ALTER TABLE beds ADD COLUMN drop_training_samples TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER heart_rate_alarm;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='vitals_training_samples') THEN
+    ALTER TABLE beds ADD COLUMN vitals_training_samples TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER drop_training_samples;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='alerts_armed') THEN
+    ALTER TABLE beds ADD COLUMN alerts_armed BOOLEAN NOT NULL DEFAULT TRUE AFTER vitals_training_samples;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='beds' AND COLUMN_NAME='monitoring') THEN
+    ALTER TABLE beds ADD COLUMN monitoring BOOLEAN NOT NULL DEFAULT TRUE AFTER alerts_armed;
+  END IF;
+END//
+DELIMITER ;
+CALL migrate_g26_alert_contract();
+DROP PROCEDURE migrate_g26_alert_contract;
+
+SELECT 'G26 alert contract columns ready' AS status;
