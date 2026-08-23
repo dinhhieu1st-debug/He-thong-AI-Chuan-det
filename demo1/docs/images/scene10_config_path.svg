@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 220" font-family="IBM Plex Sans, Arial, sans-serif">
+  <style>
+    .box{fill:#eef7f5;stroke:#0f766e;stroke-width:2;}
+    .label{fill:#161b1a;font-size:16px;font-weight:700;text-anchor:middle;}
+    .sub{fill:#5b6564;font-size:12px;text-anchor:middle;}
+    .arrow{stroke:#5b6564;stroke-width:2;marker-end:url(#head4);}
+  </style>
+  <defs>
+    <marker id="head4" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#5b6564"/>
+    </marker>
+  </defs>
+  <rect width="980" height="220" fill="#ffffff"/>
+
+  <rect class="box" x="20" y="60" width="170" height="70" rx="8"/>
+  <text class="label" x="105" y="102">DASHBOARD</text>
+  <line class="arrow" x1="192" y1="95" x2="228" y2="95"/>
+
+  <rect class="box" x="232" y="60" width="150" height="70" rx="8"/>
+  <text class="label" x="307" y="102">SERVER</text>
+  <line class="arrow" x1="384" y1="95" x2="420" y2="95"/>
+
+  <rect class="box" x="424" y="60" width="150" height="70" rx="8"/>
+  <text class="label" x="499" y="102">GATEWAY</text>
+  <line class="arrow" x1="576" y1="95" x2="612" y2="95"/>
+
+  <rect class="box" x="616" y="60" width="150" height="70" rx="8"/>
+  <text class="label" x="691" y="102">ZIGBEE</text>
+  <line class="arrow" x1="768" y1="95" x2="804" y2="95"/>
+
+  <rect class="box" x="808" y="60" width="150" height="70" rx="8"/>
+  <text class="label" x="883" y="102">xG26</text>
+
+  <text class="sub" x="490" y="170" font-size="13">Lệnh cấu hình (vd. TargetDropsPerMin) đi xuống, không cần nạp lại firmware</text>
+  <text class="sub" x="490" y="190" font-size="12">Sơ đồ 📊 dựng tay, không AI</text>
+</svg>

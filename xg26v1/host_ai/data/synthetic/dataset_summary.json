@@ -1,0 +1,80 @@
+{
+  "generator_version": "synthetic_v1",
+  "seed": 20260813,
+  "research_only": true,
+  "synthetic_sessions": 240,
+  "raw_records": 43200,
+  "window_samples": 37440,
+  "records_per_session": 180,
+  "sessions_per_preset_scenario": 10,
+  "sequence_length": 20,
+  "future_horizon": 5,
+  "preset_targets_ms": {
+    "slow": 1500,
+    "normal": 1000,
+    "fast": 750
+  },
+  "scenario_session_counts": {
+    "stable": 30,
+    "gradually_slowing": 30,
+    "gradually_speeding": 30,
+    "rapid_change": 30,
+    "temporary_disturbance": 30,
+    "missing_drop": 30,
+    "recovery": 30,
+    "irregular": 30
+  },
+  "preset_session_counts": {
+    "slow": 80,
+    "normal": 80,
+    "fast": 80
+  },
+  "split_session_counts": {
+    "train": 168,
+    "validation": 24,
+    "test": 48
+  },
+  "label_counts": {
+    "1": 24445,
+    "2": 6263,
+    "3": 6732
+  },
+  "split_label_counts": {
+    "train": {
+      "1": 17110,
+      "2": 4414,
+      "3": 4684
+    },
+    "validation": {
+      "1": 2445,
+      "2": 588,
+      "3": 711
+    },
+    "test": {
+      "1": 4890,
+      "2": 1261,
+      "3": 1337
+    }
+  },
+  "calibration": {
+    "stable_noise_ratio": 0.002040152499746581,
+    "stable_drift_ratio_per_drop": 4.537815126050496e-05,
+    "gradual_slowing_ratio_per_drop": 0.000180672268907563,
+    "missing_drop_ratio_median": 25.6455,
+    "real_sessions_used": [
+      "session_005",
+      "session_006",
+      "session_003",
+      "session_009",
+      "session_010"
+    ]
+  },
+  "outputs": {
+    "manifest": "data/synthetic/manifest.csv",
+    "raw_all": "data/synthetic/all_sessions_raw.csv",
+    "windows_all": "data/processed/synthetic_windows.csv",
+    "windows_train": "data/processed/synthetic_train.csv",
+    "windows_validation": "data/processed/synthetic_validation.csv",
+    "windows_test": "data/processed/synthetic_test.csv"
+  }
+}

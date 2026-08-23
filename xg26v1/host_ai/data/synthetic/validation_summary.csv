@@ -1,0 +1,14 @@
+metric,value
+status,PASS
+synthetic_sessions,240
+raw_records,43200
+window_samples,37440
+train_sessions,168
+validation_sessions,24
+test_sessions,48
+class_1_normal,24445
+class_2_attention,6263
+class_3_warning,6732
+session_leakage_detected,False
+error_count,0
+warning_count,0

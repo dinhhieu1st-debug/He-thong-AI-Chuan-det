@@ -1,0 +1,34 @@
+# IDE and local state
+.vscode/
+.vs/
+.idea/
+.uceditor/
+*.user
+*.suo
+
+# Build outputs and runtime state
+**/bin/
+**/obj/
+**/build/
+**/.runtime/
+**/__pycache__/
+*.exe
+*.dll
+*.obj
+*.out
+*.hex
+*.log
+
+# Dependencies and generated deployment bundles
+**/node_modules/
+**/.venv*/
+**/release/
+**/deploy/
+
+# Secrets and machine-local configuration
+.env
+.env.*
+*.pem
+*.pfx
+*.key
+appsettings.*.local.json

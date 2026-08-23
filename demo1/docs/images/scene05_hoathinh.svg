@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" font-family="IBM Plex Sans, Arial, sans-serif">
+  <rect width="480" height="300" fill="#efe7fd" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="8 6" rx="14"/>
+  <g transform="translate(60,20)"><circle cx="60" cy="55" r="30" fill="none" stroke="#8b5cf6" stroke-width="4"/><path d="M45,50 q15,-14 30,0" fill="none" stroke="#8b5cf6" stroke-width="4" stroke-linecap="round"/><circle cx="48" cy="48" r="4" fill="#8b5cf6"/><circle cx="72" cy="48" r="4" fill="#8b5cf6"/><path d="M40,90 q20,18 40,0" fill="none" stroke="#8b5cf6" stroke-width="3" stroke-dasharray="2 4"/></g>
+  <text x="240" y="60" text-anchor="middle" font-size="12" font-weight="700" letter-spacing="1.5" fill="#8b5cf6">PLACEHOLDER &#183; AI HOẠT HÌNH</text>
+  <text x="240" y="150" text-anchor="middle" font-size="19" font-weight="700" fill="#161b1a">Cảnh 5 — IVI dẫn chuyện</text>
+  <foreignObject x="50" y="170" width="380" height="110">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'IBM Plex Sans',Arial,sans-serif;font-size:13px;color:#5b6564;text-align:center;line-height:1.5;">IVI đứng giữa 4 biểu tượng (sensor, AI, zigbee, dashboard).</div>
+  </foreignObject>
+</svg>
