@@ -79,6 +79,24 @@ typedef enum { SYSTEM_TARING = 0, SYSTEM_WAITING_AI_SET, SYSTEM_MONITORING } sys
 static system_state_t system_state;
 static alert_level_t alert_level;
 static uint8_t drip_level = 1U;
+/* physical_drip_level is the firmware's own verdict from the raw drop
+ * timing (see evaluate_physical_drip_level()); ai_drip_level is whatever
+ * the desktop MLP/LSTM last reported via LEVEL,x. drip_level is always
+ * their max: the desktop AI can raise the alarm the firmware physics
+ * already saw, but it can never quietly lower one. */
+static uint8_t physical_drip_level = 1U;
+static uint8_t ai_drip_level = 1U;
+/* Consecutive normal-range drop intervals required before physical_drip_level
+ * is allowed to fall back to 1 (NORMAL). Escalation is immediate; recovery
+ * is debounced so a single clean interval right after an occlusion clears
+ * doesn't instantly wipe the alarm. */
+#define DRIP_RECOVERY_STREAK_REQUIRED 3U
+static uint8_t drip_recovery_streak;
+/* Timestamp the current SYSTEM_MONITORING session started, so a total flow
+ * stoppage from the very first drop (never any drop at all) can still be
+ * timed out - drop_sensor_last_drop_ms() alone is 0 in that case and would
+ * never trip. */
+static uint32_t monitoring_start_ms;
 static vitals_ai_result_t vitals_ai;
 static uint32_t state_start_ms;
 static uint32_t last_sample_ms;
@@ -235,6 +253,59 @@ static void apply_target_drops_per_min(uint16_t drops_per_min)
   drop_sensor_reset_statistics();
   last_sent_drop_count = 0U;
   drop_timeout_sent = false;
+}
+
+/* Pure per-interval verdict from the drop timing physics, no smoothing and
+ * no memory of previous samples - callers apply hysteresis/debounce around
+ * this. Thresholds are ratios of actual interval to the doctor-set target
+ * interval: within +-20% is normal, +-20%..+-50% is a warning, beyond +-50%
+ * (drops far too fast/slow) is critical. */
+static uint8_t evaluate_physical_drip_level(uint32_t target_ms, uint32_t actual_ms)
+{
+  if (target_ms == 0U || actual_ms == 0U) { return 1U; }
+
+  float ratio = (float)actual_ms / (float)target_ms;
+
+  if (ratio < 0.50f || ratio > 1.50f) { return 3U; }
+  if (ratio < 0.80f || ratio > 1.20f) { return 2U; }
+  return 1U;
+}
+
+/* Feeds one freshly-measured drop interval into the firmware's own drip
+ * verdict. Escalation (level going up) applies immediately - a single
+ * dangerously fast or slow interval is real signal, not noise, and must not
+ * wait. Recovery down to NORMAL requires DRIP_RECOVERY_STREAK_REQUIRED
+ * consecutive normal intervals, so one clean drop right after an occlusion
+ * clears doesn't instantly erase the alarm a nurse still needs to see. */
+static void update_physical_drip_level(uint32_t actual_ms)
+{
+  uint8_t sample_level = evaluate_physical_drip_level(target_interval_ms, actual_ms);
+
+  if (sample_level == 1U) {
+    if (physical_drip_level == 1U) {
+      drip_recovery_streak = 0U;
+      return;
+    }
+    drip_recovery_streak++;
+    if (drip_recovery_streak < DRIP_RECOVERY_STREAK_REQUIRED) {
+      printf("[DROP-AI] target=%lu actual=%lu ratio=%.2f physical=%u(recovering %u/%u) ai=%u\r\n",
+             (unsigned long)target_interval_ms, (unsigned long)actual_ms,
+             (double)((float)actual_ms / (float)target_interval_ms),
+             (unsigned)physical_drip_level, (unsigned)drip_recovery_streak,
+             (unsigned)DRIP_RECOVERY_STREAK_REQUIRED, (unsigned)ai_drip_level);
+      return;
+    }
+    drip_recovery_streak = 0U;
+  } else {
+    drip_recovery_streak = 0U;
+  }
+
+  physical_drip_level = sample_level;
+  drip_level = physical_drip_level > ai_drip_level ? physical_drip_level : ai_drip_level;
+  printf("[DROP-AI] target=%lu actual=%lu ratio=%.2f physical=%u ai=%u final_drop=%u\r\n",
+         (unsigned long)target_interval_ms, (unsigned long)actual_ms,
+         (double)((float)actual_ms / (float)target_interval_ms),
+         (unsigned)physical_drip_level, (unsigned)ai_drip_level, (unsigned)drip_level);
 }
 
 /* Application-owned NVM3 object recording whether monitoring was armed and
@@ -406,17 +477,20 @@ static void publish_zigbee_attributes(int16_t current_hr,
   hr_baseline_just_completed = false;
 }
 
+/* The final alert is the more severe of the two independent branches - a
+ * dangerous drip fault must never be diluted just because vitals happen to
+ * be fine right now, and vice versa. */
 static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 {
-  if (vitals_level == 1U && drops_level == 1U) { return 1U; }
-  if (vitals_level == 3U && drops_level == 3U) { return 3U; }
-  return 2U;
+  return vitals_level > drops_level ? vitals_level : drops_level;
 }
 
 static void update_final_alert(void)
 {
   uint8_t final_level = fuse_alert_levels(vitals_ai.level, drip_level);
   alert_level = (alert_level_t)(final_level - 1U);
+  printf("[ALERT] vitals=%u drop=%u final=%u\r\n",
+         (unsigned)vitals_ai.level, (unsigned)drip_level, (unsigned)final_level);
 }
 
 static int16_t median_int16(const int16_t *values, uint8_t count)
@@ -485,6 +559,10 @@ static void reset_monitoring_training(void)
   drop_timeout_sent = false;
   alert_level = ALERT_GREEN;
   drip_level = 1U;
+  physical_drip_level = 1U;
+  ai_drip_level = 1U;
+  drip_recovery_streak = 0U;
+  monitoring_start_ms = now_ms();
   all_alerts_off();
 }
 
@@ -495,6 +573,10 @@ static void reset_drop_training_for_target(void)
   drop_training_samples = 0U;
   drop_timeout_sent = false;
   drip_level = 1U;
+  physical_drip_level = 1U;
+  ai_drip_level = 1U;
+  drip_recovery_streak = 0U;
+  monitoring_start_ms = now_ms();
   alerts_armed = false;
   alert_level = ALERT_GREEN;
   all_alerts_off();
@@ -509,6 +591,9 @@ static void start_initial_tare(uint32_t now)
   last_screen_ms = 0U;
   alert_level = ALERT_GREEN;
   drip_level = 1U;
+  physical_drip_level = 1U;
+  ai_drip_level = 1U;
+  drip_recovery_streak = 0U;
   memset(&vitals_ai, 0, sizeof(vitals_ai));
   vitals_ai.level = 1U;
   vitals_ai_reset();
@@ -575,7 +660,11 @@ static bool process_command(const char *command)
   } else if (strncmp(command, "LEVEL,", 6U) == 0) {
     int level = atoi(command + 6);
     if (system_state == SYSTEM_MONITORING && level >= 1 && level <= 3) {
-      drip_level = (uint8_t)level;
+      /* The desktop AI can only ever raise the drip alarm the firmware's
+       * own physical reading already found - it must never quietly lower
+       * one (see drip_level = max(physical, ai) below). */
+      ai_drip_level = (uint8_t)level;
+      drip_level = physical_drip_level > ai_drip_level ? physical_drip_level : ai_drip_level;
       if (alerts_armed) { update_final_alert(); }
       printf("AI_LEVEL_OK,%d\r\n", level);
     }
@@ -725,6 +814,9 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
       alerts_armed = false;
       alert_level = ALERT_GREEN;
       drip_level = 1U;
+      physical_drip_level = 1U;
+      ai_drip_level = 1U;
+      drip_recovery_streak = 0U;
       all_alerts_off();
       oled_display_message("MONITORING PAUSED", "ALARMS: OFF",
                            "AI: STOPPED", "START FROM HIS WEB");
@@ -856,17 +948,33 @@ static void send_new_drop_to_ai(void)
   uint32_t intervals = count - 1U;
   drop_training_samples = (uint8_t)(intervals < DROP_TRAINING_REQUIRED
                           ? intervals : DROP_TRAINING_REQUIRED);
+  update_physical_drip_level(actual_ms);
+  if (alerts_armed) { update_final_alert(); }
   printf("%lu,%lu,%lu,%lu\r\n", (unsigned long)now_ms(), (unsigned long)count,
          (unsigned long)target_interval_ms, (unsigned long)actual_ms);
   last_sent_drop_count = count;
 }
 
+/* Covers three physical faults as one timeout check:
+ *   - a drop that stops arriving after monitoring was already armed
+ *     (last_drop is recent, then goes stale);
+ *   - a line that is fully blocked from the very first drop, so
+ *     drop_sensor_last_drop_ms() is still 0 - timed from monitoring_start_ms
+ *     instead;
+ *   - recovery, once a fresh drop arrives and moves last_drop forward again.
+ * A total stoppage detected before the 20/64-sample training window
+ * completes forces alerts_armed on early: silence during ordinary setup
+ * noise is intentional elsewhere in this firmware, but "zero drops at all
+ * since Start" for two full target intervals is not setup noise, it is the
+ * exact physical signature of a fully occluded or disconnected line, and
+ * must not wait for a baseline that a blocked line will never produce. */
 static void monitor_drop_timeout(uint32_t now)
 {
-  if (system_state != SYSTEM_MONITORING || !alerts_armed || target_interval_ms == 0U) { return; }
+  if (system_state != SYSTEM_MONITORING || target_interval_ms == 0U) { return; }
   uint32_t last_drop = drop_sensor_last_drop_ms();
-  if (last_drop == 0U) { return; }
-  int32_t signed_elapsed = (int32_t)(now - last_drop);
+  uint32_t reference = last_drop != 0U ? last_drop : monitoring_start_ms;
+  if (reference == 0U) { return; }
+  int32_t signed_elapsed = (int32_t)(now - reference);
   if (signed_elapsed < 0) {
     /* An IRQ can record a drop after this loop captured `now`. */
     drop_timeout_sent = false;
@@ -878,6 +986,18 @@ static void monitor_drop_timeout(uint32_t now)
     if (!drop_timeout_sent) {
       drop_timeout_sent = true;
       printf("DROP_TIMEOUT,%lu\r\n", (unsigned long)elapsed);
+      printf("[DROP-AI] TIMEOUT elapsed=%lu target=%lu physical=3\r\n",
+             (unsigned long)elapsed, (unsigned long)target_interval_ms);
+    }
+    if (physical_drip_level != 3U) {
+      physical_drip_level = 3U;
+      drip_recovery_streak = 0U;
+      drip_level = physical_drip_level > ai_drip_level ? physical_drip_level : ai_drip_level;
+      if (!alerts_armed) {
+        alerts_armed = true;
+        printf("[MONITOR] Total flow stoppage before training completed; arming alarms early.\r\n");
+      }
+      update_final_alert();
     }
   } else {
     drop_timeout_sent = false;
