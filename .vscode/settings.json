@@ -61,5 +61,6 @@
   "silabs.simplicityDeviceManagerPath": "C:\\Users\\admin\\.silabs\\slt\\installs\\archive\\sdm-windows-x64\\sdm.exe",
   "files.exclude": {
     ".cleanup-backup-20260822.zip": true
-  }
+  },
+  "cmake.sourceDirectory": "C:/Users/khanh/Desktop/xg26v1/cmake_gcc"
 }

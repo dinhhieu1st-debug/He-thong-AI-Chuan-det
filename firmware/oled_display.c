@@ -189,7 +189,10 @@ void oled_display_monitor(int16_t heart_rate,
                           bool hr_cause,
                           bool spo2_cause,
                           uint8_t hr_baseline_samples,
-                          uint8_t vitals_history_samples)
+                          uint8_t vitals_history_samples,
+                          uint8_t drop_training_samples,
+                          bool alerts_armed,
+                          bool baseline_recalibrating)
 {
   if (!connected) { return; }
   char text[32];
@@ -204,6 +207,11 @@ void oled_display_monitor(int16_t heart_rate,
     (void)snprintf(text, sizeof(text), "%d", spo2);
     frame_large_value(0U, 84U, 127U, text);
     frame_text(1U, 120U, "%");
+  } else if (baseline_recalibrating) {
+    (void)snprintf(text, sizeof(text), "BASELINE %u/60", hr_baseline_samples);
+    frame_center(6U, text);
+    (void)snprintf(text, sizeof(text), "ALERT LEVEL %u", final_level);
+    frame_center(7U, text);
   } else {
     frame_large_value(0U, 18U, 63U, "--");
     frame_large_value(0U, 84U, 127U, "--");
@@ -234,13 +242,11 @@ void oled_display_monitor(int16_t heart_rate,
   frame_vertical_dotted(63U, 0U, 47U);
   frame_horizontal(48U);
 
-  if (hr_baseline_samples < 60U) {
-    frame_center(6U, "VITALS LEARNING");
-    (void)snprintf(text, sizeof(text), "BASELINE %u/60", hr_baseline_samples);
-    frame_center(7U, text);
-  } else if (vitals_history_samples < 64U) {
-    frame_center(6U, "AI INITIALIZING");
-    (void)snprintf(text, sizeof(text), "HISTORY %u/64", vitals_history_samples);
+  if (!alerts_armed) {
+    (void)hr_baseline_samples;
+    (void)snprintf(text, sizeof(text), "DROP %u/20 ALARM OFF", drop_training_samples);
+    frame_center(6U, text);
+    (void)snprintf(text, sizeof(text), "HR+O2 %u/64", vitals_history_samples);
     frame_center(7U, text);
   } else {
     char causes[18] = "";
@@ -257,7 +263,8 @@ void oled_display_monitor(int16_t heart_rate,
     if (final_level == 1U) { frame_center(6U, "NORMAL"); }
     else if (final_level == 2U) { frame_center(6U, "L2: CAUTION"); }
     else { frame_center(6U, "L3 CRITICAL"); }
-    if (causes[0] == '\0') { frame_center(7U, "SYSTEM STABLE"); }
+    if (!vitals_valid) { frame_center(7U, "NO SIGNAL HR+O2"); }
+    else if (causes[0] == '\0') { frame_center(7U, "MONITORING ON"); }
     else {
       (void)snprintf(text, sizeof(text), "CAUSE: %s", causes);
       frame_center(7U, text);

@@ -29,10 +29,10 @@ int main(void)
   sl_main_kernel_start();
 #else
   while (1) {
-    // Read application serial commands before the optional CLI consumes them.
+    // Application processing never reads VCOM RX; sl_cli owns that stream.
     app_process_action();
 
-    // MUST keep this: lets Silicon Labs' components run (new name)
+    // Runs sl_cli and the other Silicon Labs components.
     sl_main_process_action();
   }
 #endif

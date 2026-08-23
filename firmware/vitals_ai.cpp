@@ -75,6 +75,11 @@ float s_spo2_baseline_sum;
 uint8_t s_baseline_count;
 float s_baseline = 80.0f;
 float s_spo2_baseline = 97.0f;
+float s_candidate_baseline_sum;
+float s_candidate_spo2_baseline_sum;
+uint8_t s_candidate_baseline_count;
+bool s_candidate_baseline_active;
+bool s_candidate_baseline_completed;
 float s_test_history[kWindow * 2];
 float s_test_next_prediction[2];
 uint8_t s_test_history_count;
@@ -168,7 +173,41 @@ extern "C" void vitals_ai_reset(void)
   s_baseline_count = 0;
   s_baseline = 80.0f;
   s_spo2_baseline = 97.0f;
+  s_candidate_baseline_sum = 0.0f;
+  s_candidate_spo2_baseline_sum = 0.0f;
+  s_candidate_baseline_count = 0;
+  s_candidate_baseline_active = false;
+  s_candidate_baseline_completed = false;
   s_test_snapshot_valid = false;
+}
+
+extern "C" void vitals_ai_begin_baseline_recalibration(void)
+{
+  /* Recalibration is a shadow operation. Keep the active baseline, history,
+     persistence and current level until 60 fresh valid samples are ready. */
+  if (s_baseline_count < 60) return;
+  s_candidate_baseline_sum = 0.0f;
+  s_candidate_spo2_baseline_sum = 0.0f;
+  s_candidate_baseline_count = 0;
+  s_candidate_baseline_completed = false;
+  s_candidate_baseline_active = true;
+}
+
+extern "C" bool vitals_ai_baseline_recalibrating(void)
+{
+  return s_candidate_baseline_active;
+}
+
+extern "C" uint8_t vitals_ai_baseline_recalibration_samples(void)
+{
+  return s_candidate_baseline_count;
+}
+
+extern "C" bool vitals_ai_take_baseline_recalibration_completed(void)
+{
+  const bool completed = s_candidate_baseline_completed;
+  s_candidate_baseline_completed = false;
+  return completed;
 }
 
 extern "C" void vitals_ai_clear_history(vitals_ai_result_t *result)
@@ -244,12 +283,28 @@ extern "C" void vitals_ai_step(int16_t heart_rate, int16_t spo2, bool valid,
 
   const float hr = static_cast<float>(heart_rate);
   const float oxygen = static_cast<float>(spo2);
-  if (s_baseline_count < 60 && hr > 20.0f && hr < 220.0f) {
+  if (!s_test_snapshot_valid && s_baseline_count < 60
+      && hr > 20.0f && hr < 220.0f) {
     s_baseline_sum += hr;
     s_spo2_baseline_sum += oxygen;
     ++s_baseline_count;
     s_baseline = s_baseline_sum / s_baseline_count;
     s_spo2_baseline = s_spo2_baseline_sum / s_baseline_count;
+  }
+  if (!s_test_snapshot_valid && s_candidate_baseline_active
+      && hr > 20.0f && hr < 220.0f) {
+    s_candidate_baseline_sum += hr;
+    s_candidate_spo2_baseline_sum += oxygen;
+    ++s_candidate_baseline_count;
+    if (s_candidate_baseline_count >= 60) {
+      s_baseline_sum = s_candidate_baseline_sum;
+      s_spo2_baseline_sum = s_candidate_spo2_baseline_sum;
+      s_baseline_count = 60;
+      s_baseline = s_baseline_sum / 60.0f;
+      s_spo2_baseline = s_spo2_baseline_sum / 60.0f;
+      s_candidate_baseline_active = false;
+      s_candidate_baseline_completed = true;
+    }
   }
   result->hr_baseline = s_baseline;
   result->spo2_baseline = s_spo2_baseline;

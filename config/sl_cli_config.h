@@ -71,9 +71,9 @@
 #define SL_CLI_PROMPT_STRING               "> "
 
 // <s SL_CLI_EOL_STRING> End Of Line
-// <i> Default: "\n"
+// <i> Default: "\r\n"
 // <i> Define the end of line for standard CLI output
-#define SL_CLI_EOL_STRING               "\n"
+#define SL_CLI_EOL_STRING               "\r\n"
 
 // <q SL_CLI_HELP_DESCRIPTION_ENABLED> Enable help descriptions
 // <i> Default: 1

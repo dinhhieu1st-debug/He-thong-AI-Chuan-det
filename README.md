@@ -26,7 +26,7 @@ HX711 ── khối lượng ───────┘       │
 
 1. G26 tự trừ bì loadcell trong 10 giây. Trong thời gian này không treo bịch.
 2. OLED báo sẵn sàng; người dùng treo bịch dịch và mở ứng dụng máy tính.
-3. Người dùng chọn khoảng đặt hoặc tốc độ giọt.
+3. Người dùng chọn tốc độ giọt theo giọt/phút.
 4. Firmware đọc cảm biến, cập nhật OLED và ghi dữ liệu vào Zigbee ZCL Attribute.
 5. GUI phân tích chuỗi nhỏ giọt bằng MLP/LSTM và gửi mức nhỏ giọt về G26.
 6. G26 kết hợp mức sinh hiệu và mức nhỏ giọt để điều khiển cảnh báo cuối.
@@ -221,8 +221,9 @@ Baudrate: `115200`.
 | Dòng/lệnh | Ý nghĩa |
 |---|---|
 | `AI_READY` | G26 đã trừ bì và chờ tốc độ |
-| `SET,<ms>` | GUI gửi khoảng đặt |
-| `AI_SET_OK,<ms>` | G26 xác nhận mốc |
+| `SET,<dpm>` | GUI gửi tốc độ đặt theo giọt/phút (`1..240`) |
+| `AI_SET_OK,<dpm>` | G26 xác nhận tốc độ theo giọt/phút |
+| `SETUP_DROP,<dpm>` | Tốc độ đang chạy trước khi đặt, theo giọt/phút |
 | `<time>,<count>,<target>,<actual>` | Bản ghi một giọt |
 | `LEVEL,<1..3>` | GUI gửi mức nhỏ giọt |
 | `DROP_TIMEOUT,<ms>` | Firmware báo quá lâu không có giọt |

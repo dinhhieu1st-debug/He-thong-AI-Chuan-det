@@ -23,6 +23,9 @@ void oled_display_monitor(int16_t heart_rate,
                           bool hr_cause,
                           bool spo2_cause,
                           uint8_t hr_baseline_samples,
-                          uint8_t vitals_history_samples);
+                          uint8_t vitals_history_samples,
+                          uint8_t drop_training_samples,
+                          bool alerts_armed,
+                          bool baseline_recalibrating);
 
 #endif

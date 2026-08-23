@@ -18,7 +18,7 @@ from pi_demo import NumpyMLP, OnnxLSTM, DEFAULT_LSTM, DEFAULT_LSTM_CONFIG, DEFAU
 
 LEVEL_TEXT = {1: "BINH THUONG", 2: "CHU Y", 3: "CANH BAO"}
 LEVEL_COLOR = {1: "#159447", 2: "#d99a00", 3: "#d82929"}
-PRESETS = {"Cham - 40 giot/phut": 1500, "Binh thuong - 60 giot/phut": 1000, "Nhanh - 80 giot/phut": 750}
+PRESETS = {"Cham - 40 giot/phut": 40, "Binh thuong - 60 giot/phut": 60, "Nhanh - 80 giot/phut": 80}
 DROP_TOLERANCE_MS = 200
 DROP_WARNING_MS = 800
 NATURAL_DRIFT_ALPHA = 0.03
@@ -82,8 +82,9 @@ class SmartIvApp(tk.Tk):
         self.connection: serial.Serial | None = None
         self.running = True
         self.target_ms: int | None = None
+        self.target_dpm: int | None = None
         self.adaptive_target_ms: float | None = None
-        self.pending_target_ms: int | None = None
+        self.pending_target_dpm: int | None = None
         self.last_drop_time: float | None = None
         self.watchdog_sent = False
         self.consecutive_recovered_intervals = 0
@@ -123,10 +124,7 @@ class SmartIvApp(tk.Tk):
         self.ready_label.pack(pady=8)
         live_frame = ttk.LabelFrame(self.setup_tab, text="Toc do dang chay truc tiep", padding=12)
         live_frame.pack(fill="x", padx=90, pady=10)
-        self.setup_interval_var = tk.StringVar(value="-- giay/giot")
         self.setup_rate_var = tk.StringVar(value="-- giot/phut")
-        ttk.Label(live_frame, textvariable=self.setup_interval_var,
-                  font=("Segoe UI", 18, "bold")).pack(side="left", expand=True)
         ttk.Label(live_frame, textvariable=self.setup_rate_var,
                   font=("Segoe UI", 18, "bold")).pack(side="left", expand=True)
         ttk.Label(self.setup_tab,
@@ -136,7 +134,7 @@ class SmartIvApp(tk.Tk):
         ttk.Combobox(self.setup_tab, textvariable=self.preset_var, values=list(PRESETS), state="readonly", width=32).pack(pady=8)
         custom = ttk.Frame(self.setup_tab)
         custom.pack(pady=8)
-        ttk.Label(custom, text="Hoac khoang tuy chinh (ms/giot):").pack(side="left")
+        ttk.Label(custom, text="Hoac toc do tuy chinh (giot/phut):").pack(side="left")
         self.custom_var = tk.StringVar()
         ttk.Entry(custom, textvariable=self.custom_var, width=10).pack(side="left", padx=8)
         self.set_button = ttk.Button(self.setup_tab, text="XAC NHAN TOC DO", command=self.send_target, state="disabled")
@@ -151,7 +149,7 @@ class SmartIvApp(tk.Tk):
             "SpO2": tk.StringVar(value="-- %"),
             "Can": tk.StringVar(value="-- kg"),
             "Khoang giot": tk.StringVar(value="-- giay"),
-            "Moc dat": tk.StringVar(value="-- giay"),
+            "Moc dat": tk.StringVar(value="-- giot/phut"),
             "Toc do": tk.StringVar(value="-- giot/phut"),
             "Muc sinh hieu": tk.StringVar(value="--"),
             "Muc nho giot": tk.StringVar(value="--"),
@@ -246,14 +244,14 @@ class SmartIvApp(tk.Tk):
 
     def send_target(self) -> None:
         try:
-            target = int(self.custom_var.get()) if self.custom_var.get().strip() else PRESETS[self.preset_var.get()]
+            target_dpm = int(self.custom_var.get()) if self.custom_var.get().strip() else PRESETS[self.preset_var.get()]
         except ValueError:
-            messagebox.showerror("Sai gia tri", "Khoang giot phai la so nguyen ms")
+            messagebox.showerror("Sai gia tri", "Toc do phai la so nguyen giot/phut")
             return
-        if not 250 <= target <= 60000:
-            messagebox.showerror("Sai gia tri", "Khoang giot phai tu 250 den 60000 ms")
+        if not 1 <= target_dpm <= 240:
+            messagebox.showerror("Sai gia tri", "Toc do phai tu 1 den 240 giot/phut")
             return
-        self.pending_target_ms = target
+        self.pending_target_dpm = target_dpm
         self.adaptive_target_ms = None
         self.ratios.clear()
         self.last_drop_time = None
@@ -262,9 +260,9 @@ class SmartIvApp(tk.Tk):
         self.alert_latched = False
         self.output_level = 1
         self.recovery_good_drops = 0
-        self.send_line(f"SET,{target}")
+        self.send_line(f"SET,{target_dpm}")
         self.tabs.select(self.monitor_tab)
-        self.detail_var.set(f"Dang cho G26 xac nhan moc {target} ms/giot...")
+        self.detail_var.set(f"Dang cho G26 xac nhan moc {target_dpm} giot/phut...")
 
     def serial_worker(self) -> None:
         while self.running and self.connection is not None and self.connection.is_open:
@@ -275,18 +273,18 @@ class SmartIvApp(tk.Tk):
                 return
             now = time.monotonic()
             if raw == "AI_READY":
-                if self.target_ms is None and self.pending_target_ms is None:
+                if self.target_ms is None and self.pending_target_dpm is None:
                     self.events.put(("ready", None))
-                elif self.pending_target_ms is not None:
+                elif self.pending_target_dpm is not None:
                     # Board may have reset or the first SET may have been lost.
-                    self.send_line(f"SET,{self.pending_target_ms}")
+                    self.send_line(f"SET,{self.pending_target_dpm}")
                 else:
                     # Board restarted after a previous confirmed setting.
-                    self.pending_target_ms = self.target_ms
+                    self.pending_target_dpm = self.target_dpm
                     self.target_ms = None
                     self.adaptive_target_ms = None
                     self.ratios.clear()
-                    self.send_line(f"SET,{self.pending_target_ms}")
+                    self.send_line(f"SET,{self.pending_target_dpm}")
             elif raw.startswith("AI_SET_OK,"):
                 self.events.put(("set_ok", raw.split(",", 1)[1]))
             elif raw.startswith("TELEMETRY,"):
@@ -298,9 +296,11 @@ class SmartIvApp(tk.Tk):
                         pass
             elif raw.startswith("SETUP_DROP,"):
                 parts = raw.split(",")
-                if len(parts) == 3:
+                if len(parts) in (2, 3):
                     try:
-                        self.events.put(("setup_drop", (float(parts[1]), float(parts[2]))))
+                        # Accept the old SETUP_DROP,<ms>,<dpm> frame while
+                        # moving the visible/control protocol to dpm only.
+                        self.events.put(("setup_drop", float(parts[-1])))
                     except ValueError:
                         pass
             elif raw.startswith("DROP_TIMEOUT,"):
@@ -322,8 +322,30 @@ class SmartIvApp(tk.Tk):
             elif raw.startswith("FAKE_VITAL_OK,"):
                 self.events.put(("fake_vital_ok", int(raw.rsplit(",", 1)[1])))
             row = parse_raw_line(raw)
-            if row is not None and self.target_ms is not None:
-                _, number, _, actual = row
+            if row is not None:
+                _, number, board_target_ms, actual = row
+                target_changed = self.target_ms is None or (
+                    board_target_ms > 0
+                    and abs(float(board_target_ms) - float(self.target_ms)) >= 1.0)
+                if board_target_ms > 0 and target_changed:
+                    # The web can change the prescription without going through
+                    # this desktop process. Treat the target echoed by G26 as
+                    # authoritative and discard only the old 20-drop window.
+                    self.target_ms = int(board_target_ms)
+                    self.target_dpm = max(1, min(240, round(60000 / self.target_ms)))
+                    self.pending_target_dpm = None
+                    self.adaptive_target_ms = float(self.target_ms)
+                    self.ratios.clear()
+                    self.last_drop_time = None
+                    self.watchdog_sent = False
+                    self.consecutive_recovered_intervals = 0
+                    self.alert_latched = False
+                    self.output_level = 1
+                    self.recovery_good_drops = 0
+                    self.send_line("LEVEL,1")
+                    self.events.put(("target_sync", (self.target_dpm, self.target_ms)))
+                if self.target_ms is None:
+                    continue
                 expected_ms = self.adaptive_target_ms or float(self.target_ms)
                 ai_actual, represented_drops = recover_missed_drops(actual, expected_ms)
                 if represented_drops > 1:
@@ -413,12 +435,13 @@ class SmartIvApp(tk.Tk):
                     self.set_button.config(state="normal")
                     self.tabs.select(self.setup_tab)
             elif kind == "set_ok":
-                self.target_ms = int(payload)
+                self.target_dpm = int(payload)
+                self.target_ms = round(60000 / self.target_dpm)
                 self.adaptive_target_ms = float(self.target_ms)
-                self.pending_target_ms = None
+                self.pending_target_dpm = None
                 self.tabs.select(self.monitor_tab)
-                self.append_log(f"G26 da xac nhan moc {payload} ms/giot")
-                self.detail_var.set(f"G26 da nhan moc {payload} ms/giot ({60000/int(payload):.1f} giot/phut)")
+                self.append_log(f"G26 da xac nhan moc {payload} giot/phut")
+                self.detail_var.set(f"G26 da nhan moc {payload} giot/phut")
             elif kind == "telemetry":
                 hr, oxygen, weight, interval, target, rate, level = payload[:7]
                 vitals_level = int(payload[7]) if len(payload) >= 9 else 1
@@ -451,7 +474,7 @@ class SmartIvApp(tk.Tk):
                     self.metric_vars["SpO2 tho"].set("-- %")
                 self.metric_vars["Can"].set(f"{weight:.3f} kg")
                 self.metric_vars["Khoang giot"].set(f"{interval:.3f} giay" if interval > 0 else "-- giay")
-                self.metric_vars["Moc dat"].set(f"{target:.3f} giay")
+                self.metric_vars["Moc dat"].set(f"{target:.1f} giot/phut")
                 self.metric_vars["Toc do"].set(f"{rate:.1f} giot/phut" if rate > 0 else "-- giot/phut")
                 self.metric_vars["Muc sinh hieu"].set(f"Muc {vitals_level}")
                 self.metric_vars["Muc nho giot"].set(f"Muc {drops_level}")
@@ -471,9 +494,7 @@ class SmartIvApp(tk.Tk):
                 level = int(level)
                 self.level_label.config(text=f"MUC {level} - {LEVEL_TEXT[level]}", bg=LEVEL_COLOR[level])
             elif kind == "setup_drop":
-                interval_ms, rate = payload
-                self.setup_interval_var.set(f"{interval_ms / 1000.0:.3f} giay/giot")
-                self.setup_rate_var.set(f"{rate:.1f} giot/phut")
+                self.setup_rate_var.set(f"{payload:.1f} giot/phut")
             elif kind == "drop_timeout":
                 elapsed_ms = payload
                 self.watchdog_sent = True
@@ -484,6 +505,14 @@ class SmartIvApp(tk.Tk):
                 detail = f"G26 XAC NHAN KHONG CO GIOT TRONG {elapsed_ms / 1000.0:.2f} GIAY"
                 self.detail_var.set(f"NHO GIOT: {detail}")
                 self.append_log(f"NHO GIOT: {detail}")
+            elif kind == "target_sync":
+                target_dpm, target_ms = payload
+                self.progress["value"] = 0
+                self.detail_var.set(
+                    f"Web doi moc {target_dpm} giot/phut - dang hoc lai 0/20")
+                self.append_log(
+                    f"Dong bo moc tu G26: {target_dpm} giot/phut ({target_ms} ms/giot); "
+                    "da xoa cua so nho giot cu")
             elif kind == "vital_raw":
                 timestamp_ms, raw_hr, raw_spo2 = payload
                 self.metric_vars["HR tho"].set(f"{raw_hr} BPM")

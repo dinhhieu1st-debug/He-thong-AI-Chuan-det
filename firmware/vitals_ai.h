@@ -24,6 +24,10 @@ typedef struct {
 
 bool vitals_ai_init(void);
 void vitals_ai_reset(void);
+void vitals_ai_begin_baseline_recalibration(void);
+bool vitals_ai_baseline_recalibrating(void);
+uint8_t vitals_ai_baseline_recalibration_samples(void);
+bool vitals_ai_take_baseline_recalibration_completed(void);
 void vitals_ai_clear_history(vitals_ai_result_t *result);
 void vitals_ai_begin_test(void);
 void vitals_ai_end_test(vitals_ai_result_t *result);

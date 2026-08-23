@@ -26,7 +26,7 @@
 // <o SL_ZIGBEE_AF_PLUGIN_REPORTING_TABLE_SIZE> Reporting table size <1-127>
 // <i> Default: 5
 // <i> Maximum number of entries in the reporting table.
-#define SL_ZIGBEE_AF_PLUGIN_REPORTING_TABLE_SIZE   5
+#define SL_ZIGBEE_AF_PLUGIN_REPORTING_TABLE_SIZE   32
 
 // <o SL_ZIGBEE_AF_PLUGIN_REPORTING_EXPANDED_TABLE_SIZE> Expanded reporting table size <1-1024>
 // <i> Default: 20

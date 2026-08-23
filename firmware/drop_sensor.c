@@ -10,7 +10,7 @@
 #define DROP_PORT                 gpioPortD
 #define DROP_PIN                  2U
 #define CALIBRATION_TIME_MS       1000U
-#define STATUS_PERIOD_MS          1000U
+#define STATUS_PERIOD_MS          5000U
 #define MIN_VALID_PULSE_US        300U
 #define MAX_VALID_PULSE_US        100000U
 #define INTERVAL_SAMPLES          20U
