@@ -62,6 +62,8 @@ public sealed class BedState
     /// 5 het dich. null khi cua so trong luong 60 giay chua day.
     /// </summary>
     public int? AlertLevel { get; set; }
+    /// <summary>Canonical XG26 severity: 1 normal, 2 warning, 3 critical.</summary>
+    public int? FinalAlertLevel { get; set; }
     public bool LineBranch { get; set; }
     public bool PatientBranch { get; set; }
     public bool DripAnomaly { get; set; }
@@ -82,6 +84,10 @@ public sealed class BedState
 
     /// <summary>Thiết bị đang theo dõi (true) hay đang chờ y tá bấm bắt đầu.</summary>
     public bool Monitoring { get; set; } = true;
+    public int? DropTrainingSamples { get; set; }
+    public int? VitalsTrainingSamples { get; set; }
+    /// <summary>False while the device is collecting 20 drip intervals and 64 vitals samples.</summary>
+    public bool? AlertsArmed { get; set; }
 
     /// <summary>
     /// Con so du bao cua kenh do co doc duoc nhu "du bao" khong. Khi false, no

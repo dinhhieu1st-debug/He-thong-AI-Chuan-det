@@ -562,6 +562,25 @@ public sealed class BedTcpIngestionService : BackgroundService
     private async Task ProcessReadingAsync(BedReading reading, CancellationToken cancellationToken)
     {
         var previousBed = bedStateStore.Get(reading.BedId);
+        /* Zigbee attribute reports are partial: an HR report normally contains
+         * no startup counters and no AlertsArmed attribute. Null therefore
+         * means "not present in this frame", not "training ended". Preserve
+         * the last authoritative values (including the immediate state set by
+         * the Start endpoint) until the device explicitly reports replacements.
+         * Without this merge COLLECTING DATA appeared for one frame and then
+         * vanished as soon as the next HR-only report arrived. */
+        if (previousBed is not null)
+        {
+            reading = reading with
+            {
+                DropTrainingSamples = reading.DropTrainingSamples
+                                      ?? previousBed.DropTrainingSamples,
+                VitalsTrainingSamples = reading.VitalsTrainingSamples
+                                        ?? previousBed.VitalsTrainingSamples,
+                AlertsArmed = reading.AlertsArmed ?? previousBed.AlertsArmed,
+                FinalAlertLevel = reading.FinalAlertLevel ?? previousBed.FinalAlertLevel
+            };
+        }
         var previousStatus = previousBed?.Status ?? BedStatus.Offline;
         var previousHysteresis = previousBed?.Hysteresis ?? VitalsStatusEvaluator.MetricHysteresis.None;
         var status = VitalsStatusEvaluator.Evaluate(reading, previousHysteresis);
@@ -589,6 +608,9 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.DripRateSignal = reading.DripRateSignal;
             state.LineBlocked = reading.LineBlocked;
             state.Monitoring = reading.Monitoring;
+            state.DropTrainingSamples = reading.DropTrainingSamples;
+            state.VitalsTrainingSamples = reading.VitalsTrainingSamples;
+            state.AlertsArmed = reading.AlertsArmed;
             state.AeAlarm = reading.AeAlarm;
             state.WeightG = reading.WeightG;
             state.DropsPerMin = reading.DropsPerMin;
@@ -644,6 +666,7 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.DropsForecastTrusted = reading.DropsForecastTrusted;
 
             state.AlertLevel = reading.AlertLevel;
+            state.FinalAlertLevel = reading.FinalAlertLevel;
             state.LineBranch = reading.LineBranch;
             state.PatientBranch = reading.PatientBranch;
             state.DripAnomaly = reading.DripAnomaly;

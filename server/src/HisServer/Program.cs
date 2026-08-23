@@ -7,8 +7,33 @@ using HisServer.Models;
 using HisServer.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Keep local runs independent of the privileged Windows Event Log. Console
+// and debug output contain the same application diagnostics and work for a
+// normal user account on both Windows and Linux.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// The machine-wide ASP.NET key ring can contain DPAPI keys created by another
+// Windows account (for example an elevated/admin launch). Such a key makes
+// cookie authentication fail on every request when the app is later run as a
+// normal user. On Windows, keep an installation-specific key ring beside the
+// deployment and encrypt it for the machine, so both an interactive launch and
+// a Windows service account can read it without exposing plaintext keys.
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("HisServer");
+if (OperatingSystem.IsWindows())
+{
+    var dataProtectionPath = Path.Combine(
+        builder.Environment.ContentRootPath, ".runtime", "data-protection-keys");
+    dataProtection
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath))
+        .ProtectKeysWithDpapi(protectToLocalMachine: true);
+}
 
 // Configuration-bound options (see appsettings.json). No hardcoded fallback
 // credentials/ports — everything below comes from config or fails fast.

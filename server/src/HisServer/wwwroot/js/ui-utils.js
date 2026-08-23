@@ -22,12 +22,19 @@ const UiUtils = (() => {
    * Renders nothing at all for a bed that is fine, and nothing for a device too
    * old to report it - an empty badge is better than a confident wrong one. */
   function culpritBadgeHtml(bed) {
-    if (bed.alertLevel == null || bed.alertLevel === 0) return "";
+    if (bed.monitoring === false || bed.alertsArmed === false) return "";
+    // New firmware separates severity from cause. Prefer the explicit branch
+    // flags; alertLevel is kept only as a legacy fallback.
+    const hasBranches = bed.lineBranch || bed.patientBranch;
+    if (!hasBranches && (bed.alertLevel == null || bed.alertLevel === 0)) return "";
 
-    const spec = bed.alertLevel === 3
-      ? { cls: "culprit-critical", text: "LINE + PATIENT",
+    const both = bed.lineBranch && bed.patientBranch;
+    const patient = bed.patientBranch || (!hasBranches && bed.alertLevel === 2);
+    const bothCritical = both && (bed.finalAlertLevel === 3 || bed.finalAlertLevel == null);
+    const spec = both || (!hasBranches && bed.alertLevel === 3)
+      ? { cls: bothCritical ? "culprit-critical" : "culprit-line", text: "LINE + PATIENT",
           hint: "Both the infusion line and the patient's vitals are abnormal at the same time — suspected fluid overload." }
-      : bed.alertLevel === 2
+      : patient
       ? { cls: "culprit-patient", text: "PATIENT",
           hint: "The patient's vitals are abnormal. The infusion line is behaving normally." }
       : { cls: "culprit-line", text: "IV LINE",

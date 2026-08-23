@@ -58,6 +58,10 @@ public sealed record BedReading(
     /// <summary>0 normal, 1 infusion line, 2 patient vitals, 3 both at once.
     /// Null from a device too old to report it.</summary>
     int? AlertLevel = null,
+    /// <summary>Canonical severity decided by the XG26: 1 normal, 2 warning,
+    /// 3 critical. When present the server must not recalculate severity from
+    /// thresholds or sensor availability.</summary>
+    int? FinalAlertLevel = null,
     /// <summary>The infusion line is at fault: drip model anomaly, or the
     /// load-cell cross-check concluded occlusion / free flow.</summary>
     bool LineBranch = false,
@@ -83,4 +87,7 @@ public sealed record BedReading(
     /// được giám sát thật mà bị hiện thành "chờ" là kiểu sai nguy hiểm hơn
     /// nhiều so với chiều ngược lại.
     /// </summary>
-    bool Monitoring = true);
+    bool Monitoring = true,
+    int? DropTrainingSamples = null,
+    int? VitalsTrainingSamples = null,
+    bool? AlertsArmed = null);

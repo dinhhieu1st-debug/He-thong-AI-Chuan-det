@@ -404,6 +404,7 @@ typedef struct {
      * status is decided in exactly one place, VitalsStatusEvaluator.cs on the
      * server, and that stays true. */
     int alert_level;       /* 0 normal, 1 line warning, 2 vitals, 3 critical */
+    int final_alert_level; /* canonical severity: 1 normal, 2 warning, 3 critical; -1 absent */
     int line_branch;
     int patient_branch;
     int drip_anomaly;      /* Model 1 confirmed through persistence */
@@ -422,7 +423,8 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
                                int hr_baseline_seconds_remaining, int hr_baseline_bpm,
                                int tare_event_count, int hr_baseline_event_count,
                                int link_quality, const char *device_id,
-                               int monitoring,
+                               int monitoring, int drop_training_samples,
+                               int vitals_training_samples, int alerts_armed,
                                const ts_forecast_t *ts)
 {
     char line[1400];
@@ -430,6 +432,9 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
     char hr_forecast_text[12];
     char spo2_forecast_text[12];
     char drops_forecast_text[12];
+    char final_alert_level_text[8];
+    const char *alerts_armed_text = alerts_armed < 0 ? "null"
+                                    : (alerts_armed ? "true" : "false");
     size_t len;
 
     if (his_host == NULL) {
@@ -451,6 +456,12 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
                   ts->have_spo2_forecast, ts->spo2_forecast_16s);
     forecast_text(drops_forecast_text, sizeof(drops_forecast_text),
                   ts->have_drops_forecast, ts->drops_forecast_16s);
+    if (ts->final_alert_level >= 1 && ts->final_alert_level <= 3) {
+        snprintf(final_alert_level_text, sizeof(final_alert_level_text), "%d",
+                 ts->final_alert_level);
+    } else {
+        snprintf(final_alert_level_text, sizeof(final_alert_level_text), "null");
+    }
 
     /* Field names match what BedDataParser already accepts (it has read these
      * since the serial fallback gateway started sending them), so nothing on
@@ -461,7 +472,8 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"hrTrendBpmPerMin\":%d,\"dropsTrendDpmPerMin\":%d,"
              "\"tsAnomalyScore\":%d,"
              "\"hrForecastTrusted\":%s,\"dropsForecastTrusted\":%s,"
-             "\"alertLevel\":%d,\"lineBranch\":%s,\"patientBranch\":%s,"
+             "\"alertLevel\":%d,\"finalAlertLevel\":%s,"
+             "\"lineBranch\":%s,\"patientBranch\":%s,"
              "\"dripAnomaly\":%s,\"vitalsAnomaly\":%s,"
              "\"lineState\":%d,\"remainingMl\":%d,\"remainingMin\":%d",
              ts->ready ? "true" : "false",
@@ -473,6 +485,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              ts->hr_forecast_trusted ? "true" : "false",
              ts->drops_forecast_trusted ? "true" : "false",
              ts->alert_level,
+             final_alert_level_text,
              ts->line_branch ? "true" : "false",
              ts->patient_branch ? "true" : "false",
              ts->drip_anomaly ? "true" : "false",
@@ -488,7 +501,9 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              "\"tareInProgress\":%s,\"tareJustCompleted\":%s,"
              "\"hrBaselineJustCompleted\":%s,\"hrBaselineSecondsRemaining\":%d,"
              "\"hrBaselineBpm\":%d,\"tareEventCount\":%d,\"hrBaselineEventCount\":%d,"
-             "\"linkQuality\":%d,\"deviceId\":\"%s\",\"monitoring\":%s"
+             "\"linkQuality\":%d,\"deviceId\":\"%s\",\"monitoring\":%s,"
+             "\"dropTrainingSamples\":%d,\"vitalsTrainingSamples\":%d,"
+             "\"alertsArmed\":%s"
              "%s"
              ",\"hrForecast16s\":%s,\"spo2Forecast16s\":%s,\"dropsForecast16s\":%s}\n",
              his_bed_id, his_room, spo2, heart_rate, drop_rate, flow_rate,
@@ -504,6 +519,7 @@ static void his_send_bed_data(int heart_rate, int spo2, int flow_rate, int drop_
              link_quality,
              device_id != NULL ? device_id : "",
              monitoring ? "true" : "false",
+             drop_training_samples, vitals_training_samples, alerts_armed_text,
              ts_line,
              hr_forecast_text, spo2_forecast_text, drops_forecast_text);
 
@@ -1169,6 +1185,7 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     int tare_in_progress = 0, tare_just_completed = 0, hr_baseline_just_completed = 0;
     int hr_baseline_seconds_remaining = 0, hr_baseline_bpm = 0;
     int tare_event_count = 0, hr_baseline_event_count = 0;
+    int drop_training_samples = -1, vitals_training_samples = -1, alerts_armed = -1;
     /* Zigbee signal strength, 0-255. zigbee2mqtt adds it to every payload and
      * the gateway used to drop it. It is the one number that tells a
      * technician whether a flaky bed needs a repeater or a new sensor. */
@@ -1181,6 +1198,7 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
      * untrustworthy - same default the server's parser uses. */
     ts.hr_forecast_trusted = 1;
     ts.drops_forecast_trusted = 1;
+    ts.final_alert_level = -1;
 
     if (msg == NULL || msg->payload == NULL || msg->payloadlen <= 0) {
         return;
@@ -1214,6 +1232,13 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
         char status[32] = "";
         char err[240] = "";
         int available = 0;
+        int have_available = 0;
+
+        /* Keep the complete response in the service log. OTA checks can take
+         * up to a minute and used to disappear through this early-return path,
+         * leaving no evidence whether z2m answered or what it rejected. */
+        printf("OTA response topic: %s\n", msg->topic);
+        printf("OTA response payload: %s\n", payload);
 
         get_string_from_json(payload, "id", dev, sizeof(dev));
         get_string_from_json(payload, "status", status, sizeof(status));
@@ -1228,9 +1253,21 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
             if (strcmp(status, "error") == 0) {
                 his_send_ota_status(dev, "failed", -1, -1, err, -1, -1);
             } else if (strstr(msg->topic, "/check") != NULL) {
-                get_bool_from_json(payload, "updateAvailable", &available);
-                his_send_ota_status(dev, available ? "available" : "upToDate",
-                                    -1, -1, "", -1, -1);
+                /* Zigbee2MQTT 2.0 renamed this field to update_available.
+                 * Keep the camelCase fallback so a Pi still on 1.x continues
+                 * to work after the gateway binary is upgraded. Never treat a
+                 * missing field as false: that used to turn an unknown schema
+                 * into the dangerously convincing "Up to date" result. */
+                have_available = get_bool_from_json(payload, "update_available", &available)
+                              || get_bool_from_json(payload, "updateAvailable", &available);
+                if (have_available) {
+                    his_send_ota_status(dev, available ? "available" : "upToDate",
+                                        -1, -1, "", -1, -1);
+                } else {
+                    his_send_ota_status(dev, "failed", -1, -1,
+                                        "Zigbee2MQTT OTA response did not contain update_available",
+                                        -1, -1);
+                }
             } else if (strstr(msg->topic, "/update") != NULL) {
                 his_send_ota_status(dev, "done", 100, 0, "Update finished", -1, -1);
             }
@@ -1318,6 +1355,9 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
      * kieu sai nguy hiem hon nhieu so voi chieu nguoc lai. */
     int monitoring = 1;
     get_bool_from_json(payload, "monitoring", &monitoring);
+    get_int_from_json(payload, "drop_training_samples", &drop_training_samples);
+    get_int_from_json(payload, "vitals_training_samples", &vitals_training_samples);
+    get_bool_from_json(payload, "alerts_armed", &alerts_armed);
 
     get_bool_from_json(payload, "ts_anomaly", &ts.anomaly);
     get_bool_from_json(payload, "ts_early_warning", &ts.early_warning);
@@ -1360,6 +1400,7 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
     if (!get_int_from_json(payload, "alert_level", &ts.alert_level)) {
         ts.alert_level = alarm ? 2 : 0;   /* legacy firmware: alarm -> vitals */
     }
+    get_int_from_json(payload, "final_alert_level", &ts.final_alert_level);
     get_bool_from_json(payload, "line_branch", &ts.line_branch);
     get_bool_from_json(payload, "patient_branch", &ts.patient_branch);
     get_bool_from_json(payload, "drip_anomaly", &ts.drip_anomaly);
@@ -1408,7 +1449,8 @@ void on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_m
                       tare_in_progress, tare_just_completed, hr_baseline_just_completed,
                       hr_baseline_seconds_remaining, hr_baseline_bpm,
                       tare_event_count, hr_baseline_event_count, link_quality,
-                      device_id_for_topic(msg->topic), monitoring, &ts);
+                      device_id_for_topic(msg->topic), monitoring,
+                      drop_training_samples, vitals_training_samples, alerts_armed, &ts);
 
     free(payload);
 }

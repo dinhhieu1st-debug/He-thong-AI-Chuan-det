@@ -78,6 +78,15 @@ public static class VitalsStatusEvaluator
     /// </summary>
     public static MetricHysteresis ComputeNextHysteresis(BedReading reading, MetricHysteresis previous)
     {
+        // Pausing monitoring starts a clean alarm session. Keeping a previous
+        // warning latch here would make Start inherit an alarm from before the
+        // nurse deliberately paused the bed.
+        if (!reading.Monitoring || reading.AlertsArmed == false
+            || reading.FinalAlertLevel is not null)
+        {
+            return MetricHysteresis.None;
+        }
+
         var critical = IsCriticalSpo2(reading, previous.Spo2Critical);
         var warning = critical || IsWarningSpo2Only(reading, previous.Spo2Warning);
         var hrAbnormal = IsAbnormalHeartRate(reading, previous.HeartRateAbnormal);
@@ -96,9 +105,23 @@ public static class VitalsStatusEvaluator
          * Trả về Stable chứ không phải Offline: thiết bị vẫn đang nói chuyện
          * bình thường, chỉ là chưa được giao việc. Offline nghĩa là mất liên
          * lạc, một chuyện hoàn toàn khác và cần người đi kiểm tra. */
-        if (!reading.Monitoring)
+        if (!reading.Monitoring || reading.AlertsArmed == false)
         {
             return BedStatus.Stable;
+        }
+
+        // New XG26 firmware sends the already-fused main-branch severity.
+        // This is the only clinical decision for that protocol version. Signal
+        // loss and the alarm bitmap remain useful diagnostic/cause fields, but
+        // must never silently promote or demote the level chosen on the chip.
+        if (reading.FinalAlertLevel is int finalLevel)
+        {
+            return finalLevel switch
+            {
+                3 => BedStatus.Critical,
+                2 => BedStatus.Warning,
+                _ => BedStatus.Stable,
+            };
         }
 
         // The device's own four-level verdict comes first when it is available.
@@ -198,6 +221,11 @@ public static class VitalsStatusEvaluator
     public static (string AlertType, string Message) DescribeAlert(
         BedReading reading, MetricHysteresis previous)
     {
+        if (reading.FinalAlertLevel is int finalLevel)
+        {
+            return DescribeCanonicalAlert(reading, finalLevel);
+        }
+
         var causes = new List<(string Type, string Text)>();
 
         // Level 3 leads, ahead even of a critical SpO2. Not because it is more
@@ -273,6 +301,47 @@ public static class VitalsStatusEvaluator
         if (causes.Count == 0)
         {
             return ("VITAL_WARNING", "Vitals require attention");
+        }
+
+        return (causes[0].Type, Fit(causes.Select(c => c.Text)));
+    }
+
+    private static (string AlertType, string Message) DescribeCanonicalAlert(
+        BedReading reading, int finalLevel)
+    {
+        var causes = new List<(string Type, string Text)>();
+
+        if (reading.PatientBranch)
+        {
+            causes.Add(("PATIENT_DETERIORATING", "Patient vitals branch is abnormal"));
+        }
+        if (reading.LineBranch)
+        {
+            causes.Add(("LINE_FAULT", DescribeLineState(reading)));
+        }
+        if (reading.AeAlarm)
+        {
+            causes.Add(("AE_ALARM", "AI detected an abnormal HR/SpO2 combination"));
+        }
+        if (reading.DripAnomaly)
+        {
+            causes.Add(("DRIP_MODEL_ANOMALY", "AI detected abnormal infusion timing"));
+        }
+        if (reading.VitalsAnomaly)
+        {
+            causes.Add(("VITALS_MODEL_ANOMALY", "AI detected an abnormal vitals trend"));
+        }
+        if (HasLostSignal(reading))
+        {
+            causes.Add(("SENSOR_DISCONNECTED", $"No signal from: {DescribeLostChannels(reading)}"));
+        }
+
+        if (causes.Count == 0)
+        {
+            var fallback = finalLevel >= 3
+                ? ("CRITICAL", "Level 3 critical alert from XG26")
+                : ("WARNING", "Level 2 warning from XG26");
+            return fallback;
         }
 
         return (causes[0].Type, Fit(causes.Select(c => c.Text)));

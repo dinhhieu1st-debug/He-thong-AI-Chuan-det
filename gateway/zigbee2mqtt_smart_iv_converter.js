@@ -194,9 +194,24 @@ const fzSmartIv = {
                 result.hr_forecast_trusted = (ts & TS_BIT_HR_TRUSTED) !== 0;
                 result.drops_forecast_trusted = (ts & TS_BIT_DROPS_TRUSTED) !== 0;
 
-                result.alert_level = (ts >> TS_ALERT_LEVEL_SHIFT) & 0x3;
+                const rawAlertLevel = (ts >> TS_ALERT_LEVEL_SHIFT) & 0x3;
+                // Firmware stores its physical enum as 0/1/2 in tsFlags.
+                // Publish a separate canonical severity so the new server can
+                // use exactly the XG26 verdict without reinterpreting the
+                // legacy alert_level (whose old meaning was cause/category).
+                const previousState = meta && meta.state ? meta.state : {};
+                const supportsAlarmGate = msg.data.alertsArmed !== undefined
+                    || previousState.alerts_armed !== undefined;
+                if (supportsAlarmGate) {
+                    result.final_alert_level = Math.min(rawAlertLevel + 1, 3);
+                }
                 result.line_branch = (ts & TS_BIT_LINE_BRANCH) !== 0;
                 result.patient_branch = (ts & TS_BIT_PATIENT_BRANCH) !== 0;
+                result.alert_level = supportsAlarmGate
+                    ? (result.line_branch && result.patient_branch ? 3
+                        : result.patient_branch ? 2
+                        : result.line_branch ? 1 : 0)
+                    : rawAlertLevel;
 
                 const lineState = (ts >> TS_LINE_STATE_SHIFT) & 0x7;
                 result.line_state = lineState === 0 ? null : lineState - 1;
@@ -214,6 +229,15 @@ const fzSmartIv = {
             // không được hiện "bình thường" cho một giường chưa hề được theo dõi.
             if (msg.data.monitoringActive !== undefined) {
                 result.monitoring = msg.data.monitoringActive !== 0;
+            }
+            if (msg.data.dropTrainingSamples !== undefined) {
+                result.drop_training_samples = msg.data.dropTrainingSamples;
+            }
+            if (msg.data.vitalsTrainingSamples !== undefined) {
+                result.vitals_training_samples = msg.data.vitalsTrainingSamples;
+            }
+            if (msg.data.alertsArmed !== undefined) {
+                result.alerts_armed = msg.data.alertsArmed !== 0;
             }
             if (msg.data.remainingMin !== undefined) {
                 result.remaining_min = msg.data.remainingMin === TS_FORECAST_INVALID
@@ -241,6 +265,19 @@ const fzSmartIv = {
                 // Server field name says X100 for the same reason it is sent
                 // that way: an integer wire format that keeps two decimals.
                 result.ts_anomaly_score = msg.data.tsAnomalyScoreX100;
+            }
+
+            // Attribute reports often contain only one changed attribute.
+            // Carry the last known alarm gate on every clinical publication,
+            // otherwise an HR-only frame would reach HIS without alerts_armed
+            // and could be mistaken for an already-armed legacy device.
+            const previous = meta && meta.state ? meta.state : {};
+            for (const key of ['monitoring', 'drop_training_samples',
+                               'vitals_training_samples', 'alerts_armed',
+                               'final_alert_level']) {
+                if (result[key] === undefined && previous[key] !== undefined) {
+                    result[key] = previous[key];
+                }
             }
 
             return result;
@@ -313,6 +350,9 @@ const definition = {
                 remainingMl:          {name: 'remainingMl',          ID: 0x0016, type: 0x21}, // int16u
                 remainingMin:         {name: 'remainingMin',         ID: 0x0017, type: 0x21}, // int16u
                 monitoringActive:     {name: 'monitoringActive',     ID: 0x0018, type: 0x20, write: true}, // int8u, writable (bat/tat theo doi)
+                dropTrainingSamples:  {name: 'dropTrainingSamples',  ID: 0x0019, type: 0x20}, // int8u, 0..20
+                vitalsTrainingSamples:{name: 'vitalsTrainingSamples',ID: 0x001A, type: 0x20}, // int8u, 0..64
+                alertsArmed:          {name: 'alertsArmed',          ID: 0x001B, type: 0x20}, // int8u
                 tsFlags:              {name: 'tsFlags',              ID: 0x000F, type: 0x19}, // bitmap16
                 hrForecast16s:        {name: 'hrForecast16s',        ID: 0x0010, type: 0x21}, // int16u
                 spo2Forecast16s:      {name: 'spo2Forecast16s',      ID: 0x0011, type: 0x21}, // int16u
@@ -431,6 +471,12 @@ const definition = {
             .withDescription('Persistent count of completed HR baseline captures - used to detect a new completion server-side'),
         e.binary('monitoring', ea.ALL, true, false)
             .withDescription('Monitoring armed. When false the device reads sensors but runs no AI and raises no alarms.'),
+        e.numeric('drop_training_samples', ea.STATE).withUnit('/20')
+            .withDescription('Drip intervals collected before alarms can start'),
+        e.numeric('vitals_training_samples', ea.STATE).withUnit('/64')
+            .withDescription('HR/SpO2 samples collected before alarms can start'),
+        e.binary('alerts_armed', ea.STATE, true, false)
+            .withDescription('True only after both startup sample windows are complete'),
         e.binary('reset_tare', ea.SET, true, false)
             .withDescription('Write true to remotely re-zero the load cell (no physical button needed)'),
         e.binary('recalibrate_hr_baseline', ea.SET, true, false)
@@ -452,6 +498,7 @@ const definition = {
         e.binary('ts_anomaly', ea.STATE, true, false).withDescription('Persistence-confirmed forecast anomaly'),
         e.binary('ts_early_warning', ea.STATE, true, false).withDescription('Forecast crosses a clinical limit within 16s'),
         e.numeric('alert_level', ea.STATE).withDescription('0 normal, 1 infusion line, 2 patient vitals, 3 both'),
+        e.numeric('final_alert_level', ea.STATE).withDescription('Canonical severity: 1 normal, 2 warning, 3 critical'),
         e.binary('line_branch', ea.STATE, true, false).withDescription('The infusion line is at fault'),
         e.binary('patient_branch', ea.STATE, true, false).withDescription('The patient is at fault'),
         e.numeric('line_state', ea.STATE).withDescription('Load cell verdict: 0 ok, 1 running low, 2 occlusion, 3 free flow, 4 drop-sensor fault, 5 empty'),

@@ -6,6 +6,7 @@ const BedsTab = (() => {
   let myBedsOnly = persisted.myBedsOnly;
   let myBedIds = null;   // Set, lazily loaded from the duty roster - null means "not loaded yet"
   let selectedBedId = null;
+  let renderedPatientSignature = null;
 
   const STATUS_FILTERS = ["all", "Stable", "Warning", "Critical", "Offline"];
 
@@ -313,7 +314,7 @@ const BedsTab = (() => {
    * A channel whose sensor is reporting no signal is dimmed rather than
    * hidden - a missing reading is itself information the nurse needs, and
    * removing the tile would make the layout jump around as sensors drop. */
-  function vitalsSectionHtml(bed) {
+  function liveVitalsSectionHtml(bed) {
     /* A tile carries the same severity as that metric's chart, so the number
      * a nurse reads first and the trace they check second never disagree.
      * A channel with no signal is dimmed and never coloured by severity: a
@@ -350,7 +351,14 @@ const BedsTab = (() => {
           ${channelRow("IV line", !bed.lineBlocked, "Flowing", "Blocked / free-flow")}
         </div>
       </div>
-      ${alertCardHtml(bed)}
+      ${alertCardHtml(bed)}`;
+  }
+
+  function vitalsSectionHtml(bed) {
+    return `
+      <div id="bedLiveState">
+        ${liveVitalsSectionHtml(bed)}
+      </div>
       ${patientCardHtml(bed)}
       ${faultCardHtml(bed)}`;
   }
@@ -518,16 +526,29 @@ const BedsTab = (() => {
    * không phân biệt được "chưa bắt đầu" với "đã bắt đầu rồi". */
   function monitoringSectionHtml(bed) {
     const on = bed.monitoring !== false;
+    const calibrating = on && bed.alertsArmed === false;
+    const drops = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
+    const vitals = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const color = calibrating ? "#e68a00" : (on ? "#1ea050" : "#8a97a8");
     return `
-      <div class="settings-block monitoring-block ${on ? "is-on" : "is-standby"}">
+      <div class="settings-block monitoring-block ${calibrating ? "is-calibrating" : (on ? "is-on" : "is-standby")}">
         <label>Monitoring</label>
         <div class="monitoring-state">
-          <span class="status-chip" style="background:${on ? "#1ea050" : "#8a97a8"};">
-            ${on ? "MONITORING" : "STANDBY"}
+          <span class="status-chip" style="background:${color};">
+            ${calibrating ? "COLLECTING DATA" : (on ? "MONITORING" : "STANDBY")}
           </span>
           <span class="muted">${on
-            ? "AI and alarms are running for this bed."
+            ? (calibrating
+              ? "Collecting startup samples. AI alarms remain off until both counters finish."
+              : "AI and alarms are running for this bed.")
             : "Sensors are read and shown, but no AI and no alarms yet."}</span>
+        </div>
+        <div id="monitoringProgress" style="${calibrating ? "" : "display:none;"}margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;"><span>Drip intervals</span><b id="dropTrainingText">${drops}/20</b></div>
+          <progress id="dropTrainingProgress" max="20" value="${drops}" style="width:100%;"></progress>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:5px;"><span>HR/SpO2 samples</span><b id="vitalsTrainingText">${vitals}/64</b></div>
+          <progress id="vitalsTrainingProgress" max="64" value="${vitals}" style="width:100%;"></progress>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Alarms start automatically after 20/20 and 64/64.</div>
         </div>
         <div class="inline-form" style="margin-top:8px;">
           <button type="button" id="monitoringBtn" class="btn ${on ? "" : "primary"}">
@@ -555,7 +576,7 @@ const BedsTab = (() => {
 
         <div class="settings-block">
           <label>Load cell</label>
-          ${tareStatusHtml(bed)}
+          <div id="tareStatusState">${tareStatusHtml(bed)}</div>
           <div class="inline-form" style="margin-top:8px;">
             <button type="button" id="resetTareBtn" class="btn">Reset scale (tare)</button>
           </div>
@@ -563,7 +584,7 @@ const BedsTab = (() => {
 
         <div class="settings-block">
           <label>Heart rate</label>
-          ${hrStatusHtml(bed)}
+          <div id="hrStatusState">${hrStatusHtml(bed)}</div>
           <div class="inline-form" style="margin-top:8px;">
             <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 60s baseline</button>
           </div>
@@ -571,11 +592,11 @@ const BedsTab = (() => {
 
         <div class="settings-block">
           <label>Drop rate (AI alert target)
-            <b class="current-target">${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
-            <span class="measured">measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</span>
+            <b class="current-target" id="targetDropsCurrent">${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
+            <span class="measured" id="targetDropsMeasured">measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</span>
           </label>
           <form id="targetDropsForm" class="inline-form">
-            <input type="number" min="1" id="targetDropsInput" placeholder="New target" value="">
+            <input type="number" min="1" max="240" id="targetDropsInput" placeholder="New target (dpm)" value="">
             <button type="submit" class="btn primary">Set</button>
           </form>
         </div>
@@ -587,9 +608,14 @@ const BedsTab = (() => {
       e.preventDefault();
       const input = document.getElementById("targetDropsInput");
       const value = parseInt(input.value, 10);
-      if (!value || value <= 0) return;
+      if (!value || value < 1 || value > 240) {
+        UiUtils.toast("Drop target must be between 1 and 240 dpm", true);
+        return;
+      }
       try {
-        await Api.setTargetDrops(bed.bedId, value);
+        const result = await Api.setTargetDrops(bed.bedId, value);
+        const latest = State.beds.get(bed.bedId) || bed;
+        State.upsertBed({ ...latest, ...result });
         UiUtils.toast(`${bed.bedId}: target drop rate set to ${value} dpm`);
         input.value = "";
       } catch (err) {
@@ -599,7 +625,9 @@ const BedsTab = (() => {
 
     document.getElementById("monitoringBtn")?.addEventListener("click", async () => {
       const btn = document.getElementById("monitoringBtn");
-      const turningOn = bed.monitoring === false;
+      // This handler survives live readings, so consult the latest snapshot.
+      const currentBed = State.beds.get(bed.bedId) || bed;
+      const turningOn = currentBed.monitoring === false;
 
       /* Tạm dừng thì hỏi lại, bắt đầu thì không. Dừng theo dõi một giường đang
        * truyền dịch là làm chiếc máy im trong lúc bệnh nhân vẫn nằm đó. */
@@ -615,13 +643,22 @@ const BedsTab = (() => {
 
       btn.disabled = true;
       try {
-        await Api.setMonitoring(bed.bedId, turningOn);
+        const result = await Api.setMonitoring(bed.bedId, turningOn);
+        // The command is already accepted and persisted at this point. Apply
+        // the response immediately instead of waiting for another telemetry
+        // frame, which can be delayed while the gateway changes mode.
+        const latest = State.beds.get(bed.bedId) || bed;
+        State.upsertBed({ ...latest, ...result });
         UiUtils.toast(turningOn
           ? `${bed.bedId}: monitoring started`
           : `${bed.bedId}: monitoring paused`);
       } catch (err) {
         UiUtils.toast(err.message, true);
-        btn.disabled = false;
+      } finally {
+        // updateLiveDetail deliberately keeps this DOM node alive, so unlock
+        // it explicitly for the next Start/Pause action.
+        const currentButton = document.getElementById("monitoringBtn");
+        if (currentButton) currentButton.disabled = false;
       }
     });
 
@@ -929,13 +966,15 @@ const BedsTab = (() => {
     });
   }
 
-  function closeDetail() {
+  function closeDetail({ updateRoute = true } = {}) {
     selectedBedId = null;
+    renderedPatientSignature = null;
     trendSamples = null;
     trendError = null;
     clearLiveSamples();
     stopTrendRefresh();
     renderDetail();
+    if (updateRoute) AppRoute.setBed(null);
   }
 
   /* The detail panel is rebuilt from scratch (innerHTML) on every bed update,
@@ -1037,6 +1076,27 @@ const BedsTab = (() => {
     }
   }
 
+  function detailHeaderHtml(bed) {
+    const statusColor = UiUtils.statusColor(bed.status);
+    return `
+      <div class="bd-header" id="bedDetailHeader" style="--bd-status:${statusColor};">
+        <button type="button" class="btn" id="closeBedDetailBtn">&larr; Beds</button>
+        <div class="bd-ident">
+          <span class="bd-bed-id">${UiUtils.escapeHtml(bed.bedId)}</span>
+          <span class="bd-room">${UiUtils.escapeHtml(bed.room)}</span>
+          ${bed.patientName ? `<span class="bd-patient-name-header">${UiUtils.escapeHtml(bed.patientName)}</span>` : ""}
+        </div>
+        <span class="status-chip" style="background:${statusColor};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
+        ${UiUtils.culpritBadgeHtml(bed)}
+        ${UiUtils.signalRowHtml(bed)}
+        <div class="bd-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
+      </div>`;
+  }
+
+  function bindCloseDetailHandler() {
+    document.getElementById("closeBedDetailBtn")?.addEventListener("click", closeDetail);
+  }
+
   function renderDetail() {
     const panel = document.getElementById("bedDetailPanel");
     const bed = selectedBedId ? State.beds.get(selectedBedId) : null;
@@ -1061,20 +1121,13 @@ const BedsTab = (() => {
     /* Phải chụp TRƯỚC khi gán innerHTML - sau đó các phần tử cũ đã biến mất. */
     const interaction = captureInteractionState();
 
-    const statusColor = UiUtils.statusColor(bed.status);
+    renderedPatientSignature = JSON.stringify([
+      bed.patientName || null,
+      bed.patientCode || null,
+      bed.admittedAt || null
+    ]);
     panel.innerHTML = `
-      <div class="bd-header" style="--bd-status:${statusColor};">
-        <button type="button" class="btn" id="closeBedDetailBtn">&larr; Beds</button>
-        <div class="bd-ident">
-          <span class="bd-bed-id">${UiUtils.escapeHtml(bed.bedId)}</span>
-          <span class="bd-room">${UiUtils.escapeHtml(bed.room)}</span>
-          ${bed.patientName ? `<span class="bd-patient-name-header">${UiUtils.escapeHtml(bed.patientName)}</span>` : ""}
-        </div>
-        <span class="status-chip" style="background:${statusColor};">${UiUtils.escapeHtml((bed.status || "UNKNOWN").toUpperCase())}</span>
-        ${UiUtils.culpritBadgeHtml(bed)}
-        ${UiUtils.signalRowHtml(bed)}
-        <div class="bd-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
-      </div>
+      ${detailHeaderHtml(bed)}
       <div class="bd-grid">
         <div class="bd-col bd-col-side">
           ${vitalsSectionHtml(bed)}
@@ -1083,10 +1136,10 @@ const BedsTab = (() => {
           ${trendsSectionHtml()}
         </div>
         <div class="bd-col bd-col-side bd-col-right">
-          <div class="bd-card">
+          <div class="bd-card" id="bedLineState">
             ${lineSectionHtml(bed)}
           </div>
-          <div class="bd-card">
+          <div class="bd-card" id="bedForecastState">
             <h4>AI forecast (on-chip)</h4>
             ${forecastSectionHtml(bed)}
           </div>
@@ -1099,13 +1152,10 @@ const BedsTab = (() => {
 
     restoreInteractionState(interaction);
 
-    document.getElementById("closeBedDetailBtn").addEventListener("click", closeDetail);
+    bindCloseDetailHandler();
 
-    // renderDetail() runs on every bed update, so the charts must be repainted
-    // from the cached samples each time - loadTrends() is NOT called here, or
-    // every SignalR tick would trigger a history query. The reading that drove
-    // this re-render is instead appended to the series directly, which is what
-    // keeps the traces level with the Live vitals tiles above them.
+    // The initial render paints the cached samples. Subsequent SignalR readings
+    // update only the live regions and append to these existing chart nodes.
     appendLiveSample(bed);
     bindTrendHandlers();
     renderTrends();
@@ -1117,10 +1167,94 @@ const BedsTab = (() => {
     bindPatientHandlers(bed);
     bindFaultHandlers(bed);
 
-    /* renderDetail() rebuilds this panel from scratch about once a second, so
-     * the capability gating has to be re-applied to the new DOM each time -
-     * doing it once at startup would only survive until the next reading. */
+    // Capability gating is applied whenever the panel is intentionally rebuilt.
     Session.applyTo(panel);
+  }
+
+  function updateLiveDetail(bed) {
+    if (!bed || bed.bedId !== selectedBedId) return;
+
+    const patientSignature = JSON.stringify([
+      bed.patientName || null,
+      bed.patientCode || null,
+      bed.admittedAt || null
+    ]);
+
+    // Admission/discharge changes are rare and alter controls as well as text,
+    // so a deliberate one-time rebuild is appropriate for those transitions.
+    if (patientSignature !== renderedPatientSignature ||
+        !document.getElementById("bedLiveState")) {
+      renderDetail();
+      return;
+    }
+
+    maybeShowEventToast(bed);
+
+    const header = document.getElementById("bedDetailHeader");
+    if (header) {
+      header.outerHTML = detailHeaderHtml(bed);
+      bindCloseDetailHandler();
+    }
+
+    document.getElementById("bedLiveState").innerHTML = liveVitalsSectionHtml(bed);
+
+    const line = document.getElementById("bedLineState");
+    if (line) line.innerHTML = lineSectionHtml(bed);
+
+    const forecast = document.getElementById("bedForecastState");
+    if (forecast) {
+      forecast.innerHTML = `<h4>AI forecast (on-chip)</h4>${forecastSectionHtml(bed)}`;
+    }
+
+    const tare = document.getElementById("tareStatusState");
+    if (tare) tare.innerHTML = tareStatusHtml(bed);
+    const hr = document.getElementById("hrStatusState");
+    if (hr) hr.innerHTML = hrStatusHtml(bed);
+    const target = document.getElementById("targetDropsCurrent");
+    if (target) target.textContent = UiUtils.formatMetric(bed.targetDropsPerMin, " dpm");
+    const measured = document.getElementById("targetDropsMeasured");
+    if (measured) measured.textContent = `measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}`;
+
+    const monitoringOn = bed.monitoring !== false;
+    const calibrating = monitoringOn && bed.alertsArmed === false;
+    const monitoringBlock = document.querySelector("#bedDetailPanel .monitoring-block");
+    monitoringBlock?.classList.toggle("is-on", monitoringOn && !calibrating);
+    monitoringBlock?.classList.toggle("is-standby", !monitoringOn);
+    monitoringBlock?.classList.toggle("is-calibrating", calibrating);
+    const monitoringChip = monitoringBlock?.querySelector(".status-chip");
+    if (monitoringChip) {
+      monitoringChip.textContent = calibrating ? "COLLECTING DATA" : (monitoringOn ? "MONITORING" : "STANDBY");
+      monitoringChip.style.background = calibrating ? "#e68a00" : (monitoringOn ? "#1ea050" : "#8a97a8");
+    }
+    const monitoringDescription = monitoringBlock?.querySelector(".monitoring-state .muted");
+    if (monitoringDescription) {
+      monitoringDescription.textContent = monitoringOn
+        ? (calibrating
+          ? "Collecting startup samples. AI alarms remain off until both counters finish."
+          : "AI and alarms are running for this bed.")
+        : "Sensors are read and shown, but no AI and no alarms yet.";
+    }
+    const dropSamples = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
+    const vitalsSamples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const progress = document.getElementById("monitoringProgress");
+    if (progress) progress.style.display = calibrating ? "" : "none";
+    const dropProgress = document.getElementById("dropTrainingProgress");
+    if (dropProgress) dropProgress.value = dropSamples;
+    const vitalsProgress = document.getElementById("vitalsTrainingProgress");
+    if (vitalsProgress) vitalsProgress.value = vitalsSamples;
+    const dropText = document.getElementById("dropTrainingText");
+    if (dropText) dropText.textContent = `${dropSamples}/20`;
+    const vitalsText = document.getElementById("vitalsTrainingText");
+    if (vitalsText) vitalsText.textContent = `${vitalsSamples}/64`;
+    const monitoringBtn = document.getElementById("monitoringBtn");
+    if (monitoringBtn) {
+      monitoringBtn.textContent = monitoringOn ? "Pause monitoring" : "Start monitoring";
+      monitoringBtn.classList.toggle("primary", !monitoringOn);
+    }
+
+    // Preserve chart canvases, range selection, form values, focus and scroll.
+    appendLiveSample(bed);
+    renderTrends();
   }
 
   function bindPatientHandlers(bed) {
@@ -1159,7 +1293,7 @@ const BedsTab = (() => {
     });
   }
 
-  function render() {
+  function renderList() {
     renderFilters();
     const total = State.beds.size;
     const beds = Array.from(State.beds.values())
@@ -1182,6 +1316,7 @@ const BedsTab = (() => {
         const bedId = card.getAttribute("data-bed-id");
         const switchingBed = bedId !== selectedBedId;
         selectedBedId = bedId;
+        AppRoute.setBed(bedId);
         if (switchingBed) {
           trendSamples = null;   // never show the previous bed's history
           trendError = null;
@@ -1193,11 +1328,27 @@ const BedsTab = (() => {
       });
     });
 
+  }
+
+  function render() {
+    renderList();
     renderDetail();
   }
 
+  function handleBedsChanged() {
+    renderList();
+    if (!selectedBedId) return;
+
+    const bed = State.beds.get(selectedBedId);
+    if (!bed) {
+      closeDetail();
+      return;
+    }
+    updateLiveDetail(bed);
+  }
+
   function init() {
-    State.on("beds-changed", render);
+    State.on("beds-changed", handleBedsChanged);
     loadMyBedIds();
 
     document.getElementById("bedSearch").addEventListener("input", (e) => {
@@ -1223,13 +1374,14 @@ const BedsTab = (() => {
   /* Opens a bed's full detail view from outside this module (the dashboard
    * cards use it). Kept here rather than duplicated there so the selection,
    * the history fetch and the refresh timer all stay in one place. */
-  function openBed(bedId) {
+  function openBed(bedId, { updateRoute = true } = {}) {
     if (!State.beds.has(bedId)) return;
     if (bedId !== selectedBedId) {
       trendSamples = null;
       trendError = null;
     }
     selectedBedId = bedId;
+    if (updateRoute) AppRoute.setBed(bedId);
     bedFaultReports = [];
     renderDetail();
     loadTrends();
@@ -1237,5 +1389,5 @@ const BedsTab = (() => {
     startTrendRefresh();
   }
 
-  return { init, render, openBed };
+  return { init, render, openBed, closeDetail };
 })();

@@ -72,3 +72,6 @@ gateway/ota/images/*.ota
 
 # Ảnh firmware do kỹ thuật viên tải lên qua web (server/src/HisServer/ota-images).
 server/src/HisServer/ota-images/
+
+# Per-installation ASP.NET cookie-signing keys (encrypted with Windows DPAPI).
+server/src/HisServer/.runtime/

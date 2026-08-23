@@ -1,3 +1,36 @@
+/* Keep the current console screen in the URL. A reload used to run the
+ * landing-tab code unconditionally, sending a nurse from an open bed back to
+ * Dashboard. Query parameters also make an open bed directly bookmarkable. */
+const AppRoute = (() => {
+  function current() {
+    const params = new URLSearchParams(window.location.search);
+    return { tab: params.get("tab"), bedId: params.get("bed") };
+  }
+
+  function write(mutator, replace = false) {
+    const url = new URL(window.location.href);
+    mutator(url.searchParams);
+    window.history[replace ? "replaceState" : "pushState"]({}, "", url);
+  }
+
+  function setTab(tab, replace = false) {
+    write((params) => {
+      params.set("tab", tab);
+      if (tab !== "beds") params.delete("bed");
+    }, replace);
+  }
+
+  function setBed(bedId, replace = false) {
+    write((params) => {
+      params.set("tab", "beds");
+      if (bedId) params.set("bed", bedId);
+      else params.delete("bed");
+    }, replace);
+  }
+
+  return { current, setTab, setBed };
+})();
+
 /* Toggle wired outside main()'s async body and run immediately (not awaited
  * behind Session.load()) so it works even before login - the button is
  * visible on every page including login.html's equivalent, and a nurse
@@ -53,7 +86,12 @@
     directory: DirectoryTab
   };
 
-  function switchTab(tab) {
+  function availableTabButton(tab) {
+    if (!tab || !Object.prototype.hasOwnProperty.call(titles, tab)) return null;
+    return document.querySelector(`.nav-btn[data-tab="${tab}"]`);
+  }
+
+  function switchTab(tab, { updateRoute = true, replaceRoute = false } = {}) {
     document.querySelectorAll(".nav-btn[data-tab]").forEach((btn) => {
       btn.classList.toggle("active", btn.getAttribute("data-tab") === tab);
     });
@@ -66,6 +104,8 @@
       if (name === tab) module.activate();
       else module.stop?.();
     });
+
+    if (updateRoute) AppRoute.setTab(tab, replaceRoute);
   }
 
   document.querySelectorAll(".nav-btn[data-tab]").forEach((btn) => {
@@ -136,9 +176,32 @@
   // alarms are for clinical roles: a technician has no way to act on one.
   if (Session.can(Session.CAP.viewWard)) CriticalAlarm.init();
 
-  // Land on the first tab this role can actually use.
+  // Restore a refresh/deep-link when the role is allowed to see it; otherwise
+  // land on the first tab this role can actually use.
   const landing = LANDING.find(([cap]) => Session.can(cap));
-  if (landing) switchTab(landing[1]);
+  const route = AppRoute.current();
+  const requestedButton = availableTabButton(route.tab);
+  const initialTab = requestedButton ? route.tab : landing?.[1];
+  if (initialTab) {
+    switchTab(initialTab, { replaceRoute: true });
+    if (initialTab === "beds" && route.bedId) {
+      BedsTab.openBed(route.bedId, { updateRoute: false });
+    }
+  }
+
+  // Back/Forward follows the same route without creating another history row.
+  window.addEventListener("popstate", () => {
+    const next = AppRoute.current();
+    const button = availableTabButton(next.tab);
+    const tab = button ? next.tab : landing?.[1];
+    if (!tab) return;
+    switchTab(tab, { updateRoute: false });
+    if (tab === "beds" && next.bedId) {
+      BedsTab.openBed(next.bedId, { updateRoute: false });
+    } else {
+      BedsTab.closeDetail({ updateRoute: false });
+    }
+  });
 
   await MonitoringHub.start();
 })();

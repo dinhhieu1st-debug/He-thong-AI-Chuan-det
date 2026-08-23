@@ -394,6 +394,8 @@ quay về cách cũ đặt file trực tiếp trên Pi.
 | *“did not start/finish firmware download”* | chỗ chứa ảnh quá nhỏ. Đọc serial của chip, tìm dòng `Next Image is too big to store` → mục 4.1 |
 | Luôn báo *“Đang ở bản mới nhất”* dù đã có file | quên tăng `FIRMWARE_VERSION` (4.2). **Không liên quan kích thước file** |
 | *“OTA update or check for update already in progress”* | bấm Cập nhật khi lệnh Kiểm tra chưa xong. Kiểm tra mất tới 60 giây — đợi trạng thái đổi rồi hãy bấm |
+| Kiểm tra xong nhưng luôn báo *“Đang ở bản mới nhất”* trên Zigbee2MQTT 2.x | gateway cũ chỉ đọc `updateAvailable`; Zigbee2MQTT 2.x trả `data.update_available`. Triển khai lại `gateway/main.c` mới |
+| Bấm Kiểm tra trả **503** | không gateway nào đang kết nối; kiểm tra `gateway.service` và đường TCP tới cổng 5000 |
 | Bấm Cập nhật trả **503** | không gateway nào đang kết nối → `docs/TRIEN_KHAI_PI.md` mục 5.1 |
 | Bấm Cập nhật trả **409** | thiết bị đang nạp dở — đúng thiết kế, đợi cho xong |
 | Tiến độ chạy rồi đứng im | `default_maximum_data_size` lớn hơn 63 |

@@ -243,21 +243,58 @@ public static class BedEndpoints
             string bedId,
             SetTargetDropsRequest request,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            BedRepository repository,
+            IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
             if (store.Get(bedId) is null)
             {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
             }
 
-            if (request.TargetDropsPerMin <= 0)
+            if (request.TargetDropsPerMin is < 1 or > 240)
             {
-                return Results.BadRequest(new { error = "targetDropsPerMin must be a positive number" });
+                return Results.BadRequest(new { error = "targetDropsPerMin must be between 1 and 240 dpm" });
             }
 
             var commandLine = $$"""{"cmd":"set_target_drops_per_min","value":{{request.TargetDropsPerMin}}}""";
-            return await SendDeviceCommandAsync(bedId, commandLine, connectionRegistry,
-                new { bedId, targetDropsPerMin = request.TargetDropsPerMin });
+            var delivered = await connectionRegistry.TrySendCommandAsync(bedId, commandLine);
+            if (!delivered)
+            {
+                return Results.Conflict(new
+                {
+                    error = $"Bed '{bedId}' has no live gateway connection right now - " +
+                            "the drop target was not changed."
+                });
+            }
+
+            // The firmware immediately closes only the alarm gate and starts a
+            // fresh 20-interval drip window. Mirror that accepted state now so
+            // the old warning does not linger on the page during the round trip.
+            var bed = store.Upsert(bedId, state =>
+            {
+                state.TargetDropsPerMin = request.TargetDropsPerMin;
+                state.DropTrainingSamples = 0;
+                state.AlertsArmed = false;
+                state.Status = BedStatus.Stable;
+                state.Hysteresis = VitalsStatusEvaluator.MetricHysteresis.None;
+                state.AlertMessage = null;
+                state.FinalAlertLevel = null;
+                state.AlertLevel = 0;
+                state.LineBranch = false;
+                state.PatientBranch = false;
+                state.DripAnomaly = false;
+            });
+            await repository.UpsertAsync(bed);
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
+
+            return Results.Accepted(value: new
+            {
+                bedId,
+                targetDropsPerMin = request.TargetDropsPerMin,
+                dropTrainingSamples = 0,
+                alertsArmed = false
+            });
         }).RequireAuthorization(Capabilities.ControlBed);
 
         /* Bắt đầu / tạm dừng theo dõi.
@@ -274,7 +311,9 @@ public static class BedEndpoints
             string bedId,
             MonitoringRequest request,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            BedRepository repository,
+            IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
             if (store.Get(bedId) is null)
             {
@@ -282,9 +321,61 @@ public static class BedEndpoints
             }
 
             var value = request.Enabled ? 1 : 0;
-            return await SendDeviceCommandAsync(bedId,
-                $$"""{"cmd":"set_monitoring","value":{{value}}}""", connectionRegistry,
-                new { bedId, monitoring = request.Enabled });
+            var delivered = await connectionRegistry.TrySendCommandAsync(bedId,
+                $$"""{"cmd":"set_monitoring","value":{{value}}}""");
+            if (!delivered)
+            {
+                return Results.Conflict(new
+                {
+                    error = $"Bed '{bedId}' has no live gateway connection right now - " +
+                            "monitoring was not changed. Reconnect the gateway and try again."
+                });
+            }
+
+            // Reflect the accepted command immediately instead of leaving a
+            // red/yellow banner visible until the next Zigbee report arrives.
+            // The next device reading remains authoritative and confirms the
+            // monitoring bit end-to-end.
+            var bed = store.Upsert(bedId, state =>
+            {
+                state.Monitoring = request.Enabled;
+                state.AlertsArmed = request.Enabled ? false : null;
+                state.DropTrainingSamples = request.Enabled ? 0 : null;
+                state.VitalsTrainingSamples = request.Enabled ? 0 : null;
+                // Starting enters a silent training phase; pausing is also
+                // silent. In both cases clear any alarm left from the previous
+                // monitoring session immediately.
+                state.Status = BedStatus.Stable;
+                state.Hysteresis = VitalsStatusEvaluator.MetricHysteresis.None;
+                state.AlertMessage = null;
+                state.AlertLevel = 0;
+                // Protocol capability is learned from telemetry. Do not invent
+                // a canonical level here or an older device would be treated
+                // as if it supported the new on-chip severity contract.
+                state.FinalAlertLevel = null;
+                state.LineBranch = false;
+                state.PatientBranch = false;
+                state.DripAnomaly = false;
+                state.VitalsAnomaly = false;
+                state.AeAlarm = false;
+                if (!request.Enabled)
+                {
+                    state.DropTrainingSamples = null;
+                    state.VitalsTrainingSamples = null;
+                }
+            });
+            await repository.UpsertAsync(bed);
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
+
+            return Results.Accepted(value: new
+            {
+                bedId,
+                monitoring = request.Enabled,
+                alertsArmed = bed.AlertsArmed,
+                dropTrainingSamples = bed.DropTrainingSamples,
+                vitalsTrainingSamples = bed.VitalsTrainingSamples,
+                status = bed.Status.ToString()
+            });
         }).RequireAuthorization(Capabilities.ControlBed);
 
         group.MapPost("/{bedId}/tare", async (

@@ -84,6 +84,8 @@ public static class BedDataParser
         // is fine" are different facts, and collapsing them would let an old
         // device report a permanently green bed.
         var alertLevel = ReadNullableInt(root, "alertLevel", "alert_level");
+        var finalAlertLevel = ReadNullableInt(root, "finalAlertLevel", "final_alert_level");
+        if (finalAlertLevel is < 1 or > 3) finalAlertLevel = null;
         var lineBranch = ReadBool(root, false, "lineBranch", "line_branch");
         var patientBranch = ReadBool(root, false, "patientBranch", "patient_branch");
         var dripAnomaly = ReadBool(root, false, "dripAnomaly", "drip_anomaly");
@@ -95,6 +97,10 @@ public static class BedDataParser
         if (remainingMl is < 0) remainingMl = null;
         var remainingMin = ReadNullableInt(root, "remainingMin", "remaining_min");
         if (remainingMin is < 0) remainingMin = null;
+        var dropTrainingSamples = ReadNullableInt(root, "dropTrainingSamples", "drop_training_samples");
+        if (dropTrainingSamples is < 0) dropTrainingSamples = null;
+        var vitalsTrainingSamples = ReadNullableInt(root, "vitalsTrainingSamples", "vitals_training_samples");
+        if (vitalsTrainingSamples is < 0) vitalsTrainingSamples = null;
 
         return new BedReading(
             bedId, room, spo2, heartRate, dripRate, DateTime.UtcNow,
@@ -106,9 +112,12 @@ public static class BedDataParser
             spo2Forecast16s, hrTrendBpmPerMin, tsAnomalyScoreX100,
             dropsTrend, dropsTrendDpmPerMin, dropsForecast16s,
             hrForecastTrusted, dropsForecastTrusted, linkQuality, deviceId,
-            alertLevel, lineBranch, patientBranch, dripAnomaly, vitalsAnomaly,
+            alertLevel, finalAlertLevel, lineBranch, patientBranch, dripAnomaly, vitalsAnomaly,
             lineState, remainingMl, remainingMin,
-            ReadBool(root, true, "monitoring"));
+            ReadBool(root, true, "monitoring"),
+            dropTrainingSamples,
+            vitalsTrainingSamples,
+            ReadNullableBool(root, "alertsArmed", "alerts_armed"));
     }
 
     private static string? ReadString(JsonElement root, params string[] names)
@@ -210,6 +219,20 @@ public static class BedDataParser
         }
 
         return defaultValue;
+    }
+
+    private static bool? ReadNullableBool(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryGetProperty(root, name, out var property)) continue;
+            if (property.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                return property.GetBoolean();
+            if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var number))
+                return number != 0;
+            if (bool.TryParse(property.ToString(), out var parsed)) return parsed;
+        }
+        return null;
     }
 
     private static bool TryGetProperty(JsonElement root, string name, out JsonElement property)

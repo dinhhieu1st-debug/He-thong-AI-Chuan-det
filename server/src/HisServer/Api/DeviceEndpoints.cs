@@ -106,6 +106,19 @@ public static class DeviceEndpoints
         {
             var delivered = await connections.BroadcastCommandAsync(
                 $"{{\"cmd\":\"ota_check\",\"deviceId\":\"{deviceId}\"}}");
+
+            /* A successful HTTP response used to mean only that the button's
+             * request reached this process. With no live gateway the browser
+             * then said "checking" forever while the card stayed Unknown.
+             * Match the update endpoint: success now means at least one
+             * gateway actually accepted the command. */
+            if (delivered == 0)
+            {
+                return Results.Problem(
+                    "No gateway is connected, so the firmware check could not be started.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
             return Results.Ok(new { deviceId, gatewaysNotified = delivered });
         }).RequireAuthorization(Capabilities.ManageDevices);
 

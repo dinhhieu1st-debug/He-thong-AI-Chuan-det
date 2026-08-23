@@ -53,6 +53,12 @@ Console.WriteLine("   reading is rubbish and every alarm from it is a false one.
           VitalsStatusEvaluator.Evaluate(setup, VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable,
           VitalsStatusEvaluator.Evaluate(setup, VitalsStatusEvaluator.MetricHysteresis.None).ToString());
 
+    var latchedBeforePause = new VitalsStatusEvaluator.MetricHysteresis(true, true, true);
+    Check("standby clears every warning hysteresis latch",
+          VitalsStatusEvaluator.ComputeNextHysteresis(setup, latchedBeforePause)
+            == VitalsStatusEvaluator.MetricHysteresis.None,
+          VitalsStatusEvaluator.ComputeNextHysteresis(setup, latchedBeforePause).ToString());
+
     // ...and the moment it is armed, the same reading is Critical. Standby must
     // suppress the alarm, not lose it.
     var armed = setup with { Monitoring = true };
@@ -66,6 +72,50 @@ Console.WriteLine("   reading is rubbish and every alarm from it is a false one.
           Normal().Monitoring, "Monitoring=true");
 }
 
+Console.WriteLine("\n== Startup sampling: alarms stay off until both windows finish ==");
+{
+    var dangerousDuringTraining = Normal() with
+    {
+        Monitoring = true,
+        AlertsArmed = false,
+        DropTrainingSamples = 19,
+        VitalsTrainingSamples = 63,
+        Spo2 = 84,
+        HeartRate = 140,
+        AlertLevel = 3,
+        LineBranch = true,
+        PatientBranch = true
+    };
+    Check("19/20 and 63/64 -> still Stable with alarms off",
+          VitalsStatusEvaluator.Evaluate(dangerousDuringTraining,
+            VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable,
+          "AlertsArmed=false");
+    Check("training clears previous warning hysteresis",
+          VitalsStatusEvaluator.ComputeNextHysteresis(dangerousDuringTraining,
+            new(true, true, true)) == VitalsStatusEvaluator.MetricHysteresis.None,
+          "all latches cleared");
+
+    var ready = dangerousDuringTraining with
+    {
+        AlertsArmed = true,
+        DropTrainingSamples = 20,
+        VitalsTrainingSamples = 64
+    };
+    Check("20/20 and 64/64 -> the same danger is evaluated",
+          VitalsStatusEvaluator.Evaluate(ready,
+            VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical,
+          "AlertsArmed=true");
+
+    var parsed = BedDataParser.Parse("""
+        {"bedId":"Bed-01","spo2":84,"heart_rate":140,"monitoring":true,
+         "drop_training_samples":7,"vitals_training_samples":31,"alerts_armed":false}
+        """);
+    Check("wire parser preserves both progress counters and alarm gate",
+          parsed.DropTrainingSamples == 7 && parsed.VitalsTrainingSamples == 31
+            && parsed.AlertsArmed == false,
+          $"drop={parsed.DropTrainingSamples} vitals={parsed.VitalsTrainingSamples} armed={parsed.AlertsArmed}");
+}
+
 Console.WriteLine("\n== A line fault is a Warning, NOT Critical ==");
 Console.WriteLine("   The patient is fine. Escalating this to Critical is how a ward");
 Console.WriteLine("   learns to ignore the device.");
@@ -77,6 +127,46 @@ Console.WriteLine("   learns to ignore the device.");
     Check("named as a LINE fault", type == "LINE_FAULT", $"{type}: {message}");
     Check("message says the weight is not moving",
           message.Contains("not getting lighter"), message);
+}
+
+Console.WriteLine("\n== Canonical XG26 severity is not recalculated by the server ==");
+{
+    var normalDespiteMissingSignal = Normal() with
+    {
+        AlertsArmed = true,
+        FinalAlertLevel = 1,
+        Spo2 = 0,
+        HeartRate = 0,
+        Spo2Signal = false,
+        HeartRateSignal = false
+    };
+    Check("final level 1 stays Stable when a sensor is lost",
+          VitalsStatusEvaluator.Evaluate(normalDespiteMissingSignal,
+            VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable,
+          "signal loss is diagnostic only");
+
+    var warning = Normal() with { AlertsArmed = true, FinalAlertLevel = 2 };
+    Check("final level 2 maps directly to Warning",
+          VitalsStatusEvaluator.Evaluate(warning,
+            VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Warning,
+          "device verdict wins");
+
+    var critical = Normal() with { AlertsArmed = true, FinalAlertLevel = 3 };
+    Check("final level 3 maps directly to Critical",
+          VitalsStatusEvaluator.Evaluate(critical,
+            VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical,
+          "device verdict wins");
+    Check("canonical severity disables server threshold hysteresis",
+          VitalsStatusEvaluator.ComputeNextHysteresis(critical,
+            new(true, true, true)) == VitalsStatusEvaluator.MetricHysteresis.None,
+          "no second decision layer");
+
+    var parsed = BedDataParser.Parse("""
+        {"bedId":"Bed-01","final_alert_level":2,"alerts_armed":true}
+        """);
+    Check("wire parser preserves canonical final level",
+          parsed.FinalAlertLevel == 2,
+          $"FinalAlertLevel={parsed.FinalAlertLevel}");
 }
 
 Console.WriteLine("\n== A bag simply running out must NOT read as a blockage ==");
