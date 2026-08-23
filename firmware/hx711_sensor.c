@@ -16,6 +16,8 @@
 #define HX711_TARE_SAMPLES       30U
 #define HX711_REPORT_PERIOD_MS   500U
 #define HX711_WAIT_REPORT_MS     2000U
+#define HX711_CALIBRATION_FACTOR 14000.0f
+#define HX711_DISCONNECT_MS      3000U
 
 static uint32_t tare_count;
 static int64_t tare_sum;
@@ -24,6 +26,9 @@ static bool tare_done;
 static uint32_t last_report_ms;
 static uint32_t last_wait_report_ms;
 static uint32_t sample_count;
+static bool connected;
+static float weight_kg;
+static uint32_t last_data_ms;
 
 static uint32_t now_ms(void)
 {
@@ -73,6 +78,9 @@ void hx711_sensor_poll(void)
 {
   uint32_t ms = now_ms();
   if (!hx711_ready()) {
+    if (connected && (ms - last_data_ms) >= HX711_DISCONNECT_MS) {
+      connected = false;
+    }
     if ((ms - last_wait_report_ms) >= HX711_WAIT_REPORT_MS) {
       last_wait_report_ms = ms;
       printf("[HX711] Waiting for data: DOUT=HIGH. Check 3V3/GND/PC01/PC03.\r\n");
@@ -81,6 +89,8 @@ void hx711_sensor_poll(void)
   }
 
   int32_t raw = hx711_read_raw();
+  connected = true;
+  last_data_ms = ms;
   sample_count++;
 
   if (!tare_done) {
@@ -98,8 +108,23 @@ void hx711_sensor_poll(void)
 
   if ((ms - last_report_ms) >= HX711_REPORT_PERIOD_MS) {
     int32_t delta = raw - tare_offset;
+    weight_kg = (float)delta / HX711_CALIBRATION_FACTOR;
+    if (weight_kg > -0.015f && weight_kg < 0.015f) { weight_kg = 0.0f; }
     last_report_ms = ms;
     printf("[HX711] sample=%lu raw=%ld delta=%ld DOUT=LOW\r\n",
            (unsigned long)sample_count, (long)raw, (long)delta);
   }
 }
+
+void hx711_sensor_tare(void)
+{
+  tare_count = 0U;
+  tare_sum = 0;
+  tare_offset = 0;
+  tare_done = false;
+  weight_kg = 0.0f;
+}
+
+bool hx711_sensor_connected(void) { return connected; }
+bool hx711_sensor_tared(void) { return tare_done; }
+float hx711_sensor_weight_kg(void) { return weight_kg; }

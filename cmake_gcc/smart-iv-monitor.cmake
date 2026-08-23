@@ -408,8 +408,14 @@ add_library(slc OBJECT
     "../autogen/zigbee_stack_callback_dispatcher.c"
     "../autogen/zigbee_zcl_callback_dispatcher.c"
     "../firmware/app.c"
+    "../firmware/blood_oxygen.c"
     "../firmware/drop_sensor.c"
     "../firmware/hx711_sensor.c"
+    "../firmware/oled_display.c"
+    "../firmware/software_i2c.c"
+    "../firmware/vitals_ai.cpp"
+    "../firmware/models/model_vitals.c"
+    "../firmware/models/model_ae.c"
     "../main.c"
 )
 

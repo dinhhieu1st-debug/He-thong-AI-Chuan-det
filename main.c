@@ -29,11 +29,11 @@ int main(void)
   sl_main_kernel_start();
 #else
   while (1) {
+    // Read application serial commands before the optional CLI consumes them.
+    app_process_action();
+
     // MUST keep this: lets Silicon Labs' components run (new name)
     sl_main_process_action();
-
-    // >>> APPLICATION LOOP: calls the repeating handler (like Arduino's loop()) <<<
-    app_process_action();
   }
 #endif
 }

@@ -1,0 +1,31 @@
+{
+  "session_id": "syn_0130",
+  "source_type": "synthetic",
+  "synthetic": true,
+  "generator_version": "synthetic_v1",
+  "root_seed": 20260813,
+  "session_seed": 20391983,
+  "preset": "normal",
+  "scenario": "temporary_disturbance",
+  "split": "test",
+  "target_interval_ms": 1000,
+  "target_drops_per_minute": 60.0,
+  "records": 180,
+  "sequence_length": 20,
+  "future_horizon": 5,
+  "label_policy_version": "future_state_v1_prototype",
+  "scenario_details": {
+    "event_record": 77,
+    "peak_ratio": 0.5245793228219527,
+    "event_width": 3
+  },
+  "calibration_real_sessions": [
+    "session_005",
+    "session_006",
+    "session_003",
+    "session_009",
+    "session_010"
+  ],
+  "raw_file": "data/synthetic/raw/syn_0130.csv",
+  "research_only": true
+}

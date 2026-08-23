@@ -104,7 +104,9 @@ void sli_platform_process_action(void)
 
 void sli_service_process_action(void)
 {
-  sl_cli_instances_tick();
+  /* VCOM RX is owned by app.c for the desktop-AI protocol. Running the CLI
+   * tick here would consume fragmented SET/LEVEL commands before the app can
+   * assemble a complete line. */
 }
 
 void sli_stack_process_action(void)

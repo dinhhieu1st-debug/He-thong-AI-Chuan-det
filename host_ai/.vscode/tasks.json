@@ -1,0 +1,108 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ESP8266: Build firmware",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "platformio", "run"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "ESP8266: Upload firmware",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "platformio", "run", "--target", "upload"],
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "ESP8266: Serial monitor",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "platformio", "device", "monitor", "--baud", "115200"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ESP8266: List serial ports",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "platformio", "device", "list"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Dataset: Record NORMAL session",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "${workspaceFolder}\\scripts\\serial_logger.py",
+        "--port",
+        "COM5",
+        "--target-interval-ms",
+        "1000",
+        "--preset",
+        "normal",
+        "--condition",
+        "${input:testCondition}",
+        "--notes",
+        "${input:sessionNotes}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Dataset: Record SLOW session",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "${workspaceFolder}\\scripts\\serial_logger.py",
+        "--port",
+        "COM5",
+        "--target-interval-ms",
+        "1500",
+        "--preset",
+        "slow",
+        "--condition",
+        "${input:testCondition}",
+        "--notes",
+        "${input:sessionNotes}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Dataset: Record FAST session",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "${workspaceFolder}\\scripts\\serial_logger.py",
+        "--port",
+        "COM5",
+        "--target-interval-ms",
+        "750",
+        "--preset",
+        "fast",
+        "--condition",
+        "${input:testCondition}",
+        "--notes",
+        "${input:sessionNotes}"
+      ],
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testCondition",
+      "type": "promptString",
+      "description": "Test condition (for example: stable)",
+      "default": "stable"
+    },
+    {
+      "id": "sessionNotes",
+      "type": "promptString",
+      "description": "Session notes (optional)",
+      "default": ""
+    }
+  ]
+}

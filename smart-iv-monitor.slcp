@@ -20,14 +20,28 @@ readme:
 - path: docs/slc-project-readme.md
 source:
 - path: firmware/app.c
+- path: firmware/blood_oxygen.c
 - path: firmware/drop_sensor.c
 - path: firmware/hx711_sensor.c
+- path: firmware/oled_display.c
+- path: firmware/software_i2c.c
+- path: firmware/vitals_ai.cpp
+- path: firmware/models/model_vitals.c
+- path: firmware/models/model_ae.c
 include:
 - path: firmware
   file_list:
   - path: app.h
+  - path: blood_oxygen.h
   - path: drop_sensor.h
   - path: hx711_sensor.h
+  - path: oled_display.h
+  - path: software_i2c.h
+  - path: vitals_ai.h
+  - path: models/model_vitals.h
+  - path: models/model_vitals_opcodes.h
+  - path: models/model_ae.h
+  - path: models/model_ae_opcodes.h
 sdk:
   vendor: silabs
   id: simplicity_sdk

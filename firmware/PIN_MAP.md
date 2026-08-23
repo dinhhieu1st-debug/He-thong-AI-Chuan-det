@@ -18,5 +18,5 @@ at a time.
 
 All external modules use 3.3 V logic and share GND with the board.
 
-Current test stage: drop sensor retained and HX711/loadcell under test. All
-other application peripherals are inactive until their individual test stage.
+The integrated application uses all peripherals above. The buzzer driver is
+active-low: PC06 HIGH is silent and PC06 LOW sounds the buzzer.
