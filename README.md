@@ -128,9 +128,30 @@ ipconfig
 
 Ghi lại IPv4 của card mạng cùng mạng với Pi; đó là `<WINDOWS_IP>`.
 
-## 6. Khởi động Raspberry Pi
+## 6. Khởi động Raspberry Pi qua SSH reverse tunnel
 
-Từ PowerShell Windows:
+Trong cấu hình đã kiểm thử, Windows Firewall không cho Pi kết nối trực tiếp
+tới cổng TCP 5000. Vì vậy cần tạo reverse tunnel trước, rồi để gateway trên Pi
+kết nối tới `127.0.0.1:5000`.
+
+### 6.1 Mở reverse tunnel trên Windows
+
+Mở một PowerShell Windows riêng và giữ cửa sổ này chạy:
+
+```powershell
+plink -ssh -N `
+  -hostkey "SHA256:LMfiR+UyuVTLJe99kB8dipYuZdAoKXK4RulRsRiEUkw" `
+  -R 5000:127.0.0.1:5000 `
+  iotchallenge@<PI_IP>
+```
+
+Nhập mật khẩu SSH khi được hỏi. Không thêm mật khẩu vào script hoặc Git.
+Nếu chưa có `plink`, cài PuTTY hoặc dùng SSH client có hỗ trợ remote port
+forwarding tương đương.
+
+### 6.2 Chạy stack trên Pi
+
+Từ một PowerShell Windows khác:
 
 ```powershell
 ssh iotchallenge@<PI_IP>
@@ -139,36 +160,35 @@ ssh iotchallenge@<PI_IP>
 Trong terminal Pi:
 
 ```bash
-cd ~/pi-aarch64
-bash run.sh <WINDOWS_IP>
+cd ~/pi-aarch64 && bash run.sh 127.0.0.1
 ```
 
-Ví dụ Windows có IP `192.168.137.1`:
+Launcher tự dò coordinator theo thứ tự `/dev/serial/by-id/*`, `/dev/ttyACM*`,
+`/dev/ttyUSB*` và tự dừng phiên Smart IV cũ đang khóa cổng serial.
 
-```bash
-cd ~/pi-aarch64 && bash run.sh 192.168.137.1
-```
-
-Giữ terminal Pi chạy. Kết quả đúng phải lần lượt khởi động Mosquitto,
-Zigbee2MQTT và gateway, sau đó hiện `Đã kết nối MQTT`.
+Giữ cả cửa sổ tunnel và terminal Pi chạy. Kết quả đúng phải lần lượt khởi
+động Mosquitto, Zigbee2MQTT, gateway và hiện `Đã kết nối MQTT`.
 
 - Zigbee2MQTT: `http://<PI_IP>:8080`.
 - Nhấn `Ctrl+C` tại terminal Pi để dừng stack đúng cách.
-- Chỉ dùng `bash run.sh 127.0.0.1` khi SSH reverse tunnel tới Windows đã được
-  cấu hình và đang hoạt động.
+- Nếu tunnel bị đóng, gateway mất đường tới HIS Server và BED-01 sẽ chuyển
+  `OFFLINE` sau thời gian timeout dù G26/Zigbee vẫn đang hoạt động.
 
-Không công khai mật khẩu SSH, database hoặc khóa riêng trong repository.
+Chỉ dùng `bash run.sh <WINDOWS_IP>` khi firewall đã thật sự cho phép Pi kết
+nối trực tiếp tới `<WINDOWS_IP>:5000` và kiểm tra `nc -vz <WINDOWS_IP> 5000`
+thành công.
 
 ## 7. Thứ tự khởi động toàn hệ thống
 
 1. Cấp nguồn cảm biến, G26 và coordinator.
 2. Chạy HIS Server trên Windows.
-3. Chạy `bash run.sh <WINDOWS_IP>` trên Pi.
-4. Kiểm tra Zigbee2MQTT thấy `SmartIV-Sensor` online.
-5. Mở `http://localhost:5194`, đăng nhập và vào `BED-01`.
-6. Chờ trừ bì xong, treo bịch rồi đặt tốc độ giọt trên server.
-7. Nhấn `Start monitoring` sau khi lắp cảm biến đúng vị trí.
-8. Chờ đủ 20 mẫu giọt và 64 mẫu sinh hiệu trước khi đánh giá AI.
+3. Mở reverse tunnel `plink -R 5000:127.0.0.1:5000` trên Windows.
+4. Chạy `bash run.sh 127.0.0.1` trên Pi.
+5. Kiểm tra Zigbee2MQTT thấy `SmartIV-Sensor` online.
+6. Mở `http://localhost:5194`, đăng nhập và vào `BED-01`.
+7. Chờ trừ bì xong, treo bịch rồi đặt tốc độ giọt trên server.
+8. Nhấn `Start monitoring` sau khi lắp cảm biến đúng vị trí.
+9. Chờ đủ 20 mẫu giọt và 64 mẫu sinh hiệu trước khi đánh giá AI.
 
 ## 8. Kiểm tra kết nối
 
@@ -232,7 +252,8 @@ trên G26. Tắt fake không bắt thiết bị học lại.
 
 ## 11. Xử lý lỗi nhanh
 
-- Web không có BED-01: kiểm tra Pi, `<WINDOWS_IP>`, firewall và TCP 5000.
+- Web không có BED-01 hoặc báo `OFFLINE`: kiểm tra HIS Server, tiến trình
+  `plink`, kết nối TCP 5000 và gateway trên Pi.
 - HR/SpO2 là `--`: kiểm tra tay, nguồn 3.3 V, GND, PC05/PC07 và pull-up I2C.
 - Bỏ tay mà hiện `--` là đúng; firmware không được giữ số cũ để gửi đi.
 - Nút điều khiển timeout: gateway TCP chưa kết nối; kiểm tra cổng 5000.
