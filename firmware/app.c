@@ -363,7 +363,10 @@ static void load_monitoring_state(void)
                     &state, sizeof(state)) != ECODE_NVM3_OK) {
     return;
   }
-  monitoring_requested = state.monitoring_requested != 0U;
+  /* A stored target is useful after reboot, but a previous running session
+   * must never silently start a new patient's training.  A fresh target
+   * confirmation from HIS Web is the start gate for every boot. */
+  monitoring_requested = false;
   if (state.target_drops_per_min >= 1U && state.target_drops_per_min <= 240U) {
     apply_target_drops_per_min(state.target_drops_per_min);
   }
@@ -785,7 +788,7 @@ static void update_startup(uint32_t now)
                            "HR+SPO2: 0/64", "ALARMS: OFF");
     } else {
       oled_display_message("SYSTEM READY", "HANG IV BAG",
-                           "OPEN PC APP", "SELECT DROP RATE");
+                           "OPEN HIS WEB", "SET DROP RATE");
     }
   }
 }
@@ -821,9 +824,19 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
   if (attribute_id == ATTR_TARGET_DROPS_PER_MIN) {
     uint16_t next;
     memcpy(&next, value, sizeof(next));
-    if (next != target_drops_per_min && next >= 1U && next <= 240U) {
+    if (next >= 1U && next <= 240U) {
+      bool target_changed = next != target_drops_per_min;
       apply_target_drops_per_min(next);
-      if (system_state == SYSTEM_MONITORING) { reset_drop_training_for_target(); }
+      monitoring_requested = true;
+      if (system_state == SYSTEM_WAITING_AI_SET) {
+        system_state = SYSTEM_MONITORING;
+        reset_monitoring_training();
+        oled_display_message("TARGET RECEIVED", "COLLECTING DATA",
+                             "DROP: 0/20", "HR+SPO2: 0/64");
+        printf("[MONITOR] Target confirmed by HIS Web; starting 20 drop and 64 vitals samples.\r\n");
+      } else if (system_state == SYSTEM_MONITORING && target_changed) {
+        reset_drop_training_for_target();
+      }
       save_monitoring_state();
       printf("[ZB] Target drop rate set to %u dpm.\r\n", (unsigned)next);
     }
@@ -1149,7 +1162,8 @@ static void publish_display(void)
                            vitals_ai_baseline_recalibrating()
                            ? vitals_ai_baseline_recalibration_samples()
                            : vitals_ai.baseline_samples,
-                           vitals_ai.history_samples, drop_training_samples, alerts_armed,
+                           vitals_ai.history_samples, drop_training_samples, true,
+                           alerts_armed,
                            vitals_ai_baseline_recalibrating());
     }
     publish_zigbee_attributes(output_heart_rate, output_spo2,
@@ -1165,6 +1179,22 @@ static void publish_display(void)
            (unsigned int)vitals_ai.history_samples,
            fake_hr_enabled ? 1U : 0U, fake_spo2_enabled ? 1U : 0U,
            (unsigned int)fake_vitals_level);
+  } else if (system_state == SYSTEM_WAITING_AI_SET) {
+    /* Waiting is a live-preview state: sensors and drop timing are visible on
+     * OLED/HIS, but no sample is admitted to either AI training window and no
+     * alarm decision is made until the web target write arrives. */
+    float interval = drop_sensor_last_interval_seconds();
+    float rate = interval > 0.0f ? 60.0f / interval : 0.0f;
+    int16_t output_heart_rate = vitals_valid ? heart_rate : 0;
+    int16_t output_spo2 = vitals_valid ? spo2 : 0;
+    oled_display_monitor(heart_rate, spo2, vitals_valid, weight_kg,
+                         hx711_sensor_connected() && hx711_sensor_tared(),
+                         interval, (float)target_interval_ms / 1000.0f,
+                         rate, 1U, 1U, 1U, false, false,
+                         0U, 0U, 0U, false, false, false);
+    publish_zigbee_attributes(output_heart_rate, output_spo2,
+                              output_heart_rate, output_spo2, vitals_valid,
+                              weight_kg, rate);
   }
   heart_count = spo2_count = weight_count = sample_count = 0U;
 }

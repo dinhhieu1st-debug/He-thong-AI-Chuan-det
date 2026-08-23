@@ -629,8 +629,9 @@ const BedsTab = (() => {
           </label>
           <form id="targetDropsForm" class="inline-form">
             <input type="number" min="1" id="targetDropsInput" placeholder="New target" value="">
-            <button type="submit" class="btn primary">Set</button>
+            <button type="submit" class="btn primary">Set & start</button>
           </form>
+          <div class="muted">Setting a target starts a fresh 20-drop and 64-vitals sampling window on G26.</div>
         </div>
       </div>`;
   }
@@ -643,7 +644,7 @@ const BedsTab = (() => {
       if (!value || value <= 0) return;
       try {
         await Api.setTargetDrops(bed.bedId, value);
-        UiUtils.toast(`${bed.bedId}: target drop rate set to ${value} dpm`);
+        UiUtils.toast(`${bed.bedId}: target ${value} dpm sent; G26 sampling started`);
         input.value = "";
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not set target drop rate (${err.message})`, true);

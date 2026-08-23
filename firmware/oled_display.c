@@ -191,6 +191,7 @@ void oled_display_monitor(int16_t heart_rate,
                           uint8_t hr_baseline_samples,
                           uint8_t vitals_history_samples,
                           uint8_t drop_training_samples,
+                          bool sampling_active,
                           bool alerts_armed,
                           bool baseline_recalibrating)
 {
@@ -242,7 +243,10 @@ void oled_display_monitor(int16_t heart_rate,
   frame_vertical_dotted(63U, 0U, 47U);
   frame_horizontal(48U);
 
-  if (!alerts_armed) {
+  if (!sampling_active) {
+    frame_center(6U, "SET DROP ON WEB");
+    frame_center(7U, "SAMPLING OFF");
+  } else if (!alerts_armed) {
     (void)hr_baseline_samples;
     (void)snprintf(text, sizeof(text), "DROP %u/20 ALARM OFF", drop_training_samples);
     frame_center(6U, text);
