@@ -45,5 +45,6 @@
          thu khien y ta thoi tin cai may. -->
     <attribute side="server" code="0x0016" define="REMAINING_ML" type="int16u" writable="true" default="0xFFFF" optional="false">RemainingMl</attribute>
     <attribute side="server" code="0x0017" define="REMAINING_MIN" type="int16u" writable="true" default="0xFFFF" optional="false">RemainingMin</attribute>
+    <attribute side="server" code="0x0018" define="MONITORING_ACTIVE" type="int8u" writable="true" default="0x00" optional="false">MonitoringActive</attribute>
   </cluster>
 </configurator>

@@ -3,6 +3,7 @@
 #include "software_i2c.h"
 
 #define BLOOD_OXYGEN_ADDRESS 0x57U
+#define BLOOD_OXYGEN_READ_ATTEMPTS 3U
 
 static bool connected;
 
@@ -21,36 +22,38 @@ bool blood_oxygen_init(void)
 
 bool blood_oxygen_sample(int16_t *heart_rate, int16_t *spo2)
 {
-  uint8_t reg = 0x0CU;
-  uint8_t data[8] = { 0 };
   if (!connected) {
     software_i2c_init();
     connected = configure_sensor();
     if (!connected) { return false; }
   }
-  if (!software_i2c_write_read(BLOOD_OXYGEN_ADDRESS, &reg, 1U,
-                               data, sizeof(data))) {
-    /* Recover a bus disturbed by OLED traffic/noise and retry once. */
-    software_i2c_init();
-    connected = configure_sensor();
-    if (!connected || !software_i2c_write_read(BLOOD_OXYGEN_ADDRESS, &reg, 1U,
-                                                data, sizeof(data))) {
-      connected = false;
-      return false;
+
+  for (uint8_t attempt = 0U; attempt < BLOOD_OXYGEN_READ_ATTEMPTS; attempt++) {
+    uint8_t reg = 0x0CU;
+    uint8_t data[8] = { 0 };
+    if (!software_i2c_write_read(BLOOD_OXYGEN_ADDRESS, &reg, 1U,
+                                 data, sizeof(data))) {
+      /* Recover a bus disturbed by OLED traffic/noise before retrying. */
+      software_i2c_init();
+      connected = configure_sensor();
+      if (!connected) { return false; }
+      continue;
+    }
+
+    uint32_t raw_hr = ((uint32_t)data[2] << 24)
+                      | ((uint32_t)data[3] << 16)
+                      | ((uint32_t)data[4] << 8)
+                      | data[5];
+    int16_t raw_spo2 = data[0];
+    if (raw_hr >= 30U && raw_hr <= 240U
+        && raw_spo2 >= 70 && raw_spo2 <= 100) {
+      *heart_rate = (int16_t)raw_hr;
+      *spo2 = raw_spo2;
+      return true;
     }
   }
 
-  uint32_t raw_hr = ((uint32_t)data[2] << 24)
-                    | ((uint32_t)data[3] << 16)
-                    | ((uint32_t)data[4] << 8)
-                    | data[5];
-  int16_t raw_spo2 = data[0];
-  if (raw_hr < 30U || raw_hr > 240U || raw_spo2 < 70 || raw_spo2 > 100) {
-    return false;
-  }
-  *heart_rate = (int16_t)raw_hr;
-  *spo2 = raw_spo2;
-  return true;
+  return false;
 }
 
 bool blood_oxygen_connected(void) { return connected; }

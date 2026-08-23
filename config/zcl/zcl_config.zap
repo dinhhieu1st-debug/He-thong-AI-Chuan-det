@@ -708,6 +708,22 @@
               "minInterval": 1,
               "maxInterval": 60,
               "reportableChange": 0
+            },
+            {
+              "name": "MonitoringActive",
+              "code": 24,
+              "mfgCode": 4169,
+              "side": "server",
+              "type": "int8u",
+              "included": 1,
+              "storageOption": "RAM",
+              "singleton": 0,
+              "bounded": 0,
+              "defaultValue": "0x00",
+              "reportable": 1,
+              "minInterval": 1,
+              "maxInterval": 60,
+              "reportableChange": 0
             }
           ]
         }

@@ -18,13 +18,9 @@ $python = Join-Path $pythonRoot 'python.exe'
 $zapDb = Join-Path $env:USERPROFILE '.zap\generate.sqlite'
 
 if (Test-Path -LiteralPath $zapDb) {
-    $cleanup = @'
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-n = db.execute("DELETE FROM PACKAGE WHERE PATH LIKE '%smart-iv-vitals.xml'").rowcount
-db.commit()
-print(f"ZAP cache rows removed: {n}")
-'@
+    # Keep this on one line: Windows PowerShell can split/strip quotes from a
+    # multiline native-process argument passed to Python's -c option.
+    $cleanup = "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); n=db.execute('DELETE FROM PACKAGE WHERE PATH LIKE ?', ('%smart-iv-vitals.xml%',)).rowcount; db.commit(); print('ZAP cache rows removed:', n)"
     & $python -c $cleanup $zapDb
     if ($LASTEXITCODE -ne 0) { throw "Could not clean the ZAP cache" }
 }
@@ -45,14 +41,15 @@ try {
         'ZCL_DROPS_FORECAST_16S_ATTRIBUTE_ID',
         'ZCL_DROPS_TREND_DPM_PER_MIN_ATTRIBUTE_ID',
         'ZCL_REMAINING_ML_ATTRIBUTE_ID',
-        'ZCL_REMAINING_MIN_ATTRIBUTE_ID'
+        'ZCL_REMAINING_MIN_ATTRIBUTE_ID',
+        'ZCL_MONITORING_ACTIVE_ATTRIBUTE_ID'
     )
     $zapIds = Get-Content -Raw (Join-Path $projectRoot 'autogen\zap-id.h')
     $missing = @($required | Where-Object { $zapIds -notmatch [regex]::Escape($_) })
     if ($missing.Count -gt 0) {
         throw "Generated zap-id.h is missing custom attributes: $($missing -join ', ')"
     }
-    Write-Host 'SLC generation complete; all 9 custom ZCL attributes are present.'
+    Write-Host 'SLC generation complete; all 10 extended custom ZCL attributes are present.'
 } finally {
     $env:_JAVA_OPTIONS = $oldJavaOptions
     Pop-Location

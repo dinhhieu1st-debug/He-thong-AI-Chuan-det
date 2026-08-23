@@ -446,6 +446,9 @@ class SmartIvApp(tk.Tk):
                         if active_tests else "TEST TAT - dang dung cam bien that")
                 self.metric_vars["HR"].set(f"{int(hr)} BPM" if hr > 0 else "-- BPM")
                 self.metric_vars["SpO2"].set(f"{int(oxygen)} %" if oxygen > 0 else "-- %")
+                if hr <= 0 or oxygen <= 0:
+                    self.metric_vars["HR tho"].set("-- BPM")
+                    self.metric_vars["SpO2 tho"].set("-- %")
                 self.metric_vars["Can"].set(f"{weight:.3f} kg")
                 self.metric_vars["Khoang giot"].set(f"{interval:.3f} giay" if interval > 0 else "-- giay")
                 self.metric_vars["Moc dat"].set(f"{target:.3f} giay")

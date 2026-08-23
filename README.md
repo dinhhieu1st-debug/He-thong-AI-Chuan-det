@@ -20,13 +20,14 @@ Project kết hợp firmware nhúng và ứng dụng máy tính để theo dõi 
 MAX30102 ── HR/SpO2 ───────┐
 Photodiode ── khoảng giọt ─┼─> EFR32xG26 ─> OLED/LED/Buzzer
 HX711 ── khối lượng ───────┘       │
-                                   └─ USB COM ─> GUI Python ─> MLP + LSTM
+                                   ├─ USB COM ─> GUI Python ─> MLP + LSTM
+                                   └─ Zigbee ZCL EP2 ─> Gateway/Zigbee2MQTT
 ```
 
 1. G26 tự trừ bì loadcell trong 10 giây. Trong thời gian này không treo bịch.
 2. OLED báo sẵn sàng; người dùng treo bịch dịch và mở ứng dụng máy tính.
 3. Người dùng chọn khoảng đặt hoặc tốc độ giọt.
-4. Firmware đọc cảm biến, cập nhật OLED và gửi dữ liệu qua USB COM.
+4. Firmware đọc cảm biến, cập nhật OLED và ghi dữ liệu vào Zigbee ZCL Attribute.
 5. GUI phân tích chuỗi nhỏ giọt bằng MLP/LSTM và gửi mức nhỏ giọt về G26.
 6. G26 kết hợp mức sinh hiệu và mức nhỏ giọt để điều khiển cảnh báo cuối.
 
@@ -137,6 +138,8 @@ Sau đó:
 
 Hai dòng cuối hiển thị trạng thái như `NORMAL`, `L2: CAUTION`, `L3 CRITICAL` và nguyên nhân `HR`, `SPO2`, `DROP` hoặc tổ hợp của chúng.
 
+Khi MAX30102 không còn trả về mẫu hợp lệ trong 3 giây, OLED hiển thị `--` thay vì giữ số HR/SpO2 cũ. Baseline và lịch sử AI vẫn được giữ để cảm biến có thể tiếp tục mà không phải học lại.
+
 ## 5. Logic cảnh báo
 
 ### Nhỏ giọt
@@ -227,7 +230,54 @@ Baudrate: `115200`.
 | `TELEMETRY,...` | Toàn bộ thông số hiển thị |
 | `FAKE_VITAL,<0|2|3>` | Chọn chế độ test sinh hiệu |
 
-## 9. Cấu trúc source
+## 9. Zigbee ZCL Attribute
+
+XG26 **không tạo hoặc gửi JSON trực tiếp**. Firmware ghi dữ liệu vào custom ZCL cluster; gateway và converter Zigbee2MQTT chịu trách nhiệm chuyển attribute thành JSON.
+
+| Thành phần | Giá trị |
+|---|---|
+| Endpoint | `2` |
+| Cluster | `0xFC01` — Smart IV Vitals |
+| Manufacturer Code | `0x1049` |
+| Model Identifier | `SmartIV-Sensor` |
+| Reporting | tối thiểu 1 giây, tối đa 60 giây |
+
+| Attribute | Tên | Kiểu | Nội dung |
+|---:|---|---|---|
+| `0x0000` | HeartRate | int16s | BPM; `0` khi mất tín hiệu |
+| `0x0001` | Spo2 | int16u | %; `0` khi mất tín hiệu |
+| `0x0002` | FlowRatio | int16u | tốc độ thực tế/mốc đặt, % |
+| `0x0003` | DropRatio | int16s | tốc độ thực tế/mốc đặt, % |
+| `0x0004` | AlarmBitmap | bitmap16 | trạng thái cảnh báo |
+| `0x0005` | WeightG | int16u | gram |
+| `0x0006` | DropsPerMin | int16u | giọt/phút |
+| `0x0007` | TargetFlowMlH | int16u | ml/h; `0xFFFF` nếu chưa có nguồn dữ liệu |
+| `0x0008` | TargetDropsPerMin | int16u | giọt/phút |
+| `0x000F` | TsFlags | bitmap16 | trạng thái AI chuỗi thời gian |
+| `0x0010` | HrForecast16s | int16u | HR dự báo sau 16 giây |
+| `0x0011` | Spo2Forecast16s | int16u | SpO2 dự báo sau 16 giây |
+| `0x0012` | HrTrendBpmPerMin | int16s | xu hướng HR mỗi phút |
+| `0x0013` | TsAnomalyScoreX100 | int16u | điểm bất thường ×100 |
+| `0x0014` | DropsForecast16s | int16u | dự báo giọt; `0xFFFF` nếu chưa khả dụng |
+| `0x0015` | DropsTrendDpmPerMin | int16s | xu hướng giọt mỗi phút |
+| `0x0016` | RemainingMl | int16u | ml còn lại; `0xFFFF` nếu chưa khả dụng |
+| `0x0017` | RemainingMin | int16u | phút còn lại; `0xFFFF` nếu chưa khả dụng |
+| `0x0018` | MonitoringActive | int8u | `1` đang giám sát, `0` chưa giám sát |
+
+`AlarmBitmap` dùng bit 0 cho mức chú ý, bit 1 cho mức đỏ, bit 2 cho sinh hiệu và bit 3 cho nhỏ giọt. Khi mất tín hiệu HR/SpO2, forecast tương ứng cũng chuyển sang `0xFFFF`.
+
+Ví dụ HR 75 BPM, SpO2 98%, tỷ lệ dòng/giọt 100%, cân 496 g và 20 giọt/phút được report trên EP2/`0xFC01` như sau:
+
+```text
+0x0000 = 75
+0x0001 = 98
+0x0002 = 100
+0x0003 = 100
+0x0005 = 496
+0x0006 = 20
+```
+
+## 10. Cấu trúc source
 
 ```text
 firmware/                 Driver cảm biến, OLED, cảnh báo và AI sinh hiệu
@@ -243,7 +293,7 @@ cmake_gcc/                Cấu hình build GCC
 bootloader/               Bootloader project
 ```
 
-## 10. Xử lý lỗi thường gặp
+## 11. Xử lý lỗi thường gặp
 
 ### GUI không có dữ liệu
 
@@ -254,11 +304,14 @@ bootloader/               Bootloader project
 
 ### HR/SpO2 lúc có lúc không
 
+Firmware hiện hỗ trợ I²C clock stretching, tự phục hồi bus sau lỗi giao tiếp và đọc lại tối đa ba lần nếu gặp một khung HR/SpO2 tạm thời không hợp lệ. Không nên tăng thời gian giữ số để che lỗi, vì khi người dùng bỏ tay hệ thống phải xóa dữ liệu cũ.
+
 - Dùng nguồn 3.3 V ổn định và chung GND.
 - Dùng pull-up SDA/SCL khoảng 4.7 kΩ.
 - Rút ngắn dây PC05/PC07 và tránh dây buzzer.
 - Giữ ngón tay cố định, che ánh sáng ngoài.
-- Kiểm tra log `VITAL_RAW` để phân biệt lỗi cảm biến và lỗi hiển thị.
+- Kiểm tra log `VITAL_RAW`: nếu log vẫn chạy nhưng GUI mất số thì kiểm tra phần mềm; nếu `VITAL_RAW` dừng quá 3 giây khi tay vẫn giữ nguyên thì kiểm tra nguồn, SDA/SCL và pull-up của bus dùng chung OLED/MAX30102.
+- Khi bỏ tay thật, OLED và GUI hiện `--`; ZCL `HeartRate`/`Spo2` về `0`.
 
 ### Nhỏ giọt xuất hiện khoảng cực ngắn
 
@@ -271,14 +324,14 @@ bootloader/               Bootloader project
 
 Buzzer của hệ thống là active-low: LOW kêu, HIGH tắt. Không đảo lại logic nếu không thay phần cứng kích transistor.
 
-## 11. Kiểm tra trước khi commit
+## 12. Kiểm tra trước khi commit
 
 ```powershell
 python -m py_compile host_ai\inference\desktop_gui.py
 powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
 ```
 
-## 12. Giới hạn an toàn
+## 13. Giới hạn an toàn
 
 - Các model hiện tại là prototype nghiên cứu.
 - Dataset synthetic không thay thế kiểm định trên nhiều bộ dây truyền và điều kiện thực tế.

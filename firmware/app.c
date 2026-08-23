@@ -15,8 +15,10 @@
 #include "sl_iostream.h"
 #include "sl_iostream_init_eusart_instances.h"
 #include "sl_sleeptimer.h"
+#include "af.h"
 #include "software_i2c.h"
 #include "vitals_ai.h"
+#include "zap-id.h"
 
 #define GREEN_LED_PORT  gpioPortA
 #define GREEN_LED_PIN   7U
@@ -32,6 +34,30 @@
 #define SAMPLE_COUNT       4U
 #define TARE_TIME_MS       10000U
 #define VITALS_HOLD_MS     3000U
+
+#define SMART_IV_ENDPOINT          2U
+#define SMART_IV_CLUSTER_ID        0xFC01U
+#define SMART_IV_MANUFACTURER_CODE 0x1049U
+
+#define ATTR_HEART_RATE            0x0000U
+#define ATTR_SPO2                  0x0001U
+#define ATTR_FLOW_RATIO            0x0002U
+#define ATTR_DROP_RATIO            0x0003U
+#define ATTR_ALARM_BITMAP          0x0004U
+#define ATTR_WEIGHT_G              0x0005U
+#define ATTR_DROPS_PER_MIN         0x0006U
+#define ATTR_TARGET_FLOW_ML_H      0x0007U
+#define ATTR_TARGET_DROPS_PER_MIN  0x0008U
+#define ATTR_TS_FLAGS              0x000FU
+#define ATTR_HR_FORECAST_16S       0x0010U
+#define ATTR_SPO2_FORECAST_16S     0x0011U
+#define ATTR_HR_TREND_BPM_PER_MIN  0x0012U
+#define ATTR_TS_ANOMALY_SCORE_X100 0x0013U
+#define ATTR_DROPS_FORECAST_16S    0x0014U
+#define ATTR_DROPS_TREND_DPM_MIN   0x0015U
+#define ATTR_REMAINING_ML          0x0016U
+#define ATTR_REMAINING_MIN         0x0017U
+#define ATTR_MONITORING_ACTIVE     0x0018U
 
 typedef enum { ALERT_GREEN = 0, ALERT_YELLOW = 1, ALERT_RED = 2 } alert_level_t;
 typedef enum { SYSTEM_TARING = 0, SYSTEM_WAITING_AI_SET, SYSTEM_MONITORING } system_state_t;
@@ -77,6 +103,104 @@ static uint32_t now_ms(void)
 }
 
 static float absolute_float(float value) { return value < 0.0f ? -value : value; }
+
+static uint16_t clamp_u16(float value)
+{
+  if (value <= 0.0f) { return 0U; }
+  if (value >= 65535.0f) { return UINT16_MAX; }
+  return (uint16_t)(value + 0.5f);
+}
+
+static int16_t clamp_i16(float value)
+{
+  if (value <= -32768.0f) { return INT16_MIN; }
+  if (value >= 32767.0f) { return INT16_MAX; }
+  return (int16_t)(value + (value >= 0.0f ? 0.5f : -0.5f));
+}
+
+static void write_zcl_u16(uint16_t attribute_id, uint16_t value,
+                          sl_zigbee_af_attribute_type_t type)
+{
+  (void)sl_zigbee_af_write_manufacturer_specific_server_attribute(
+    SMART_IV_ENDPOINT, SMART_IV_CLUSTER_ID, attribute_id,
+    SMART_IV_MANUFACTURER_CODE, (uint8_t *)&value, type);
+}
+
+static void write_zcl_i16(uint16_t attribute_id, int16_t value)
+{
+  (void)sl_zigbee_af_write_manufacturer_specific_server_attribute(
+    SMART_IV_ENDPOINT, SMART_IV_CLUSTER_ID, attribute_id,
+    SMART_IV_MANUFACTURER_CODE, (uint8_t *)&value, ZCL_INT16S_ATTRIBUTE_TYPE);
+}
+
+static void write_zcl_u8(uint16_t attribute_id, uint8_t value)
+{
+  (void)sl_zigbee_af_write_manufacturer_specific_server_attribute(
+    SMART_IV_ENDPOINT, SMART_IV_CLUSTER_ID, attribute_id,
+    SMART_IV_MANUFACTURER_CODE, &value, ZCL_INT8U_ATTRIBUTE_TYPE);
+}
+
+static void publish_zigbee_attributes(int16_t current_hr,
+                                      int16_t current_spo2,
+                                      bool current_vitals_valid,
+                                      float current_weight_kg,
+                                      float current_drops_per_minute)
+{
+  uint16_t target_drops = target_interval_ms > 0U
+                          ? clamp_u16(60000.0f / (float)target_interval_ms) : 0U;
+  float ratio = target_drops > 0U
+                ? current_drops_per_minute * 100.0f / (float)target_drops : 0.0f;
+  uint16_t flow_ratio = clamp_u16(ratio);
+  int16_t drop_ratio = clamp_i16(ratio);
+  uint16_t alarm_bitmap = 0U;
+  uint16_t ts_flags = 0U;
+
+  /* Transport flags only: the alert levels themselves are computed elsewhere. */
+  if (alert_level == ALERT_YELLOW) { alarm_bitmap |= 0x0001U; }
+  if (alert_level == ALERT_RED) { alarm_bitmap |= 0x0002U; }
+  if (vitals_ai.level > 1U) { alarm_bitmap |= 0x0004U; }
+  if (drip_level > 1U) { alarm_bitmap |= 0x0008U; }
+  if (vitals_ai.models_ready) { ts_flags |= 0x0001U; }
+  if (vitals_ai.history_ready) { ts_flags |= 0x0002U; }
+  if (vitals_ai.ai_anomaly) { ts_flags |= 0x0004U; }
+  if (vitals_ai.hard_limit) { ts_flags |= 0x0008U; }
+
+  uint16_t hr_forecast = current_vitals_valid && vitals_ai.history_ready
+                         ? clamp_u16(vitals_ai.hr_forecast_16s) : UINT16_MAX;
+  uint16_t spo2_forecast = current_vitals_valid && vitals_ai.history_ready
+                           ? clamp_u16(vitals_ai.spo2_forecast_16s) : UINT16_MAX;
+  int16_t hr_trend = current_vitals_valid && vitals_ai.history_ready
+                     ? clamp_i16((vitals_ai.hr_forecast_16s - (float)current_hr) * 3.75f)
+                     : 0;
+  uint16_t weight_g = current_weight_kg > 0.0f
+                      ? clamp_u16(current_weight_kg * 1000.0f) : 0U;
+  uint16_t drops_per_min = clamp_u16(current_drops_per_minute);
+  uint16_t unavailable = UINT16_MAX;
+  int16_t no_drop_trend = 0;
+
+  write_zcl_i16(ATTR_HEART_RATE, current_hr);
+  write_zcl_u16(ATTR_SPO2, current_spo2 > 0 ? (uint16_t)current_spo2 : 0U,
+                ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_FLOW_RATIO, flow_ratio, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_i16(ATTR_DROP_RATIO, drop_ratio);
+  write_zcl_u16(ATTR_ALARM_BITMAP, alarm_bitmap, ZCL_BITMAP16_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_WEIGHT_G, weight_g, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_DROPS_PER_MIN, drops_per_min, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_TARGET_FLOW_ML_H, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_TARGET_DROPS_PER_MIN, target_drops, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_TS_FLAGS, ts_flags, ZCL_BITMAP16_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_HR_FORECAST_16S, hr_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_SPO2_FORECAST_16S, spo2_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_i16(ATTR_HR_TREND_BPM_PER_MIN, hr_trend);
+  write_zcl_u16(ATTR_TS_ANOMALY_SCORE_X100,
+                vitals_ai.ai_anomaly ? 100U : 0U, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_DROPS_FORECAST_16S, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_i16(ATTR_DROPS_TREND_DPM_MIN, no_drop_trend);
+  write_zcl_u16(ATTR_REMAINING_ML, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_REMAINING_MIN, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u8(ATTR_MONITORING_ACTIVE,
+               system_state == SYSTEM_MONITORING ? 1U : 0U);
+}
 
 static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 {
@@ -165,6 +289,7 @@ static void start_tare(uint32_t now)
   drop_sensor_reset_statistics();
   hx711_sensor_tare();
   all_alerts_off();
+  write_zcl_u8(ATTR_MONITORING_ACTIVE, 0U);
   oled_display_message("STARTING", "DO NOT HANG BAG", "TARE IN 10 SEC", NULL);
 }
 
@@ -415,14 +540,20 @@ static void publish_display(void)
                             / vitals_ai.spo2_baseline : 0.0f;
     bool hr_cause = ai_heart_rate < 45 || ai_heart_rate > 150 || relative_hr >= 0.15f;
     bool spo2_cause = ai_spo2 < 90 || relative_spo2 >= 0.15f;
+    /* Keep the learned/AI values intact, but never expose a held value as a
+     * current measurement after the sensor signal has expired. */
+    int16_t output_heart_rate = vitals_valid ? ai_heart_rate : 0;
+    int16_t output_spo2 = vitals_valid ? ai_spo2 : 0;
     oled_display_monitor(ai_heart_rate, ai_spo2, vitals_valid, weight_kg,
                          hx711_sensor_connected() && hx711_sensor_tared(),
                          interval, (float)target_interval_ms / 1000.0f,
                          rate, (uint8_t)alert_level + 1U, vitals_ai.level,
                          drip_level, hr_cause, spo2_cause, vitals_ai.baseline_samples,
                          vitals_ai.history_samples);
+    publish_zigbee_attributes(output_heart_rate, output_spo2, vitals_valid,
+                              weight_kg, rate);
     printf("TELEMETRY,%d,%d,%.3f,%.3f,%.3f,%.1f,%u,%u,%u,%.1f,%.1f,%u,%u,%u,%u,%u\r\n",
-           ai_heart_rate, ai_spo2, (double)weight_kg, (double)interval,
+           output_heart_rate, output_spo2, (double)weight_kg, (double)interval,
            (double)target_interval_ms / 1000.0,
            (double)rate, (unsigned int)alert_level + 1U,
            (unsigned int)vitals_ai.level, (unsigned int)drip_level,

@@ -7,12 +7,23 @@
 #define I2C_SCL_PIN  5U
 #define I2C_SDA_PORT gpioPortC
 #define I2C_SDA_PIN  7U
+#define I2C_CLOCK_STRETCH_LIMIT 200U
 
 static void delay_bus(void) { sl_udelay_wait(5U); }
 static void set_scl(bool high)
 {
-  if (high) { GPIO_PinOutSet(I2C_SCL_PORT, I2C_SCL_PIN); }
-  else { GPIO_PinOutClear(I2C_SCL_PORT, I2C_SCL_PIN); }
+  if (high) {
+    GPIO_PinOutSet(I2C_SCL_PORT, I2C_SCL_PIN);
+    /* A sensor may hold SCL low briefly while preparing the next byte. */
+    for (uint16_t wait = 0U;
+         wait < I2C_CLOCK_STRETCH_LIMIT
+         && GPIO_PinInGet(I2C_SCL_PORT, I2C_SCL_PIN) == 0;
+         wait++) {
+      sl_udelay_wait(5U);
+    }
+  } else {
+    GPIO_PinOutClear(I2C_SCL_PORT, I2C_SCL_PIN);
+  }
   delay_bus();
 }
 static void set_sda(bool high)
