@@ -14,6 +14,7 @@
 #define MIN_VALID_PULSE_US        300U
 #define MAX_VALID_PULSE_US        100000U
 #define INTERVAL_SAMPLES          20U
+#define DISPLAY_MEDIAN_SAMPLES     7U
 #define MIN_DROP_GAP_DEFAULT_MS   200U
 #define MIN_DROP_GAP_MAX_MS       800U
 
@@ -173,10 +174,18 @@ float drop_sensor_average_interval_seconds(void)
 
 float drop_sensor_median_interval_seconds(void)
 {
-  uint32_t sorted[INTERVAL_SAMPLES];
+  uint32_t sorted[DISPLAY_MEDIAN_SAMPLES];
   if (interval_count == 0U) { return 0.0f; }
-  for (uint8_t i = 0U; i < interval_count; i++) { sorted[i] = interval_samples[i]; }
-  for (uint8_t i = 1U; i < interval_count; i++) {
+  uint8_t count = interval_count < DISPLAY_MEDIAN_SAMPLES
+                  ? interval_count : DISPLAY_MEDIAN_SAMPLES;
+  /* interval_index points at the next write slot.  Use only the newest
+   * intervals so old flow conditions do not keep the live rate jumping. */
+  for (uint8_t i = 0U; i < count; i++) {
+    uint8_t index = (uint8_t)((interval_index + INTERVAL_SAMPLES - 1U - i)
+                              % INTERVAL_SAMPLES);
+    sorted[i] = interval_samples[index];
+  }
+  for (uint8_t i = 1U; i < count; i++) {
     uint32_t value = sorted[i];
     uint8_t j = i;
     while (j > 0U && sorted[j - 1U] > value) {
@@ -185,9 +194,9 @@ float drop_sensor_median_interval_seconds(void)
     }
     sorted[j] = value;
   }
-  uint32_t median = sorted[interval_count / 2U];
-  if ((interval_count & 1U) == 0U) {
-    median = (sorted[interval_count / 2U - 1U] + median) / 2U;
+  uint32_t median = sorted[count / 2U];
+  if ((count & 1U) == 0U) {
+    median = (sorted[count / 2U - 1U] + median) / 2U;
   }
   return (float)median / 1000.0f;
 }

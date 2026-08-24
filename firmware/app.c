@@ -275,19 +275,17 @@ static void apply_target_drops_per_min(uint16_t drops_per_min)
   drop_timeout_sent = false;
 }
 
-/* Pure per-interval verdict from the drop timing physics, no smoothing and
- * no memory of previous samples - callers apply hysteresis/debounce around
- * this. Thresholds are ratios of actual interval to the doctor-set target
- * interval: within +-20% is normal, +-20%..+-50% is a warning, beyond +-50%
- * (drops far too fast/slow) is critical. */
+/* Pure per-interval verdict from the agreed physical safety bands. Keep this
+ * independent from the smoothed display rate: a median is good for a readable
+ * graph, but must never hide a genuinely missing or late drop. */
 static uint8_t evaluate_physical_drip_level(uint32_t target_ms, uint32_t actual_ms)
 {
   if (target_ms == 0U || actual_ms == 0U) { return 1U; }
 
-  float ratio = (float)actual_ms / (float)target_ms;
-
-  if (ratio < 0.50f || ratio > 1.50f) { return 3U; }
-  if (ratio < 0.80f || ratio > 1.20f) { return 2U; }
+  uint32_t difference = actual_ms > target_ms
+                        ? actual_ms - target_ms : target_ms - actual_ms;
+  if (difference > 800U) { return 3U; }
+  if (difference > 200U) { return 2U; }
   return 1U;
 }
 
@@ -889,15 +887,16 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
     memcpy(&next, value, sizeof(next));
     if (next >= 1U && next <= 240U) {
       bool target_changed = next != target_drops_per_min;
-      apply_target_drops_per_min(next);
       monitoring_requested = true;
       if (system_state == SYSTEM_WAITING_AI_SET) {
+        apply_target_drops_per_min(next);
         system_state = SYSTEM_MONITORING;
         reset_monitoring_training();
         oled_display_message("TARGET RECEIVED", "COLLECTING DATA",
                              "DROP: 0/20", "HR+SPO2: 0/64");
         printf("[MONITOR] Target confirmed by HIS Web; starting 20 drop and 64 vitals samples.\r\n");
       } else if (system_state == SYSTEM_MONITORING && target_changed) {
+        apply_target_drops_per_min(next);
         reset_drop_training_for_target();
       }
       save_monitoring_state();
@@ -1216,7 +1215,8 @@ static void publish_display(void)
       all_alerts_off();
     }
     float interval = drop_sensor_last_interval_seconds();
-    float rate = interval > 0.0f ? 60.0f / interval : 0.0f;
+    float stable_interval = drop_sensor_median_interval_seconds();
+    float rate = stable_interval > 0.0f ? 60.0f / stable_interval : 0.0f;
     float relative_hr = vitals_ai.hr_baseline > 0.0f
                         ? absolute_float((float)ai_heart_rate - vitals_ai.hr_baseline)
                           / vitals_ai.hr_baseline : 0.0f;
@@ -1265,7 +1265,8 @@ static void publish_display(void)
      * OLED/HIS, but no sample is admitted to either AI training window and no
      * alarm decision is made until the web target write arrives. */
     float interval = drop_sensor_last_interval_seconds();
-    float rate = interval > 0.0f ? 60.0f / interval : 0.0f;
+    float stable_interval = drop_sensor_median_interval_seconds();
+    float rate = stable_interval > 0.0f ? 60.0f / stable_interval : 0.0f;
     int16_t output_heart_rate = vitals_valid ? heart_rate : 0;
     int16_t output_spo2 = vitals_valid ? spo2 : 0;
     oled_display_monitor(heart_rate, spo2, vitals_valid, weight_kg,
