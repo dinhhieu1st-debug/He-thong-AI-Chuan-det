@@ -1,50 +1,198 @@
-# Hệ thống AI Chuẩn Đét
+# Hệ thống AI Chuẩn Đét – Smart IV Monitor
 
-Smart IV Monitor là hệ thống thử nghiệm giám sát truyền dịch theo chuỗi:
+Đây là đồ án sinh viên xây dựng một hệ thống giám sát bệnh nhân đang truyền dịch. Mục tiêu của nhóm là gom dữ liệu sinh hiệu, tốc độ nhỏ giọt và khối lượng bịch dịch về một giao diện web để y tá dễ theo dõi, đồng thời phát cảnh báo ngay tại giường bằng LED và buzzer.
+
+> **Lưu ý:** đây là mô hình nghiên cứu và trình diễn, chưa phải thiết bị y tế đã được kiểm định. Không dùng hệ thống này để thay thế thiết bị theo dõi lâm sàng.
+
+## 1. Hệ thống làm được gì?
+
+- Đo nhịp tim (HR) và SpO2.
+- Đếm giọt, tính khoảng cách giữa hai giọt và tốc độ giọt/phút.
+- Đo khối lượng bịch dịch bằng loadcell.
+- Học mốc sinh hiệu và mốc nhỏ giọt trước khi bật cảnh báo.
+- Chạy AI chuỗi thời gian trực tiếp trên G26.
+- Ghép cảnh báo sinh hiệu và nhỏ giọt thành ba mức.
+- Hiển thị số liệu trên OLED 0.96 inch và web HIS Server.
+- Cho phép đặt tốc độ giọt, trừ bì và bật dữ liệu fake từ web.
+- Truyền hai chiều qua Zigbee; G26 không tự tạo JSON.
+
+Luồng dữ liệu của hệ thống:
 
 ```text
-Cảm biến -> EFR32xG26 -> Zigbee ZCL -> Zigbee2MQTT trên Raspberry Pi
-         -> Gateway TCP -> HIS Server -> giao diện web thời gian thực
+MAX30102 + photodiode + HX711
+              |
+              v
+       EFR32xG26 (firmware + AI + OLED + cảnh báo)
+              |
+              | Zigbee ZCL Attribute
+              v
+    Zigbee coordinator + Zigbee2MQTT trên Raspberry Pi
+              |
+              | MQTT JSON nội bộ
+              v
+        Gateway TCP trên Raspberry Pi
+              |
+              | TCP 5000 (trực tiếp hoặc SSH reverse tunnel)
+              v
+      HIS Server .NET 8 + MySQL + giao diện web 5194
 ```
 
-Hệ thống theo dõi HR, SpO2, tốc độ/khoảng cách giọt, khối lượng bịch dịch,
-AI chuỗi thời gian và cảnh báo ba mức. Đây là prototype nghiên cứu, chưa phải
-thiết bị y tế đã kiểm định và không thay thế giám sát lâm sàng.
+## 2. Các thư mục chính
 
-## 1. Thành phần và giao thức
-
-| Thành phần | Vai trò |
+| Thư mục | Nội dung |
 |---|---|
-| EFR32xG26 / BRD2709A | Đọc cảm biến, AI, OLED, LED/buzzer và Zigbee |
-| MAX30102 | HR và SpO2 |
-| Photodiode | Phát hiện giọt dịch |
-| HX711 + loadcell | Khối lượng bịch dịch |
-| Raspberry Pi ARM64 | Mosquitto, Zigbee2MQTT, coordinator và gateway |
-| HIS Server .NET 8 | Nhận TCP `5000`, lưu dữ liệu, phục vụ web `5194` |
+| `firmware/` | Firmware G26: cảm biến, OLED, AI, cảnh báo và Zigbee |
+| `firmware/models/` | Model TFLite Micro đã nhúng vào firmware |
+| `gateway-pi/` | Source gateway MQTT ↔ TCP và cấu hình triển khai Pi |
+| `demo1/gateway/` | Converter Zigbee2MQTT cho custom cluster Smart IV |
+| `demo1/server/` | HIS Server .NET 8, giao diện web, API và database |
+| `host_ai/` | Dataset, mã huấn luyện và tài liệu AI nhỏ giọt |
+| `tools/` | Script build, nạp firmware, firewall và khởi động Pi |
 
-G26 không gửi JSON trực tiếp. Firmware report ZCL Attribute tại Endpoint 2,
-custom cluster `0xFC01`, manufacturer code `0x1049`. Converter trên Pi chuyển
-attribute thành MQTT JSON; gateway chuyển dữ liệu tới HIS Server.
+## 3. Phần cứng và sơ đồ chân G26
 
-## 2. Sơ đồ chân G26
+Bo mạch đang sử dụng là EFR32xG26/BRD2709A.
 
-| Thiết bị | Tín hiệu | Chân |
+| Khối | Tín hiệu | Chân G26 |
 |---|---|---|
-| Cảm biến giọt | OUT | PD02 |
-| HX711 | DOUT / SCK | PC01 / PC03 |
-| MAX30102 + OLED | SCL / SDA | PC05 / PC07 |
-| LED xanh / vàng / đỏ | OUT | PA07 / PA04 / PA05 |
+| Cảm biến giọt | Digital OUT | PD02 |
+| HX711 | DOUT | PC01 |
+| HX711 | SCK | PC03 |
+| MAX30102 và OLED | SCL | PC05 |
+| MAX30102 và OLED | SDA | PC07 |
+| LED xanh | OUT | PA07 |
+| LED vàng | OUT | PA04 |
+| LED đỏ | OUT | PA05 |
 | Buzzer active-low | OUT | PC06 |
 | Nút trừ bì | INPUT | PB00 |
 
-Các module dùng logic 3.3 V và chung GND. Nên kéo lên SDA/SCL khoảng `4.7 kΩ`,
-dùng dây I2C ngắn và đặt xa dây buzzer.
+Các module dùng mức logic 3.3 V và phải nối chung GND. Với bus I2C dùng chung OLED và MAX30102, nhóm khuyên dùng điện trở kéo lên khoảng `4.7 kΩ`, dây ngắn và tách dây I2C khỏi buzzer.
 
-## 3. Chuẩn bị và tải source
+## 4. Giao thức Zigbee của G26
 
-Máy Windows cần Git, .NET 8 SDK, MySQL 8 và Silicon Labs
-Tools/Simplicity Studio (CMake + Commander). Pi cần có runtime
-`~/pi-aarch64`, coordinator tại `/dev/ttyACM0` và quyền serial.
+G26 **không gửi JSON trực tiếp**. Firmware ghi dữ liệu vào ZCL Attribute và report qua Zigbee:
+
+- Endpoint: `2`
+- Cluster ID: `0xFC01`
+- Manufacturer Code: `0x1049`
+- Model: `SmartIV-Sensor`
+- Cluster name: `Smart IV Vitals`
+
+| Attribute | Tên | Kiểu | Đơn vị |
+|---:|---|---|---|
+| `0x0000` | HeartRate | int16s | bpm |
+| `0x0001` | Spo2 | int16u | % |
+| `0x0002` | FlowRatio | int16u | % |
+| `0x0003` | DropRatio | int16s | % |
+| `0x0004` | AlarmBitmap | bitmap16 | bit |
+| `0x0005` | WeightG | int16u | gram |
+| `0x0006` | DropsPerMin | int16u | giọt/phút |
+| `0x0007` | TargetFlowMlH | int16u | ml/h |
+| `0x0008` | TargetDropsPerMin | int16u | giọt/phút |
+| `0x000F` | TsFlags | bitmap16 | bit |
+| `0x0010` | HrForecast16s | int16u | bpm |
+| `0x0011` | Spo2Forecast16s | int16u | % |
+| `0x0012` | HrTrendBpmPerMin | int16s | bpm/phút |
+| `0x0013` | TsAnomalyScoreX100 | int16u | điểm ×100 |
+| `0x0014` | DropsForecast16s | int16u | giọt/phút |
+| `0x0015` | DropsTrendDpmPerMin | int16s | dpm/phút |
+| `0x0016` | RemainingMl | int16u | ml |
+| `0x0017` | RemainingMin | int16u | phút |
+| `0x0018` | MonitoringActive | int8u | 0/1 |
+
+Converter tại `demo1/gateway/zigbee2mqtt_smart_iv_converter.js` đổi các attribute thành MQTT JSON. Gateway chuyển JSON này tới server và chuyển lệnh từ server về lại đúng attribute trên endpoint 2.
+
+## 5. Trình tự hoạt động
+
+1. G26 khởi động và trừ bì loadcell trong 10 giây. Không treo bịch ở bước này.
+2. OLED yêu cầu mở HIS web để đặt tốc độ giọt.
+3. Cảm biến vẫn được đọc và gửi lên web để người dùng kiểm tra kết nối.
+4. Treo bịch, nhập tốc độ mục tiêu trên web và xác nhận.
+5. Lệnh đi theo chiều Server → TCP gateway → MQTT → Zigbee2MQTT → ZCL → G26.
+6. G26 bắt đầu lấy 20 mẫu nhỏ giọt và 64 mẫu sinh hiệu.
+7. Khi đủ dữ liệu, AI và cảnh báo được kích hoạt.
+8. Mức cảnh báo cuối được gửi ngược lên server kèm nguyên nhân.
+
+## 6. Xử lý HR và SpO2
+
+Cảm biến được đọc mỗi `250 ms`. Bốn lần đọc tạo thành một nhịp cập nhật, nên AI nhận đúng `1 mẫu/giây` và 64 mẫu tương ứng khoảng 64 giây.
+
+Để hạn chế HR nhảy loạn, firmware hiện dùng:
+
+- Cửa sổ trượt 12 lần đọc, cần ít nhất 8 lần hợp lệ.
+- Median để loại xung bất thường.
+- HR lệch lớn hơn 20 BPM phải lặp lại ba lần mới được chấp nhận.
+- HR đã lọc thay đổi tối đa 4 BPM mỗi giây.
+- SpO2 cũng có cửa sổ lọc, xác nhận biến động và giới hạn bước thay đổi.
+- Mất tín hiệu quá 3 giây sẽ trả về trạng thái không có dữ liệu và xóa cửa sổ cũ.
+- Dữ liệu giữ tạm để hiển thị không được tính thành mẫu AI mới.
+- Chế độ fake chỉ đi vào nhánh kiểm thử AI; số cảm biến thật vẫn được giữ riêng để đối chiếu.
+
+Không tăng tốc 64 mẫu bằng cách lặp lại cùng một giá trị, vì làm như vậy model sẽ hiểu sai khoảng thời gian của history, trend và forecast 16 giây.
+
+## 7. Logic cảnh báo
+
+### 7.1. Nhỏ giọt
+
+Firmware theo dõi mốc động để chấp nhận việc chai dịch chậm dần một cách tự nhiên. Mốc chỉ bám theo những thay đổi nhỏ còn nằm trong vùng an toàn; xung nhiễu, mất giọt và sai lệch lớn không được học theo.
+
+- Sai lệch `±200 ms`: mức 1 – bình thường.
+- Sai lệch trên `200 ms` đến `800 ms`: mức 2 – chú ý.
+- Sai lệch trên `800 ms`: mức 3 – cảnh báo.
+- Watchdog phát hiện quá lâu không có giọt và đưa nhánh nhỏ giọt lên mức 3.
+- MLP và LSTM dùng cửa sổ 20 giọt để phân tích xu hướng; dải vật lý vẫn là lớp bảo vệ chính.
+
+### 7.2. Sinh hiệu
+
+- 60 mẫu đầu tạo baseline HR/SpO2.
+- Tiếp tục đủ history 64 mẫu cho AI sinh hiệu.
+- Lệch dưới 15% so với baseline: mức 1.
+- Lệch từ 15% đến dưới 20%: mức 2.
+- Lệch từ 20% trở lên: mức 3.
+- Ngưỡng cứng HR dưới 45, HR trên 150 hoặc SpO2 dưới 90 tạo mức 3.
+
+### 7.3. Ghép cảnh báo cuối
+
+| Sinh hiệu | Nhỏ giọt | Mức cuối |
+|---:|---:|---:|
+| 1 | 1 | 1 |
+| 3 | 3 | 3 |
+| Mọi tổ hợp còn lại | | 2 |
+
+### 7.4. LED và buzzer
+
+- Mức 1: LED xanh, buzzer tắt.
+- Mức 2: LED vàng; buzzer kêu 0.5 giây, nghỉ 3 giây.
+- Mức 3: LED đỏ nhấp nháy; buzzer bật/tắt mỗi 0.25 giây.
+- Buzzer active-low: PC06 LOW là kêu, HIGH là tắt.
+
+## 8. Kiểm thử trên giao diện web
+
+Web có ba nút kiểm thử sinh hiệu:
+
+- `Real data`: dùng cảm biến thật.
+- `Fake HR L2`: tạo HR lệch khoảng 17% so với baseline.
+- `Fake HR+O2 L3`: tạo HR và SpO2 lệch khoảng 25%.
+
+`Real HR/SpO2` là dữ liệu thật. `AI test HR/SpO2` là dữ liệu được đưa vào nhánh AI khi test. Khi quay về `Real data`, firmware phục hồi history thật nên không phải học lại từ đầu.
+
+---
+
+# 9. Hướng dẫn cài đặt toàn bộ trên một hệ thống mới
+
+Phần này được nhóm viết theo đúng thứ tự đã chạy thực tế. Người mới nên làm lần lượt, bước trước thành công mới chuyển sang bước sau.
+
+## Bước 1 – Chuẩn bị máy Windows
+
+Cài Git, .NET 8 SDK, MySQL Community Server 8.x, Silicon Labs Tools/Simplicity Studio 6 và PuTTY.
+
+```powershell
+git --version
+dotnet --list-sdks
+plink -V
+```
+
+Clone đúng nhánh:
 
 ```powershell
 cd C:\Users\<USER>\Documents
@@ -53,18 +201,18 @@ git clone --branch smart-iv-end-to-end-2026-08-24 --single-branch `
 cd .\He-thong-AI-Chuan-det
 ```
 
-## 4. Build và nạp firmware G26
+## Bước 2 – Build và nạp firmware G26
 
-Kết nối BRD2709A bằng USB, mở PowerShell tại thư mục repository:
+Cắm BRD2709A vào USB rồi chạy tại thư mục gốc repository:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\flash_firmware.ps1
 ```
 
-Firmware được tạo tại `cmake_gcc/build/base/smart-iv-monitor.hex`.
+Firmware nằm tại `cmake_gcc/build/base/smart-iv-monitor.hex`.
 
-Nếu kit chưa có Gecko Bootloader hoặc vừa erase toàn chip:
+Nếu bo chưa có bootloader hoặc đã erase toàn chip:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_bootloader.ps1
@@ -77,22 +225,53 @@ Nếu cắm nhiều kit:
 .\tools\flash_firmware.ps1 -SerialNo <DEBUG_ADAPTER_SERIAL>
 ```
 
-Reset G26 sau khi nạp. Không treo bịch trong lúc OLED báo đang trừ bì.
+## Bước 3 – Tạo MySQL database
 
-## 5. Cấu hình và chạy HIS Server
+Khởi động MySQL bằng PowerShell Administrator:
 
-Không ghi mật khẩu database vào Git. Cấu hình lần đầu bằng user-secrets:
+```powershell
+Get-Service MySQL*
+Start-Service MySQL84
+```
+
+Tên service có thể khác `MySQL84`; dùng tên mà `Get-Service` trả về.
+
+Nạp schema:
+
+```powershell
+Get-Content -Raw .\demo1\server\database\schema.sql |
+  & "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -p
+```
+
+Sau đó chạy **toàn bộ** file trong `demo1/server/database/migrations` theo thứ tự tên. Đoạn PowerShell dưới đây gộp chúng lại để MySQL chỉ hỏi mật khẩu một lần:
+
+```powershell
+$migrationSql = Get-ChildItem .\demo1\server\database\migrations\*.sql |
+  Sort-Object Name | ForEach-Object { Get-Content -Raw $_.FullName }
+$migrationSql |
+  & "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -p his_server
+```
+
+| Vai trò demo | Username | Password |
+|---|---|---|
+| Y tá | `yta` | `YTaDemo@2026` |
+| Kỹ thuật | `kythuat` | `KyThuat@2026` |
+
+Chỉ dùng các tài khoản này để demo và phải đổi khi triển khai thật.
+
+## Bước 4 – Cấu hình và chạy HIS Server
+
+Không ghi mật khẩu MySQL vào Git. Dùng .NET user-secrets:
 
 ```powershell
 cd .\demo1\server\src\HisServer
 dotnet user-secrets set "ConnectionStrings:MySql" `
-  "Server=localhost;Port=3306;Database=his_server;Uid=<DB_USER>;Pwd=<DB_PASSWORD>;SslMode=None;AllowPublicKeyRetrieval=True;"
+  "Server=127.0.0.1;Port=3306;Database=his_server;Uid=root;Pwd=<MAT_KHAU_MYSQL>;SslMode=None;AllowPublicKeyRetrieval=True;"
+dotnet restore
+dotnet build
 ```
 
-Nếu database chưa có schema, chạy `demo1/server/database/schema.sql`, sau đó
-các file trong `demo1/server/database/migrations` theo thứ tự tên.
-
-Mỗi lần khởi động, mở một PowerShell riêng và giữ nó chạy:
+Chạy server và giữ terminal mở:
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det\demo1\server\src\HisServer
@@ -102,23 +281,53 @@ dotnet run --launch-profile http
 Kết quả đúng:
 
 ```text
-Bed vitals TCP ingestion listening on port 5000
+Restored ... bed(s) from the database.
+Bed vitals TCP ingestion listening on port 5000.
 Now listening on: http://0.0.0.0:5194
 ```
 
-Mở `http://localhost:5194`. Tài khoản demo nằm trong migration
-`2026-08-21_seed_demo_accounts.sql`; phải đổi mật khẩu khi triển khai thật.
+Mở `http://localhost:5194` và thử đăng nhập trước khi nối Pi.
 
-Nếu gặp `SocketException (10048)`, kiểm tra tiến trình đang giữ cổng:
+## Bước 5 – Chuẩn bị Raspberry Pi
 
-```powershell
-Get-NetTCPConnection -State Listen -LocalPort 5000,5194 |
-  Select-Object LocalAddress,LocalPort,OwningProcess
+Pi cần Linux ARM64, SSH và quyền truy cập USB coordinator. Repository chứa source gateway và converter, nhưng các binary Node/Mosquitto/Zigbee2MQTT ARM64 khá lớn nên không lưu toàn bộ trong Git. Cần có gói runtime `pi-aarch64` từ bản phát hành hoặc chép từ Pi mẫu.
+
+```text
+/home/iotchallenge/pi-aarch64/
+├── bin/gateway
+├── bin/mosquitto
+├── config/gateway.conf
+├── config/mosquitto.conf
+├── config/runtime.conf
+├── run.sh
+├── runtime/node/bin/node
+└── zigbee2mqtt/
 ```
 
-### Mở firewall cho Pi (chạy một lần)
+Cập nhật source gateway, converter và launcher từ Windows:
 
-Mở PowerShell bằng **Run as administrator**:
+```powershell
+cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
+scp -r .\gateway-pi\src iotchallenge@<PI_IP>:/home/iotchallenge/smartiv-update/
+scp .\gateway-pi\Makefile iotchallenge@<PI_IP>:/home/iotchallenge/smartiv-update/
+scp .\demo1\gateway\zigbee2mqtt_smart_iv_converter.js `
+  iotchallenge@<PI_IP>:/home/iotchallenge/smartiv-update/
+scp .\tools\run-stack.pi.sh iotchallenge@<PI_IP>:/home/iotchallenge/pi-aarch64/run.sh
+```
+
+Trên Pi:
+
+```bash
+sudo usermod -aG dialout iotchallenge
+```
+
+Đăng xuất/đăng nhập lại sau khi thêm group. Launcher tự dò `/dev/serial/by-id/*`, `/dev/ttyACM*`, `/dev/ttyUSB*`.
+
+## Bước 6 – Chọn một cách kết nối Pi với Server
+
+### Cách A: kết nối trực tiếp cùng mạng LAN
+
+Trên Windows, chạy PowerShell Administrator:
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
@@ -126,32 +335,24 @@ powershell -ExecutionPolicy Bypass -File .\tools\configure_pi_firewall.ps1
 ipconfig
 ```
 
-Ghi lại IPv4 của card mạng cùng mạng với Pi; đó là `<WINDOWS_IP>`.
+Trên Pi:
 
-## 6. Khởi động Raspberry Pi qua SSH reverse tunnel
-
-Trong cấu hình đã kiểm thử, Windows Firewall không cho Pi kết nối trực tiếp
-tới cổng TCP 5000. Vì vậy cần tạo reverse tunnel trước, rồi để gateway trên Pi
-kết nối tới `127.0.0.1:5000`.
-
-### 6.1 Mở reverse tunnel trên Windows
-
-Mở một PowerShell Windows riêng và giữ cửa sổ này chạy:
-
-```powershell
-plink -ssh -N `
-  -hostkey "SHA256:LMfiR+UyuVTLJe99kB8dipYuZdAoKXK4RulRsRiEUkw" `
-  -R 5000:127.0.0.1:5000 `
-  iotchallenge@<PI_IP>
+```bash
+nc -vz <WINDOWS_IP> 5000
+cd ~/pi-aarch64 && bash run.sh <WINDOWS_IP>
 ```
 
-Nhập mật khẩu SSH khi được hỏi. Không thêm mật khẩu vào script hoặc Git.
-Nếu chưa có `plink`, cài PuTTY hoặc dùng SSH client có hỗ trợ remote port
-forwarding tương đương.
+### Cách B: SSH reverse tunnel – cách nhóm đang dùng ổn định
 
-### 6.2 Chạy stack trên Pi
+Trên Windows, mở một PowerShell riêng và giữ chạy:
 
-Từ một PowerShell Windows khác:
+```powershell
+plink -ssh -N -R 5000:127.0.0.1:5000 iotchallenge@<PI_IP>
+```
+
+Lần đầu `plink` hỏi host key thì phải đối chiếu fingerprint rồi mới xác nhận. Không ghi mật khẩu SSH vào script hoặc Git.
+
+SSH vào Pi:
 
 ```powershell
 ssh iotchallenge@<PI_IP>
@@ -163,40 +364,50 @@ Trong terminal Pi:
 cd ~/pi-aarch64 && bash run.sh 127.0.0.1
 ```
 
-Launcher tự dò coordinator theo thứ tự `/dev/serial/by-id/*`, `/dev/ttyACM*`,
-`/dev/ttyUSB*` và tự dừng phiên Smart IV cũ đang khóa cổng serial.
+Không chạy đồng thời cả kết nối trực tiếp và reverse tunnel cho cùng một gateway vì server có thể nhận bản tin trùng.
 
-Giữ cả cửa sổ tunnel và terminal Pi chạy. Kết quả đúng phải lần lượt khởi
-động Mosquitto, Zigbee2MQTT, gateway và hiện `Đã kết nối MQTT`.
+## Bước 7 – Cho stack Pi tự chạy khi khởi động
 
-- Zigbee2MQTT: `http://<PI_IP>:8080`.
-- Nhấn `Ctrl+C` tại terminal Pi để dừng stack đúng cách.
-- Nếu tunnel bị đóng, gateway mất đường tới HIS Server và BED-01 sẽ chuyển
-  `OFFLINE` sau thời gian timeout dù G26/Zigbee vẫn đang hoạt động.
+Chép service mẫu:
 
-Chỉ dùng `bash run.sh <WINDOWS_IP>` khi firewall đã thật sự cho phép Pi kết
-nối trực tiếp tới `<WINDOWS_IP>:5000` và kiểm tra `nc -vz <WINDOWS_IP> 5000`
-thành công.
+```powershell
+scp .\tools\smart-iv-stack.service iotchallenge@<PI_IP>:/tmp/
+```
 
-## 7. Thứ tự khởi động toàn hệ thống
+Trên Pi:
 
-1. Cấp nguồn cảm biến, G26 và coordinator.
-2. Chạy HIS Server trên Windows.
-3. Mở reverse tunnel `plink -R 5000:127.0.0.1:5000` trên Windows.
-4. Chạy `bash run.sh 127.0.0.1` trên Pi.
-5. Kiểm tra Zigbee2MQTT thấy `SmartIV-Sensor` online.
-6. Mở `http://localhost:5194`, đăng nhập và vào `BED-01`.
-7. Chờ trừ bì xong, treo bịch rồi đặt tốc độ giọt trên server.
-8. Nhấn `Start monitoring` sau khi lắp cảm biến đúng vị trí.
-9. Chờ đủ 20 mẫu giọt và 64 mẫu sinh hiệu trước khi đánh giá AI.
+```bash
+sudo cp /tmp/smart-iv-stack.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now smart-iv-stack.service
+sudo systemctl status smart-iv-stack.service
+journalctl -u smart-iv-stack.service -f
+```
 
-## 8. Kiểm tra kết nối
+Service mẫu dùng `run.sh 127.0.0.1`, phù hợp với reverse tunnel. Không vừa chạy service vừa chạy thủ công `bash run.sh` vì hai tiến trình sẽ tranh coordinator.
+
+## Bước 8 – Thứ tự khởi động mỗi lần sử dụng
+
+Theo cách reverse tunnel đã kiểm thử:
+
+1. Cấp nguồn G26, cảm biến và Zigbee coordinator.
+2. Khởi động MySQL trên Windows.
+3. Chạy HIS Server bằng `dotnet run --launch-profile http`.
+4. Mở `plink -R 5000:127.0.0.1:5000` từ Windows tới Pi.
+5. Chạy `bash run.sh 127.0.0.1` trên Pi hoặc kiểm tra service `smart-iv-stack`.
+6. Mở `http://<PI_IP>:8080` và kiểm tra `SmartIV-Sensor` online.
+7. Mở `http://localhost:5194`.
+8. Chờ G26 trừ bì xong, treo bịch và đặt tốc độ giọt trên web.
+9. Chờ đủ 20 mẫu giọt và 64 mẫu sinh hiệu trước khi đánh giá cảnh báo AI.
+
+## Bước 9 – Kiểm tra kết nối
 
 Trên Windows:
 
 ```powershell
-Get-NetTCPConnection -State Listen -LocalPort 5000,5194
+Get-NetTCPConnection -State Listen -LocalPort 3306,5000,5194
 Get-NetTCPConnection -State Established -LocalPort 5000
+Get-Process mysqld,HisServer,plink
 ```
 
 Trên Pi:
@@ -207,59 +418,54 @@ tail -n 50 ~/pi-aarch64/logs/gateway.log
 tail -n 50 ~/pi-aarch64/logs/zigbee2mqtt.log
 ```
 
-Hệ thống đúng khi cổng 5194 mở được, cổng 5000 có kết nối `ESTABLISHED`,
-Zigbee2MQTT nhận payload mới và `BED-01` cập nhật theo thời gian thực.
+Hệ thống nối đúng khi MySQL nghe 3306, HIS nghe 5000/5194, TCP 5000 là `ESTABLISHED`, Zigbee2MQTT nhận payload mới và BED-01 không còn `OFFLINE`.
 
-## 9. Logic cảnh báo
+## Bước 10 – Lỗi thường gặp
 
-### Nhỏ giọt
+### `SocketException (10048)` hoặc file HisServer bị khóa
 
-- `±200 ms`: mức 1.
-- Trên `200 ms` đến `800 ms`: mức 2.
-- Trên `800 ms` hoặc mất giọt: mức 3.
-- Mốc động chỉ bám thay đổi nhỏ hợp lệ; xung nhiễu, sai lệch lớn và mất giọt
-  không được học theo.
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 5000,5194 |
+  Select-Object LocalPort,OwningProcess
+Stop-Process -Id <PID>
+```
 
-### Sinh hiệu
+### Đăng nhập báo `Sign-in failed`
 
-- Học 60 mẫu tạo baseline, nạp đủ lịch sử 64 mẫu cho AI.
-- Lệch dưới 15%: mức 1.
-- Từ 15% đến dưới 20%: mức 2.
-- Từ 20% trở lên: mức 3.
-- HR dưới 45, HR trên 150 hoặc SpO2 dưới 90: mức 3.
+- Kiểm tra MySQL đang chạy.
+- Kiểm tra schema và migration tài khoản đã được nạp.
+- Chạy `dotnet user-secrets list` trong đúng thư mục `HisServer`.
+- Khởi động lại HIS Server sau khi MySQL sẵn sàng.
 
-### Ghép mức cuối
+### BED-01 báo `OFFLINE`
 
-| Sinh hiệu | Nhỏ giọt | Đầu ra |
-|---:|---:|---:|
-| 1 | 1 | 1 |
-| 3 | 3 | 3 |
-| mọi tổ hợp còn lại | | 2 |
+- Kiểm tra G26 có nguồn và đã join Zigbee.
+- Kiểm tra Zigbee2MQTT có payload mới.
+- Kiểm tra gateway và TCP 5000 `ESTABLISHED`.
+- Nếu dùng tunnel, kiểm tra `plink` còn chạy.
 
-- Mức 1: LED xanh, buzzer tắt.
-- Mức 2: LED vàng; buzzer kêu 0.5 giây, nghỉ 3 giây.
-- Mức 3: LED đỏ nhấp nháy; buzzer đảo mỗi 0.25 giây.
-- Buzzer active-low: PC06 LOW kêu, HIGH tắt.
+### Zigbee2MQTT báo `Failed to init port`
 
-## 10. Kiểm thử sinh hiệu trên web
+Cổng coordinator đang bị tiến trình khác khóa:
 
-- `Real data`: dùng cảm biến thật và phục hồi lịch sử AI.
-- `Fake HR L2`: tạo HR lệch khoảng 17% để kiểm tra mức 2.
-- `Fake HR+O2 L3`: tạo HR/SpO2 lệch khoảng 25% để kiểm tra mức 3.
+```bash
+sudo systemctl stop zigbee2mqtt.service gateway.service 2>/dev/null || true
+sudo systemctl restart smart-iv-stack.service
+```
 
-`Real HR/SpO2` vẫn là dữ liệu cảm biến; `AI test HR/SpO2` là dữ liệu nhánh test
-trên G26. Tắt fake không bắt thiết bị học lại.
+### HR/SpO2 hiện `--` hoặc đồ thị có khoảng trống
 
-## 11. Xử lý lỗi nhanh
+- Đặt ngón tay ổn định, không ép quá mạnh và tránh ánh sáng ngoài.
+- Kiểm tra 3.3 V, GND, SDA PC07, SCL PC05 và điện trở kéo lên.
+- Không để dây buzzer sát dây I2C.
+- Bỏ tay thì dữ liệu về không có tín hiệu là đúng.
+- Đặt tay lại cần khoảng hai giây để cửa sổ lọc đủ mẫu.
 
-- Web không có BED-01 hoặc báo `OFFLINE`: kiểm tra HIS Server, tiến trình
-  `plink`, kết nối TCP 5000 và gateway trên Pi.
-- HR/SpO2 là `--`: kiểm tra tay, nguồn 3.3 V, GND, PC05/PC07 và pull-up I2C.
-- Bỏ tay mà hiện `--` là đúng; firmware không được giữ số cũ để gửi đi.
-- Nút điều khiển timeout: gateway TCP chưa kết nối; kiểm tra cổng 5000.
-- UI giữ nguyên BED-01 sau refresh và không khóa vĩnh viễn nút điều khiển.
+### Nút đặt tốc độ hoặc fake không tác động tới G26
 
-## 12. Build kiểm tra trước phát hành
+Đây là lệnh hai chiều Server → gateway → Zigbee. Kiểm tra gateway TCP, MQTT, thiết bị Zigbee online và converter đúng phiên bản. Toast `enabled` chỉ xác nhận server đã nhận yêu cầu; trường `AI test HR/SpO2` thay đổi mới xác nhận lệnh đã tới G26.
+
+## 10. Build kiểm tra trước khi nộp
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
@@ -268,5 +474,4 @@ dotnet build .\demo1\server\HisServer.sln
 dotnet run --project .\demo1\server\tests\EvaluatorTests\EvaluatorTests.csproj
 ```
 
-Tài liệu sâu hơn nằm trong `demo1/docs`, `gateway-pi/README.md` và
-`demo1/server/README.md`.
+Tài liệu sâu hơn nằm trong `firmware/PIN_MAP.md`, `gateway-pi/README.md`, `demo1/server/README.md`, `SYSTEM_INTEGRATION.md` và `host_ai/README.md`.

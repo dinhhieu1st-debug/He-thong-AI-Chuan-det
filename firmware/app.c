@@ -35,6 +35,8 @@
 #define TARE_PIN        0U
 #define SAMPLE_INTERVAL_MS 250U
 #define SAMPLE_COUNT       4U
+#define VITALS_FILTER_WINDOW      12U
+#define VITALS_FILTER_MIN_SAMPLES 8U
 #define TARE_TIME_MS       10000U
 #define VITALS_HOLD_MS     3000U
 #define DROP_TRAINING_REQUIRED   20U
@@ -138,6 +140,7 @@ static int16_t heart_rate;
 static int16_t spo2;
 static float weight_kg;
 static float filtered_heart_bpm;
+static float filtered_spo2_percent;
 static bool vitals_valid;
 static uint32_t last_vitals_good_ms;
 static bool fake_hr_enabled;
@@ -147,6 +150,12 @@ static bool runtime_tare_in_progress;
 static uint32_t runtime_tare_start_ms;
 static uint8_t large_hr_jump_streak;
 static int8_t large_hr_jump_direction;
+static uint8_t large_spo2_jump_streak;
+static int8_t large_spo2_jump_direction;
+static int16_t heart_filter_history[VITALS_FILTER_WINDOW];
+static int16_t spo2_filter_history[VITALS_FILTER_WINDOW];
+static uint8_t heart_filter_count;
+static uint8_t spo2_filter_count;
 
 #define ZB_REPORT_MAX_INTERVAL_S 60U
 
@@ -525,7 +534,7 @@ static void update_final_alert(void)
 
 static int16_t median_int16(const int16_t *values, uint8_t count)
 {
-  int16_t sorted[SAMPLE_COUNT];
+  int16_t sorted[VITALS_FILTER_WINDOW];
   if (count == 0U) { return 0; }
   for (uint8_t i = 0U; i < count; i++) { sorted[i] = values[i]; }
   for (uint8_t i = 1U; i < count; i++) {
@@ -538,6 +547,20 @@ static int16_t median_int16(const int16_t *values, uint8_t count)
   return (int16_t)((sorted[count / 2U - 1U] + sorted[count / 2U]) / 2);
 }
 
+static void append_filter_samples(int16_t *history, uint8_t *history_count,
+                                  const int16_t *values, uint8_t count)
+{
+  for (uint8_t i = 0U; i < count; i++) {
+    if (*history_count < VITALS_FILTER_WINDOW) {
+      history[(*history_count)++] = values[i];
+    } else {
+      memmove(&history[0], &history[1],
+              (VITALS_FILTER_WINDOW - 1U) * sizeof(history[0]));
+      history[VITALS_FILTER_WINDOW - 1U] = values[i];
+    }
+  }
+}
+
 static float average_float(const float *values, uint8_t count)
 {
   float sum = 0.0f;
@@ -548,8 +571,9 @@ static float average_float(const float *values, uint8_t count)
 
 static int16_t filter_heart_rate(const int16_t *values, uint8_t count)
 {
-  if (count == 0U) { return heart_rate; }
-  int16_t median = median_int16(values, count);
+  append_filter_samples(heart_filter_history, &heart_filter_count, values, count);
+  if (heart_filter_count < VITALS_FILTER_MIN_SAMPLES) { return heart_rate; }
+  int16_t median = median_int16(heart_filter_history, heart_filter_count);
   if (filtered_heart_bpm <= 0.0f) { filtered_heart_bpm = (float)median; return median; }
   float difference = (float)median - filtered_heart_bpm;
   if (absolute_float(difference) > 20.0f) {
@@ -557,13 +581,45 @@ static int16_t filter_heart_rate(const int16_t *values, uint8_t count)
     if (direction == large_hr_jump_direction) {
       if (large_hr_jump_streak < UINT8_MAX) { large_hr_jump_streak++; }
     } else { large_hr_jump_direction = direction; large_hr_jump_streak = 1U; }
-    if (large_hr_jump_streak < 2U) { return (int16_t)(filtered_heart_bpm + 0.5f); }
+    if (large_hr_jump_streak < 3U) { return (int16_t)(filtered_heart_bpm + 0.5f); }
   } else { large_hr_jump_streak = 0U; large_hr_jump_direction = 0; }
-  float step = ((float)median - filtered_heart_bpm) * 0.35f;
-  if (step > 8.0f) { step = 8.0f; }
-  if (step < -8.0f) { step = -8.0f; }
+  float step = ((float)median - filtered_heart_bpm) * 0.20f;
+  if (step > 4.0f) { step = 4.0f; }
+  if (step < -4.0f) { step = -4.0f; }
   filtered_heart_bpm += step;
   return (int16_t)(filtered_heart_bpm + 0.5f);
+}
+
+static int16_t filter_spo2(const int16_t *values, uint8_t count)
+{
+  append_filter_samples(spo2_filter_history, &spo2_filter_count, values, count);
+  if (spo2_filter_count < VITALS_FILTER_MIN_SAMPLES) { return spo2; }
+  int16_t median = median_int16(spo2_filter_history, spo2_filter_count);
+  if (filtered_spo2_percent <= 0.0f) {
+    filtered_spo2_percent = (float)median;
+    return median;
+  }
+  float difference = (float)median - filtered_spo2_percent;
+  if (absolute_float(difference) > 3.0f) {
+    int8_t direction = difference > 0.0f ? 1 : -1;
+    if (direction == large_spo2_jump_direction) {
+      if (large_spo2_jump_streak < UINT8_MAX) { large_spo2_jump_streak++; }
+    } else {
+      large_spo2_jump_direction = direction;
+      large_spo2_jump_streak = 1U;
+    }
+    if (large_spo2_jump_streak < 3U) {
+      return (int16_t)(filtered_spo2_percent + 0.5f);
+    }
+  } else {
+    large_spo2_jump_streak = 0U;
+    large_spo2_jump_direction = 0;
+  }
+  float step = ((float)median - filtered_spo2_percent) * 0.25f;
+  if (step > 2.0f) { step = 2.0f; }
+  if (step < -2.0f) { step = -2.0f; }
+  filtered_spo2_percent += step;
+  return (int16_t)(filtered_spo2_percent + 0.5f);
 }
 
 static void all_alerts_off(void)
@@ -632,6 +688,13 @@ static void start_initial_tare(uint32_t now)
   drop_training_samples = 0U;
   alerts_armed = false;
   filtered_heart_bpm = 0.0f;
+  filtered_spo2_percent = 0.0f;
+  heart_filter_count = 0U;
+  spo2_filter_count = 0U;
+  large_hr_jump_streak = 0U;
+  large_hr_jump_direction = 0;
+  large_spo2_jump_streak = 0U;
+  large_spo2_jump_direction = 0;
   last_vitals_good_ms = 0U;
   fake_hr_enabled = false;
   fake_spo2_enabled = false;
@@ -1076,14 +1139,32 @@ static void monitor_drop_timeout(uint32_t now)
 static void publish_display(void)
 {
   uint32_t now = now_ms();
-  bool new_vitals = heart_count > 0U && spo2_count > 0U;
-  if (new_vitals) {
+  bool received_vitals = heart_count > 0U && spo2_count > 0U;
+  if (received_vitals) {
     heart_rate = filter_heart_rate(heart_samples, heart_count);
-    spo2 = median_int16(spo2_samples, spo2_count);
+    spo2 = filter_spo2(spo2_samples, spo2_count);
+  }
+  bool new_vitals = received_vitals
+                    && heart_filter_count >= VITALS_FILTER_MIN_SAMPLES
+                    && spo2_filter_count >= VITALS_FILTER_MIN_SAMPLES;
+  if (new_vitals) {
     last_vitals_good_ms = now;
   }
   vitals_valid = last_vitals_good_ms != 0U
                   && (uint32_t)(now - last_vitals_good_ms) <= VITALS_HOLD_MS;
+  if (!vitals_valid && last_vitals_good_ms != 0U) {
+    /* A real signal loss starts a fresh filter window.  Otherwise old finger
+     * readings can pull the first measurements after contact is restored. */
+    heart_filter_count = 0U;
+    spo2_filter_count = 0U;
+    filtered_heart_bpm = 0.0f;
+    filtered_spo2_percent = 0.0f;
+    large_hr_jump_streak = 0U;
+    large_hr_jump_direction = 0;
+    large_spo2_jump_streak = 0U;
+    large_spo2_jump_direction = 0;
+    last_vitals_good_ms = 0U;
+  }
   if (weight_count > 0U) { weight_kg = average_float(weight_samples, weight_count); }
   if (system_state == SYSTEM_MONITORING) {
     int16_t ai_heart_rate = heart_rate;
