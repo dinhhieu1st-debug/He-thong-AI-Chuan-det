@@ -3,10 +3,14 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$slt = Join-Path $env:LOCALAPPDATA 'Programs\SiliconLabsTool\slt.exe'
+$sltCandidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\SiliconLabsTool\slt.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\SimplicityInstaller\resources\slt.exe')
+)
+$slt = $sltCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
-if (-not (Test-Path -LiteralPath $slt)) {
-    throw "SLT not found at $slt. Install it from https://www.silabs.com/developers/simplicity-studio/silicon-labs-tools"
+if (-not $slt) {
+    throw "SLT not found in any of: $($sltCandidates -join ', '). Install it from https://www.silabs.com/developers/simplicity-studio/silicon-labs-tools"
 }
 
 $cmakeRoot = (& $slt where cmake).Trim()

@@ -82,6 +82,8 @@ SL_CLI_COMMAND(sli_zigbee_cli_zcl_basic_rtfd_command,
 // and group commands are cli_cmd_( group name )_group
 static const sl_cli_command_entry_t zcl_basic_cluster_command_table[] = {
     { "rtfd", &cli_cmd_zcl_basic_cluster_reset_to_factory_defaults, false },
+    { "rtfd", &cli_cmd_zcl_basic_cluster_reset_to_factory_defaults, false },
+    { "rtfd", &cli_cmd_zcl_basic_cluster_reset_to_factory_defaults, false },
     { NULL, NULL, false },
 };
 

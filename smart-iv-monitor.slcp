@@ -39,9 +39,13 @@ include:
   - path: software_i2c.h
   - path: vitals_ai.h
   - path: models/model_vitals.h
+    directory: firmware/models/
   - path: models/model_vitals_opcodes.h
+    directory: firmware/models/
   - path: models/model_ae.h
+    directory: firmware/models/
   - path: models/model_ae_opcodes.h
+    directory: firmware/models/
 sdk:
   vendor: silabs
   id: simplicity_sdk
