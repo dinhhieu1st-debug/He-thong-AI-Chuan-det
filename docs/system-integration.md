@@ -41,14 +41,14 @@ Apply the database update once (existing databases only):
 
 ```powershell
 $env:MYSQL_PWD = '<password of his_app>'
-& 'C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe' -u his_app his_server -e "source demo1/server/database/migrations/2026-08-23_g26_alert_contract.sql"
+& 'C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe' -u his_app his_server -e "source software/server/database/migrations/2026-08-23_g26_alert_contract.sql"
 Remove-Item Env:\MYSQL_PWD
 ```
 
 Then restart HIS so it loads the new binary and schema:
 
 ```powershell
-cd demo1\server\src\HisServer
+cd software\server\src\HisServer
 dotnet run --launch-profile http
 ```
 
@@ -68,10 +68,17 @@ The image is `cmake_gcc/build/base/smart-iv-monitor.hex`.
 
 ## Deploy the converter to Raspberry Pi
 
-From the repository root on Windows:
+> **Missing from this repo:** `zigbee2mqtt_smart_iv_converter.js` is not
+> currently tracked in git — it previously lived under a local, untracked
+> `demo1/gateway/` folder that has since been removed. Recover it from a Pi
+> that already has it deployed (`/home/iotchallenge/pi-aarch64/zigbee2mqtt/data/external_converters/`)
+> or from whoever last edited it, then add it under `software/gateway-pi/`
+> and commit it so this step stops depending on tribal knowledge.
+
+From the repository root on Windows, once the converter file exists in the repo:
 
 ```powershell
-scp demo1\gateway\zigbee2mqtt_smart_iv_converter.js iotchallenge@<PI_IP>:/home/iotchallenge/pi-aarch64/zigbee2mqtt/data/external_converters/
+scp software\gateway-pi\zigbee2mqtt_smart_iv_converter.js iotchallenge@<PI_IP>:/home/iotchallenge/pi-aarch64/zigbee2mqtt/data/external_converters/
 ```
 
 ## Run the Pi gateway

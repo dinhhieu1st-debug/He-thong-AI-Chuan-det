@@ -3,7 +3,7 @@
 --
 -- Run once against an existing database:
 --   docker exec -i his-mysql mysql -uroot -pdevpass his_server \
---     < server/database/migrations/2026-08-17_users_roles_assignments.sql
+--     < software/server/database/migrations/2026-08-17_users_roles_assignments.sql
 --
 -- MySQL 8.0 has no "ADD COLUMN IF NOT EXISTS" (that is MariaDB only), so the
 -- ALTERs below are guarded by hand - re-running the file is safe.

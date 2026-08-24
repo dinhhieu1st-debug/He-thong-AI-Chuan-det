@@ -2,7 +2,7 @@
 --
 -- Run once against an existing database:
 --   docker exec -i his-mysql mysql -uroot -pdevpass his_server \
---     < server/database/migrations/2026-08-17_device_health_and_faults.sql
+--     < software/server/database/migrations/2026-08-17_device_health_and_faults.sql
 --
 -- MySQL 8.0 has no "ADD COLUMN IF NOT EXISTS", so the ALTERs are guarded by
 -- hand and the file is safe to re-run.

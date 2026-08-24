@@ -27,3 +27,10 @@ vscode.conf
 __pycache__/
 .DS_Store
 Thumbs.db
+
+# .NET build output (software/server)
+bin/
+obj/
+
+# Leftover files from a killed process still holding a deleted file open
+.fuse_hidden*
