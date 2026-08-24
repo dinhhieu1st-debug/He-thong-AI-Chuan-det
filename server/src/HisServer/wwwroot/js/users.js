@@ -88,6 +88,24 @@ const UsersTab = (() => {
           <button class="btn danger" data-remove-assignment="${a.assignmentId}">Remove</button>
         </td>
       </tr>`).join("");
+    const dutyAssignmentsHtml = u.role === "NURSE" ? `
+      <div class="section-title">Duty assignments</div>
+      <div class="toolbar">
+        <select class="search-input" id="assignScope" style="max-width:140px;">
+          <option value="ROOM">Room</option>
+          <option value="BED">Bed</option>
+        </select>
+        <select class="search-input" id="assignValue" style="max-width:220px;">
+          ${assignValueOptionsHtml("ROOM")}
+        </select>
+        <button class="btn primary" id="addAssignBtn">Add assignment</button>
+      </div>
+      ${selected.assignments.length === 0
+        ? `<div class="empty-state">No rooms or beds assigned yet.</div>`
+        : `<table class="data-table">
+             <thead><tr><th>Scope</th><th>Value</th><th></th></tr></thead>
+             <tbody>${rows}</tbody>
+           </table>`}` : "";
 
     return `
       <div class="panel-card">
@@ -112,23 +130,7 @@ const UsersTab = (() => {
         </div>
       </div>
 
-      <div class="section-title">Duty assignments</div>
-      <div class="toolbar">
-        <select class="search-input" id="assignScope" style="max-width:140px;">
-          <option value="ROOM">Room</option>
-          <option value="BED">Bed</option>
-        </select>
-        <select class="search-input" id="assignValue" style="max-width:220px;">
-          ${assignValueOptionsHtml("ROOM")}
-        </select>
-        <button class="btn primary" id="addAssignBtn">Add assignment</button>
-      </div>
-      ${selected.assignments.length === 0
-        ? `<div class="empty-state">No rooms or beds assigned yet.</div>`
-        : `<table class="data-table">
-             <thead><tr><th>Scope</th><th>Value</th><th></th></tr></thead>
-             <tbody>${rows}</tbody>
-           </table>`}`;
+      ${dutyAssignmentsHtml}`;
   }
 
   function render() {
