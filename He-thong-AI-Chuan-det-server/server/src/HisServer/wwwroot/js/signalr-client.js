@@ -25,6 +25,13 @@ const MonitoringHub = (() => {
    * DeviceUpdated, separate event so the Devices tab can say so out loud
    * instead of quietly adding a row nobody notices. */
   connection.on("FaultReported", (report) => State.emit("fault-reported", report));
+
+  /* Bed directory changed - a bed created or removed, a room renamed, a device
+   * reassigned. No payload: a directory row joins the bed store with the
+   * devices table, so the page re-fetches rather than have that join
+   * reimplemented here. Administrators and technicians are not in the ward
+   * group, so this is the only bed news that reaches them. */
+  connection.on("BedDirectoryChanged", () => State.emit("bed-directory-changed"));
   connection.on("DeviceDiscovered", (device) => {
     State.upsertDevice(device);
     State.emit("device-discovered", device);

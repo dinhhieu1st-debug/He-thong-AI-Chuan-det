@@ -1,10 +1,18 @@
-# AI nhỏ giọt
+# AI nhỏ giọt — nhánh nghiên cứu trên ESP8266
 
-Hệ thống AI cảnh báo sớm cho prototype IoT giám sát nhỏ giọt dịch truyền,
-gồm firmware ESP8266, thu thập dữ liệu, dataset thật/mô phỏng, mô hình MLP/LSTM
-và chương trình inference liên tục trên Raspberry Pi 4.
+> **Thư mục này KHÔNG thuộc hệ thống Smart IV đang chạy.**
+>
+> Đây là nhánh nghiên cứu trước đó, dùng **ESP8266** đọc giọt qua Serial và
+> huấn luyện model trên máy tính. Hệ thống hiện tại chạy trên **EFR32xG26** với
+> AI nhúng thẳng vào chip (`firmware/`, `firmware/models/`) và **không** dùng
+> mã trong thư mục này khi vận hành.
+>
+> Giữ lại vì đây là nơi sinh ra dataset và mô hình MLP/LSTM cho nhánh nhỏ giọt.
+> Xem [`../docs/04-canh-bao.md`](../docs/04-canh-bao.md) để biết phần nào của
+> nghiên cứu này thực sự đang chạy trên chip.
 
-Project VS Code cho hệ thống giám sát nhỏ giọt dịch truyền và hướng tới cảnh báo sớm bằng AI/LSTM.
+Nội dung: firmware ESP8266, script thu thập dữ liệu, dataset thật và mô phỏng,
+mô hình MLP/LSTM, và chương trình inference liên tục trên Raspberry Pi 4.
 
 ## Giai đoạn hiện tại
 Chỉ làm phần nhỏ giọt dịch:

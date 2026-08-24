@@ -40,9 +40,25 @@ public sealed class BedConnectionRegistry
     /// </summary>
     public async Task<int> BroadcastCommandAsync(string jsonLine, CancellationToken cancellationToken = default)
     {
+        /* Once per SOCKET, not once per bed. A Pi gateway forwards every
+         * device paired to it, so several beds share one connection, and a
+         * broadcast command is addressed to the gateway rather than to a bed -
+         * "re-read your device inventory" concerns the gateway itself. Sending
+         * it per bed wrote the same line down the same socket three times and
+         * had the gateway publish the same MQTT request three times.
+         *
+         * The count is therefore gateways reached, which is what the caller
+         * wants to report. */
         var delivered = 0;
-        foreach (var bedId in connections.Keys)
+        var reached = new HashSet<NetworkStream>();
+
+        foreach (var (bedId, connection) in connections)
         {
+            if (!reached.Add(connection.Stream))
+            {
+                continue;
+            }
+
             if (await TrySendCommandAsync(bedId, jsonLine, cancellationToken))
             {
                 delivered++;

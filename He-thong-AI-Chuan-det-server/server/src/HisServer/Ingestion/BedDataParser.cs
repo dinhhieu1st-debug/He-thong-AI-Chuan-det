@@ -20,7 +20,18 @@ public static class BedDataParser
         var room = ReadString(root, "phong", "room") ?? "Unknown room";
         var spo2 = ReadInt(root, 0, "spo2", "SpO2", "SpO₂");
         var heartRate = ReadInt(root, 0, "nhipTim", "heartRate", "heart_rate", "bpm");
-        var dripRate = ReadInt(root, 0, "tocDoNhoGiot", "dripRate", "drip_rate", "dropRate");
+        /* Drops-per-minute as a percentage of the doctor's target.
+         *
+         * "drop_rate" is the name the zigbee2mqtt converter actually publishes,
+         * and it was missing here: the list had "drip_rate" (drip, not drop)
+         * and "dropRate" (no underscore), and TryGetProperty compares whole
+         * strings, so neither matched. Every reading therefore fell through to
+         * the default 0 while drops_signal stayed true, and the console showed
+         * a confident "0%" for a line that was running perfectly - the exact
+         * fabricated-number failure the rest of this parser is careful to
+         * avoid. Keep all the spellings: older gateways send the other ones. */
+        var dripRate = ReadInt(root, 0, "tocDoNhoGiot", "dripRate", "drip_rate",
+                               "dropRate", "drop_rate", "dropRatio");
         var flowRate = ReadInt(root, 0, "flowRate", "flow_rate", "flow");
 
         // Cac co "co tin hieu" tung kenh cam bien. Mac dinh true (coi nhu co
@@ -117,7 +128,25 @@ public static class BedDataParser
             ReadBool(root, true, "monitoring"),
             dropTrainingSamples,
             vitalsTrainingSamples,
-            ReadNullableBool(root, "alertsArmed", "alerts_armed"));
+            ReadNullableBool(root, "alertsArmed", "alerts_armed"),
+
+            /* The chip's echo of what it accepted, as opposed to what it
+             * measured. Without these there is no way to tell "the server took
+             * the command" from "the device is running it" - the difference a
+             * nurse needs when a target rate does not seem to have applied. */
+            ReadNullableInt(root, "aiInputHeartRate", "ai_input_heart_rate"),
+            ReadNullableInt(root, "aiInputSpo2", "ai_input_spo2"),
+            ReadNullableInt(root, "vitalsLevel", "vitals_level"),
+            ReadNullableInt(root, "serverDropLevel", "server_drop_level"),
+            ReadNullableInt(root, "vitalsTestMode", "vitals_test_mode"),
+
+            /* The remaining two cause bits of the firmware's alarm bitmap. The
+             * other three (line_blocked, ae_alarm, signal loss) were already
+             * read above; these two were not, so the console could show that a
+             * bed was in alarm but not that SpO2 was the reason. */
+            ReadBool(root, false, "spo2Low", "spo2_low"),
+            ReadBool(root, false, "heartRateAbnormal", "heart_rate_abnormal"),
+            ReadNullableInt(root, "dropIntervalMs", "drop_interval_ms"));
     }
 
     private static string? ReadString(JsonElement root, params string[] names)

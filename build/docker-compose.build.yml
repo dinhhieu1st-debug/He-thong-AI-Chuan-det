@@ -1,0 +1,46 @@
+# Reproducible builds for the two components that have a toolchain.
+#
+#   docker compose -f build/docker-compose.build.yml run --rm server
+#   docker compose -f build/docker-compose.build.yml run --rm gateway
+#   docker compose -f build/docker-compose.build.yml run --rm gateway-arm64
+#
+# Identical commands on Windows and Linux. See build/README.md.
+#
+# The firmware is NOT here: it needs the Silicon Labs toolchain, which is not
+# redistributable in an image. Build it with tools/build_firmware.ps1.
+
+name: smart-iv-build
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    volumes:
+      # The repo root, so the container compiles what you are actually editing.
+      - ..:/src
+      # NuGet cache in a named volume: keeps restore output out of the repo
+      # (it would otherwise show up in git status) and makes repeat runs fast.
+      - nuget:/nuget
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    volumes:
+      - ..:/src
+
+  # Same source, same Dockerfile, Raspberry Pi's architecture. Needs one-time
+  # qemu setup on an x86 host - see build/README.md.
+  gateway-arm64:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+      platforms:
+        - linux/arm64
+    volumes:
+      - ..:/src
+
+volumes:
+  nuget:

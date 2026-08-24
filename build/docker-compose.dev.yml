@@ -1,0 +1,73 @@
+# Run the whole web stack locally - MySQL plus HIS Server - with no Pi, no
+# Zigbee coordinator and no board.
+#
+#   docker compose -f build/docker-compose.dev.yml up
+#
+# Then open http://localhost:5194 and log in as yta / YTaDemo@2026.
+#
+# Feed it data with the simulator, which stands in for the Pi gateway:
+#   python3 tools/fake_gateway.py
+#
+# See build/README.md. This file is for local testing only: the password below
+# is in plain text on purpose, and nothing here is meant to be reachable from
+# another machine.
+
+name: smart-iv-dev
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: his_server
+      # 1 loads the 8-bed demo seed, right for the simulator. Set to 0 before a
+      # real gateway connects, so the Devices tab holds the one real chip
+      # instead of it plus eight placeholders claiming beds nothing reports to.
+      # Only read on first start - see mysql-init/00-init.sh.
+      LOAD_DEMO_SEED: "${LOAD_DEMO_SEED:-1}"
+    volumes:
+      # Schema, migrations and demo seed, loaded in the right order on first
+      # start only - see mysql-init/00-init.sh.
+      - ../He-thong-AI-Chuan-det-server/server/database:/opt/his/database:ro
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    # Published so you can inspect the database with a client if a test result
+    # is surprising. 3307 to avoid colliding with a MySQL already installed.
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__MySql: "Server=mysql;Port=3306;Database=his_server;Uid=root;Pwd=;SslMode=None;AllowPublicKeyRetrieval=True;"
+      ASPNETCORE_URLS: "http://0.0.0.0:5194"
+      # Left at the shipped values so local behaviour matches production. Drop
+      # Offline__ThresholdSeconds to ~15 if you do not want to wait 90 seconds
+      # to watch a bed go offline.
+      Offline__ThresholdSeconds: "90"
+      Tcp__Port: "5000"
+    ports:
+      - "127.0.0.1:5194:5194"   # web console
+      - "127.0.0.1:5000:5000"   # TCP ingestion - point the simulator here
+    volumes:
+      - ..:/src
+      - nuget:/nuget
+    command:
+      - /bin/sh
+      - -c
+      - "dotnet run --project src/HisServer/HisServer.csproj --no-launch-profile"
+
+volumes:
+  mysql-data:
+  nuget:

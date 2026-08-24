@@ -242,6 +242,11 @@ public static class DeviceEndpoints
                 await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(newBed));
             }
         }
+
+        /* Which device serves which bed is exactly what the directory shows,
+         * and administrators/technicians are not in WardGroup, so the
+         * BedUpdated calls above never reach the page they are looking at. */
+        await hub.Clients.Group(MonitoringHub.DirectoryGroup).BedDirectoryChanged();
     }
 
     private static DeviceRecord ToRecord(UpsertDeviceRequest request) => new()

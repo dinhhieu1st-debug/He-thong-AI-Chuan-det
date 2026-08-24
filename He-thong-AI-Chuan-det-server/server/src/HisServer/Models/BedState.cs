@@ -89,6 +89,32 @@ public sealed class BedState
     /// <summary>False while the device is collecting 20 drip intervals and 64 vitals samples.</summary>
     public bool? AlertsArmed { get; set; }
 
+    /* What the device says it is RUNNING ON, as opposed to what it measured.
+     * These close the command loop: a console can show that an instruction
+     * actually reached the chip instead of only that the server accepted it. */
+
+    /// <summary>Heart rate actually fed to the AI. Equal to the measured value
+    /// in normal use; differs while a vitals test mode is active, and that
+    /// difference is the proof the write reached the chip.</summary>
+    public int? AiInputHeartRate { get; set; }
+    /// <summary>SpO2 actually fed to the AI. See AiInputHeartRate.</summary>
+    public int? AiInputSpo2 { get; set; }
+    /// <summary>Vitals branch verdict as decided on the chip: 1, 2 or 3.</summary>
+    public int? VitalsLevel { get; set; }
+    /// <summary>Drip branch verdict as decided on the chip: 1, 2 or 3.</summary>
+    public int? ServerDropLevel { get; set; }
+    /// <summary>Vitals test mode echoed back: 0 real data, 2 attention band,
+    /// 3 alarm band.</summary>
+    public int? VitalsTestMode { get; set; }
+
+    /// <summary>SpO2 below 90 or 15% off baseline, from the firmware's alarm bitmap.</summary>
+    public bool Spo2Low { get; set; }
+    /// <summary>Heart rate outside 45..150 or 15% off baseline, same bitmap.</summary>
+    public bool HeartRateAbnormal { get; set; }
+    /// <summary>Most recent measured gap between two drops, in ms - the number
+    /// the drip level is computed from.</summary>
+    public int? DropIntervalMs { get; set; }
+
     /// <summary>
     /// Con so du bao cua kenh do co doc duoc nhu "du bao" khong. Khi false, no
     /// la "muc binh thuong ky vong" chu khong phai du doan tuong lai - giao dien

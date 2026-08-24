@@ -1,0 +1,20 @@
+# Build HIS Server in a container so Windows and Linux produce the same result.
+#
+# The repo is bind-mounted at /src by docker-compose.build.yml rather than
+# COPYed in: this image exists to compile the working tree you are editing, not
+# a snapshot of it, so an edit is picked up without rebuilding the image.
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+# NuGet writes here. Kept off the bind mount by docker-compose (named volume)
+# so restore output survives between runs and never lands in the repo.
+ENV NUGET_PACKAGES=/nuget \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+
+WORKDIR /src/He-thong-AI-Chuan-det-server/server
+
+# Build the solution, then run the bed-status evaluator tests. EvaluatorTests is
+# a plain console app that exits non-zero on failure, so a failing test fails
+# the whole command - no test runner needed.
+CMD ["/bin/sh", "-c", "dotnet build HisServer.sln --nologo && dotnet run --project tests/EvaluatorTests/EvaluatorTests.csproj --nologo"]

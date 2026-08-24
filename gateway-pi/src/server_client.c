@@ -42,7 +42,40 @@ static socket_handle active_socket = INVALID_SOCKET_HANDLE;
 static struct mosquitto *mqtt_client = NULL;
 static char mqtt_topic[128] = "zigbee2mqtt";
 static char current_device[128] = "";
-static char announced_device[128] = "";
+/* Every device already announced on the CURRENT server connection.
+ *
+ * This was a single slot holding the last device id, which is correct only
+ * while a gateway carries exactly one device. With two, each reading found the
+ * other device's id sitting in the slot and announced again, so the server saw
+ * a "device joined" event on essentially every reading and the technician's
+ * screen filled with toasts.
+ *
+ * Cleared on reconnect: the server needs the announcements again on a fresh
+ * connection, because it is the announce that tells it which devices this
+ * gateway carries. */
+#define MAX_ANNOUNCED_DEVICES 32
+static char announced_devices[MAX_ANNOUNCED_DEVICES][128];
+static size_t announced_device_count = 0;
+
+static bool device_already_announced(const char *device_id)
+{
+    size_t i;
+    for (i = 0; i < announced_device_count; i++) {
+        if (strcmp(announced_devices[i], device_id) == 0) return true;
+    }
+    return false;
+}
+
+/* Silently ignores anything past the cap. Overflowing means a single gateway
+ * carries more than 32 devices, and the cost of the cap being hit is a device
+ * re-announcing - the old behaviour - not a lost reading. */
+static void remember_announced_device(const char *device_id)
+{
+    if (announced_device_count >= MAX_ANNOUNCED_DEVICES) return;
+    snprintf(announced_devices[announced_device_count],
+             sizeof(announced_devices[0]), "%s", device_id);
+    announced_device_count++;
+}
 static char pending_ota_device[128] = "";
 
 static size_t json_escape(const char *source, char *destination, size_t capacity);
@@ -425,7 +458,7 @@ static void *client_thread(void *unused)
 
         LOCK();
         active_socket = connected;
-        announced_device[0] = '\0';
+        announced_device_count = 0;
         UNLOCK();
         printf("Da ket noi HIS server %s:%s\n",
             env_or_default("HIS_SERVER_HOST", DEFAULT_SERVER_HOST),
@@ -546,13 +579,13 @@ void server_client_send_reading(const char *device_id, const void *payload, int 
     snprintf(current_device, sizeof(current_device), "%s", device_id);
     server_socket = active_socket;
     if (server_socket != INVALID_SOCKET_HANDLE) {
-        if (strcmp(announced_device, device_id) != 0) {
+        if (!device_already_announced(device_id)) {
             int announce_length = snprintf(announce, sizeof(announce),
                 "{\"type\":\"device_announce\",\"deviceId\":\"%s\",\"friendlyName\":\"%s\"}\n",
                 escaped_device, escaped_device);
             if (announce_length > 0
                 && send(server_socket, announce, announce_length, 0) == announce_length) {
-                snprintf(announced_device, sizeof(announced_device), "%s", device_id);
+                remember_announced_device(device_id);
             }
         }
         size_t total = (size_t)prefix_length + (size_t)payload_length;

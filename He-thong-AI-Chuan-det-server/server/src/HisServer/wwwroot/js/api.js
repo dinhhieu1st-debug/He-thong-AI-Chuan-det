@@ -46,6 +46,9 @@ const Api = (() => {
     setMonitoring: (bedId, enabled) =>
       request("POST", `/api/beds/${encodeURIComponent(bedId)}/monitoring`, { enabled }),
     recalibrateHr: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/recalibrate-hr`),
+    /* 0 real sensor data, 2 force the attention band, 3 force the alarm band. */
+    setVitalsTestMode: (bedId, mode) =>
+      request("PUT", `/api/beds/${encodeURIComponent(bedId)}/vitals-test-mode`, { mode }),
     getBedHistory: (bedId, minutes) =>
       request("GET", `/api/beds/${encodeURIComponent(bedId)}/history?minutes=${encodeURIComponent(minutes)}`),
 

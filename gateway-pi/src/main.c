@@ -126,7 +126,11 @@ static bool payload_has_clinical_data(const void *payload, int payload_length)
         "\"monitoring\"", "\"drop_training_samples\"", "\"vitals_training_samples\"",
         "\"alerts_armed\"", "\"drop_interval_ms\"", "\"drop_event_count\"",
         "\"server_drop_level\"", "\"vitals_test_mode\"",
-        "\"ai_input_heart_rate\"", "\"ai_input_spo2\"", "\"vitals_level\""
+        "\"ai_input_heart_rate\"", "\"ai_input_spo2\"", "\"vitals_level\"",
+        "\"hr_forecast_16s\"", "\"spo2_forecast_16s\"", "\"hr_trend_bpm_per_min\"",
+        "\"drops_forecast_16s\"", "\"drops_trend_dpm_per_min\"",
+        "\"ts_anomaly_score\"", "\"drops_forecast_trusted\"",
+        "\"line_state\"", "\"remaining_ml\"", "\"remaining_min\""
     };
     char *json;
     size_t index;

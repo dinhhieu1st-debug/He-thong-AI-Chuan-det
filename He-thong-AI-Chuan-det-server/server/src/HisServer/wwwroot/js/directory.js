@@ -10,6 +10,12 @@ const DirectoryTab = (() => {
   let error = null;
   let searchTerm = "";
 
+  /* Whether this tab is the one on screen. The directory is re-fetched on a
+   * push (see subscribe() below), and re-fetching for a tab nobody is looking
+   * at is a request for nothing - switching to the tab reloads it anyway. */
+  let live = false;
+  let subscribed = false;
+
   function matchesFilters(b) {
     if (!searchTerm) return true;
     const haystack = `${b.bedId} ${b.room || ""} ${b.deviceId || ""}`.toLowerCase();
@@ -165,9 +171,27 @@ const DirectoryTab = (() => {
     }
   }
 
+  /* Another console changed the ward's structure - a bed added or removed, a
+   * room renamed, a device reassigned. Without this the page kept showing the
+   * old layout until somebody reloaded it, which is how a renamed room stayed
+   * wrong on every screen except the one that renamed it. */
+  function subscribe() {
+    if (subscribed) return;
+    subscribed = true;
+    State.on("bed-directory-changed", () => {
+      if (live) load();
+    });
+  }
+
   function activate() {
+    live = true;
+    subscribe();
     load();
   }
 
-  return { activate, render };
+  function stop() {
+    live = false;
+  }
+
+  return { activate, stop, render };
 })();

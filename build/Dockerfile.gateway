@@ -1,0 +1,25 @@
+# Build the Pi gateway in a container.
+#
+# Two reasons this exists rather than "just run make":
+#   1. libmosquitto-dev is the one build dependency that is awkward to install
+#      on a Windows dev box, and impossible to install identically on both.
+#   2. Setting --platform linux/arm64 produces the Raspberry Pi binary from the
+#      same Dockerfile, so the Pi build no longer has to happen on the Pi.
+#
+# Bookworm is deliberate: it is the Raspberry Pi OS release this gateway is
+# deployed on, so the glibc and libmosquitto the binary links against here are
+# the ones it will find there.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential \
+      libmosquitto-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src/gateway-pi
+
+# -Wall -Wextra -Wpedantic already come from the Makefile. -Werror is added here
+# and not in the Makefile on purpose: a warning should stop CI without stopping
+# somebody mid-edit on their own machine.
+CMD ["make", "CFLAGS=-O2 -Wall -Wextra -Wpedantic -Werror -std=c11"]

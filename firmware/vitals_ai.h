@@ -18,6 +18,7 @@ typedef struct {
   float spo2_baseline;
   float hr_forecast_16s;
   float spo2_forecast_16s;
+  float anomaly_score;
   uint8_t baseline_samples;
   uint8_t history_samples;
 } vitals_ai_result_t;

@@ -1,0 +1,30 @@
+# Overlay that exposes the dev stack to the local network, so a real Raspberry
+# Pi gateway can reach it.
+#
+#   docker compose -f build/docker-compose.dev.yml -f build/docker-compose.hw.yml up
+#
+# Kept as a separate file rather than folded into docker-compose.dev.yml so that
+# opening these ports is always a deliberate act. The dev stack binds to
+# 127.0.0.1 by default and should stay that way: it runs with an empty MySQL
+# root password and demo accounts whose passwords are published in this
+# repository, and neither belongs on a network anybody else is on.
+#
+# Use it on a lab network you control. Not on hospital infrastructure, and not
+# on anything routable from outside.
+
+name: smart-iv-dev
+
+services:
+  # MySQL is deliberately absent: compose MERGES port lists across files, so
+  # anything named here would be added to the base binding rather than replace
+  # it. Leaving mysql out keeps it localhost-only, which is right - the Pi talks
+  # to the server, never to the database.
+
+  server:
+
+    # !override replaces the base list instead of adding to it. Without the
+    # tag, compose would keep the 127.0.0.1 bindings AND add these, and the two
+    # publishes of the same container port collide on startup.
+    ports: !override
+      - "0.0.0.0:5194:5194"   # web console, reachable from other machines
+      - "0.0.0.0:5000:5000"   # TCP ingestion - this is the one the Pi needs

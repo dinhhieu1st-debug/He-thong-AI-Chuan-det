@@ -57,7 +57,58 @@ public sealed class OfflineScanService : BackgroundService
 
                 if (bed.LastDataAt is null || now - bed.LastDataAt.Value > threshold)
                 {
-                    var updated = bedStateStore.Upsert(bed.BedId, state => state.Status = BedStatus.Offline);
+                    /* Going Offline must also drop the per-channel signal
+                     * flags and any alarm verdict.
+                     *
+                     * A bed card shows a reading only when that channel's
+                     * signal flag says there is signal, so leaving the flags
+                     * true kept the last HR/SpO2/drip numbers on screen,
+                     * looking current, after the device was unplugged - only
+                     * the small status chip said Offline. A frozen number that
+                     * looks live is worse than no number: it is the one a nurse
+                     * glances at and believes.
+                     *
+                     * The readings themselves are deliberately left in place.
+                     * The trend chart is drawn from them and its history should
+                     * not be erased by a dropout; the flags are what decide
+                     * whether they are presented as current.
+                     *
+                     * The alarm fields go too. An alert level is a verdict the
+                     * device made about a patient it can no longer see, and
+                     * once it is out of contact it cannot stand behind it. */
+                    var updated = bedStateStore.Upsert(bed.BedId, state =>
+                    {
+                        state.Status = BedStatus.Offline;
+
+                        state.HeartRateSignal = false;
+                        state.Spo2Signal = false;
+                        state.FlowSignal = false;
+                        state.DripRateSignal = false;
+
+                        state.AlertsArmed = false;
+                        state.AlertLevel = null;
+                        state.FinalAlertLevel = null;
+                        state.AlertMessage = null;
+                        state.LineBranch = false;
+                        state.PatientBranch = false;
+                        state.LineBlocked = false;
+                        state.AeAlarm = false;
+                        state.DripAnomaly = false;
+                        state.VitalsAnomaly = false;
+                        state.TsAnomaly = false;
+                        state.TsEarlyWarning = false;
+
+                        /* The branch verdicts and the AI's inputs are things
+                         * the device reported about a moment it can no longer
+                         * see. Same reasoning as the signal flags. */
+                        state.VitalsLevel = null;
+                        state.ServerDropLevel = null;
+                        state.AiInputHeartRate = null;
+                        state.AiInputSpo2 = null;
+                        state.Spo2Low = false;
+                        state.HeartRateAbnormal = false;
+                        state.DropIntervalMs = null;
+                    });
 
                     try
                     {

@@ -326,13 +326,14 @@ extern "C" void vitals_ai_step(int16_t heart_rate, int16_t spo2, bool valid,
   const bool relative_attention = s_baseline_count >= 60 && relative_vitals >= 0.15f;
   const bool relative_warning = s_baseline_count >= 60 && relative_vitals >= 0.20f;
   bool forecast_flag = false;
+  float forecast_error = 0.0f;
 
   if (result->history_ready && s_forecaster.ready) {
     if (s_prediction_valid) {
       const float hr_error = fabsf(s_next_prediction[0] - norm_hr(hr));
       const float spo2_error = fabsf(s_next_prediction[1] - norm_spo2(oxygen));
-      forecast_flag = (hr_error > spo2_error ? hr_error : spo2_error)
-                      > kVitalsResidualThreshold;
+      forecast_error = hr_error > spo2_error ? hr_error : spo2_error;
+      forecast_flag = forecast_error > kVitalsResidualThreshold;
     }
     float ordered[kWindow * 2];
     for (int t = 0; t < kWindow; ++t) {
@@ -362,6 +363,10 @@ extern "C" void vitals_ai_step(int16_t heart_rate, int16_t spo2, bool valid,
 
   result->hard_limit = hard_limit;
   result->ai_anomaly = ai_anomaly;
+  /* Preserve the continuous model residual for telemetry.  The alarm still
+     uses the existing persistence and thresholds above; exposing this score
+     must not alter the clinical decision. */
+  result->anomaly_score = ae_error > forecast_error ? ae_error : forecast_error;
   if (hard_limit || relative_warning) result->level = 3;
   else if (relative_attention || ai_anomaly) result->level = 2;
 }

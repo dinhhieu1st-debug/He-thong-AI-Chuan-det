@@ -169,6 +169,69 @@ const BedsTab = (() => {
     5: { text: "Bag empty", cls: "ls-warn" },
   };
 
+  /* How the device arrived at its final level, shown as the two branch
+   * verdicts that produced it.
+   *
+   * The chip fuses one vitals level and one drip level into the number the
+   * ward acts on, by a rule with no middle ground: 1+1 is 1, 3+3 is 3, and
+   * every other combination is 2. The badge above says WHICH side is at fault;
+   * this says how bad each side is, which is the difference between "the line
+   * needs looking at" and "the line is why this bed is red".
+   *
+   * Both branch levels come straight from the chip. The server does not
+   * recompute them, so if these two do not produce the final level shown, the
+   * device and the console disagree and that is worth knowing.
+   */
+  function fusionSectionHtml(bed) {
+    if (bed.vitalsLevel == null && bed.serverDropLevel == null) {
+      // A device too old to report the branch levels. Say so rather than
+      // drawing an empty box that looks like "both branches normal".
+      return "";
+    }
+
+    const LEVEL = {
+      1: { text: "1 · normal", cls: "status-line-done" },
+      2: { text: "2 · attention", cls: "status-line-active" },
+      3: { text: "3 · alarm", cls: "status-line-active" },
+    };
+    const cell = (v) => {
+      const spec = LEVEL[v];
+      return spec
+        ? `<b class="${spec.cls}">${spec.text}</b>`
+        : `<b class="status-line-muted">--</b>`;
+    };
+
+    /* The measured gap is the number the drip level is computed from: within
+     * 200 ms of target is level 1, past 800 ms is level 3. Printing it next to
+     * the verdict answers "why is this a 2?" without a serial cable. */
+    const gap = bed.dropIntervalMs != null
+      ? `<div class="status-line status-line-muted">Measured drop gap:
+           <b>${UiUtils.escapeHtml(String(bed.dropIntervalMs))} ms</b>
+           <span class="fc-sub">(within 200 ms of target = 1, past 800 ms = 3)</span>
+         </div>`
+      : "";
+
+    const causes = [];
+    if (bed.spo2Low) causes.push("SpO2 low");
+    if (bed.heartRateAbnormal) causes.push("Heart rate abnormal");
+    if (bed.lineBlocked) causes.push("Line blocked");
+    if (bed.aeAlarm) causes.push("Vitals combination");
+    const causeLine = causes.length
+      ? `<div class="status-line status-line-active">Reported cause:
+           <b>${UiUtils.escapeHtml(causes.join(" · "))}</b></div>`
+      : "";
+
+    return `
+      <div class="line-status">
+        <h4>How the device decided</h4>
+        <div class="status-line">Patient branch: ${cell(bed.vitalsLevel)}</div>
+        <div class="status-line">IV line branch: ${cell(bed.serverDropLevel)}</div>
+        <div class="status-line">Final level: ${cell(bed.finalAlertLevel)}</div>
+        ${gap}
+        ${causeLine}
+      </div>`;
+  }
+
   function lineSectionHtml(bed) {
     if (bed.lineState == null) {
       /* Not "everything is fine" - the device has not worked it out yet. The
@@ -646,6 +709,38 @@ const BedsTab = (() => {
       </div>`;
   }
 
+  /* Real measurement next to what the AI is actually being fed.
+   *
+   * The pairing is the point. A toast only says the SERVER accepted the
+   * command; these two figures diverging is the first thing on any screen that
+   * proves the write travelled server -> gateway -> MQTT -> Zigbee -> chip and
+   * was applied. If "Real" moves and "AI test" does not, the command stopped
+   * somewhere in that chain.
+   *
+   * Both fall back to "--" rather than 0 when the device has not reported
+   * them: an older firmware sends neither, and a fabricated zero here would
+   * read as a patient with no pulse. */
+  function vitalsTestHtml(bed) {
+    const mode = bed.vitalsTestMode;
+    const label = mode === 2 ? "Fake HR L2"
+                : mode === 3 ? "Fake HR+O2 L3"
+                : mode === 0 ? "Real data"
+                : "unknown";
+    const active = mode === 2 || mode === 3;
+
+    const real = `${UiUtils.formatMetric(bed.heartRateSignal ? bed.heartRate : null, " bpm")}`
+               + ` / ${UiUtils.formatMetric(bed.spo2Signal ? bed.spo2 : null, "%")}`;
+    const aiInput = `${UiUtils.formatMetric(bed.aiInputHeartRate, " bpm")}`
+                  + ` / ${UiUtils.formatMetric(bed.aiInputSpo2, "%")}`;
+
+    return `
+      <div class="status-line ${active ? "status-line-active" : "status-line-done"}">
+        Mode: <b>${UiUtils.escapeHtml(label)}</b>
+      </div>
+      <div class="status-line status-line-muted">Real HR / SpO2: <b>${real}</b></div>
+      <div class="status-line status-line-muted">AI test HR / SpO2: <b>${aiInput}</b></div>`;
+  }
+
   function settingsSectionHtml(bed) {
     return `
       <div class="bed-settings">
@@ -666,6 +761,16 @@ const BedsTab = (() => {
           <div id="hrStatusState">${hrStatusHtml(bed)}</div>
           <div class="inline-form" style="margin-top:8px;">
             <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 60s baseline</button>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <label>Vitals test mode</label>
+          <div id="vitalsTestState">${vitalsTestHtml(bed)}</div>
+          <div class="inline-form" style="margin-top:8px;">
+            <button type="button" class="btn" data-test-mode="0">Real data</button>
+            <button type="button" class="btn" data-test-mode="2">Fake HR L2</button>
+            <button type="button" class="btn" data-test-mode="3">Fake HR+O2 L3</button>
           </div>
         </div>
 
@@ -757,6 +862,21 @@ const BedsTab = (() => {
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not start HR recalibration (${err.message})`, true);
       }
+    });
+
+    /* The toast deliberately points at the AI test figures rather than
+     * claiming success: the request reaching the server is not the same event
+     * as the chip applying it, and only the second one matters here. */
+    document.querySelectorAll("[data-test-mode]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const mode = Number(btn.getAttribute("data-test-mode"));
+        try {
+          await Api.setVitalsTestMode(bed.bedId, mode);
+          UiUtils.toast(`${bed.bedId}: test mode requested - watch "AI test HR / SpO2" to confirm the chip applied it`);
+        } catch (err) {
+          UiUtils.toast(`${bed.bedId}: could not change test mode (${err.message})`, true);
+        }
+      });
     });
   }
 
@@ -1223,6 +1343,9 @@ const BedsTab = (() => {
           <div class="bd-card" id="bedLineState">
             ${lineSectionHtml(bed)}
           </div>
+          <div class="bd-card" id="bedFusionState">
+            ${fusionSectionHtml(bed)}
+          </div>
           <div class="bd-card" id="bedForecastState">
             <h4>AI forecast (on-chip)</h4>
             ${forecastSectionHtml(bed)}
@@ -1284,6 +1407,10 @@ const BedsTab = (() => {
 
     const line = document.getElementById("bedLineState");
     if (line) line.innerHTML = lineSectionHtml(bed);
+    /* Repainted on every update like the rest: these are the numbers somebody
+     * stares at while a level changes, so a stale copy is worse than none. */
+    const fusion = document.getElementById("bedFusionState");
+    if (fusion) fusion.innerHTML = fusionSectionHtml(bed);
 
     const forecast = document.getElementById("bedForecastState");
     if (forecast) {
@@ -1294,6 +1421,11 @@ const BedsTab = (() => {
     if (tare) tare.innerHTML = tareStatusHtml(bed);
     const hr = document.getElementById("hrStatusState");
     if (hr) hr.innerHTML = hrStatusHtml(bed);
+    /* Must be patched here, not only at first render: this block IS the
+     * confirmation that a test-mode command reached the chip, and a panel that
+     * never repaints it would show the moment before the command every time. */
+    const vitalsTest = document.getElementById("vitalsTestState");
+    if (vitalsTest) vitalsTest.innerHTML = vitalsTestHtml(bed);
     const target = document.getElementById("targetDropsCurrent");
     if (target) target.textContent = UiUtils.formatMetric(bed.targetDropsPerMin, " dpm");
     const measured = document.getElementById("targetDropsMeasured");

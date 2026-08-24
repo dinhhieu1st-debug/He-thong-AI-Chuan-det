@@ -1,102 +1,149 @@
-# HIS Server
+# HIS Server — tham chiếu kỹ thuật
 
-Hospital bed vitals monitoring server: ingests live vitals from bedside IoT
-devices over TCP, stores history in MySQL, serves a real-time web dashboard,
-a REST API for a companion mobile app, and FCM push notifications for
-critical/warning alerts.
+Tài liệu tra cứu cho người sửa code server: cấu hình, wire format, endpoint,
+triển khai. Phần giới thiệu và các quyết định thiết kế nằm ở
+[`../README.md`](../README.md).
 
-Runs cross-platform (Linux and Windows) on ASP.NET Core / Kestrel — this
-replaces a previous Windows-only WinForms implementation.
-
-## Project layout
-
-```
-src/HisServer/        ASP.NET Core app (backend + static web frontend)
-  Api/                 REST endpoint definitions
-  Hubs/                SignalR hub (live push to the browser)
-  Ingestion/            TCP vitals listener (port 5000) + wire-format parser
-  Domain/                Status thresholds, alert-transition rules, device health,
-                         and the two offline scanners (one for beds, one for devices)
-  Data/                  MySQL access (Dapper + MySqlConnector)
-  Services/              Vitals-save throttling, FCM push
-  Models/                Shared DTOs
-  wwwroot/                Static web frontend (no build step — plain HTML/CSS/JS)
-    js/                     One file per tab, plus charts.js (inline-SVG trends)
-                            and critical-alarm.js (full-screen Critical banner)
-database/schema.sql     MySQL schema (run once before first launch)
-HisServer.sln
-```
-
-## Prerequisites
+## Yêu cầu
 
 - .NET 8 SDK
-- MySQL 8.x reachable from the server
-- (Optional) a Firebase service account JSON file, if you want mobile push notifications
+- MySQL 8.x truy cập được từ máy chạy server
+- *(Tuỳ chọn)* File JSON service account của Firebase, nếu cần push cho app di động
 
-## Database setup
+---
+
+## Cấu hình
+
+Dùng cơ chế cấu hình chuẩn của ASP.NET Core: `appsettings.json`, biến môi
+trường, hoặc `dotnet user-secrets` khi phát triển cục bộ.
+
+**Không có giá trị fallback cho chuỗi kết nối database.** Thiếu nó là app chết
+ngay lúc startup thay vì âm thầm chạy với database rỗng.
+
+| Cấu hình | Biến môi trường | Giá trị đang ship | Ý nghĩa |
+|---|---|---|---|
+| Chuỗi kết nối MySQL | `ConnectionStrings__MySql` | *(bắt buộc, không có mặc định)* | `Server=localhost;Port=3306;Database=his_server;Uid=...;Pwd=...;` |
+| Cổng TCP nhận vitals | `Tcp__Port` | `5000` | JSON phân cách bằng newline, mỗi dòng một bản ghi |
+| Chu kỳ ghi lịch sử vitals | `VitalsSave__IntervalSeconds` | `10` | Bao lâu ghi một lần vào bảng `vital_samples` |
+| Ngưỡng đánh dấu Offline | `Offline__ThresholdSeconds` | `90` | Không có dữ liệu quá ngần này giây ⇒ giường **và thiết bị của nó** thành Offline |
+| Chu kỳ quét Offline | `Offline__ScanIntervalSeconds` | `5` | Bao lâu hai scanner offline chạy một lần |
+| Firebase project ID | `Firebase__ProjectId` | *(rỗng = tắt push)* | |
+| Đường dẫn service account | `FPT_FIREBASE_SERVICE_ACCOUNT` | *(rỗng = tắt push)* | Chỉ đọc từ biến môi trường, không đọc từ `appsettings.json` |
+
+> **"Giá trị đang ship" là giá trị trong `appsettings.json` của repo này**, không
+> phải default trong lớp options C#. Hai thứ này **khác nhau** ở nhóm `Offline`:
+> `OfflineOptions` fallback về 3s/1s nếu thiếu hẳn section, nhưng file cấu hình
+> đang ship là 90s/5s. Khi cần biết vì sao một giường mất N giây mới chuyển
+> Offline, đọc `appsettings.json` — đừng đọc default trong code.
+
+Ví dụ cấu hình cục bộ:
+
+```bash
+cd src/HisServer
+dotnet user-secrets set "ConnectionStrings:MySql" \
+  "Server=localhost;Port=3306;Database=his_server;Uid=root;Pwd=<MAT_KHAU>;SslMode=None;AllowPublicKeyRetrieval=True;"
+dotnet run --launch-profile http
+```
+
+Profile `http` bind `http://0.0.0.0:5194` cho web, còn TCP nhận vitals nghe cổng
+`Tcp:Port` (mặc định `5000`). **Hai cổng phải khác nhau** — cho web nghe trùng
+`5000` là hai listener tranh nhau cổng.
+
+---
+
+## Database
 
 ```bash
 mysql -u <user> -p < database/schema.sql
 ```
 
-This creates the `his_server` database and all required tables. Safe to
-re-run (`CREATE TABLE IF NOT EXISTS`).
+Lệnh này tạo database `his_server` và toàn bộ bảng. Chạy lại nhiều lần vẫn an
+toàn (`CREATE TABLE IF NOT EXISTS`).
 
-## Configuration
-
-All configuration is standard ASP.NET Core config — `appsettings.json`,
-environment variables, or `dotnet user-secrets` for local development. There
-is **no hardcoded fallback** for the database connection string; the app
-fails fast at startup if it isn't set.
-
-| Setting | Env var | Default | Notes |
-|---|---|---|---|
-| MySQL connection string | `ConnectionStrings__MySql` | *(required, no default)* | e.g. `Server=localhost;Port=3306;Database=his_server;Uid=...;Pwd=...;` |
-| Bed vitals TCP ingestion port | `Tcp__Port` | `5000` | Newline-delimited JSON, one reading per line |
-| Vitals history save interval | `VitalsSave__IntervalSeconds` | `10` | How often a bed's readings get written to `vital_samples` |
-| Offline detection threshold | `Offline__ThresholdSeconds` | `90` | No data within this window ⇒ bed **and its device** marked Offline |
-| Offline scan interval | `Offline__ScanIntervalSeconds` | `5` | How often both offline scanners run |
-| Firebase project ID | `Firebase__ProjectId` | *(empty = push disabled)* | |
-| Firebase service account path | `FPT_FIREBASE_SERVICE_ACCOUNT` | *(empty = push disabled)* | Path to the service account JSON file |
-
-> **"Default" above means the value this repo ships in `appsettings.json`**, not
-> the fallback baked into the options classes. The two differ for the `Offline`
-> settings: `OfflineOptions` falls back to 3s/1s if the section is missing
-> entirely, but the shipped config sets 90s/5s. Read `appsettings.json` — not
-> the C# defaults — when working out why a bed took N seconds to go Offline.
-
-Local development example:
+Sau đó chạy **toàn bộ** file trong `database/migrations/` **theo thứ tự tên**:
 
 ```bash
-cd src/HisServer
-dotnet user-secrets set "ConnectionStrings:MySql" "Server=localhost;Port=3306;Database=his_server;Uid=root;Pwd=yourpassword;SslMode=None;AllowPublicKeyRetrieval=True;"
-dotnet run
+for f in database/migrations/*.sql; do mysql -u root -p his_server < "$f"; done
 ```
 
-The web console is served at `http://localhost:5000/` (or whatever port
-Kestrel binds to) and the bed vitals TCP listener runs on the port from
-`Tcp:Port` (default `5000` — override one of the two if running both on the
-same host, since they'd otherwise collide).
+| Migration | Thêm gì |
+|---|---|
+| `2026-07-29_vital_samples_smartiv_columns.sql` | Cột Smart IV cho `vital_samples` |
+| `2026-07-30_null_out_impossible_vitals.sql` | Dọn giá trị sinh hiệu bất khả thi thành NULL |
+| `2026-08-17_device_health_and_faults.sql` | Bảng sức khoẻ thiết bị và báo hỏng |
+| `2026-08-17_users_roles_assignments.sql` | Tài khoản, vai trò, gán giường |
+| `2026-08-18_alert_message_length.sql` | Nới độ dài nội dung cảnh báo |
+| `2026-08-19_alert_ack_note.sql` | Ghi chú khi xác nhận cảnh báo |
+| `2026-08-19_drop_dead_temperature_column.sql` | Bỏ cột nhiệt độ không dùng nữa |
+| `2026-08-19_firmware_update_events.sql` | Nhật ký sự kiện cập nhật firmware |
+| `2026-08-21_seed_demo_accounts.sql` | Hai tài khoản demo `yta` và `kythuat` |
 
-## Bed vitals wire format
+---
 
-Devices/gateways connect over TCP and send one JSON object per line:
+## Wire format TCP
+
+Gateway mở kết nối TCP tới cổng `Tcp:Port` và gửi **mỗi dòng một object JSON**:
 
 ```json
-{"bedId":"BED-01","room":"ICU-1","spo2":98,"heartRate":75,"temperature":36.8,"dripRate":20}
+{"bedId":"BED-01","room":"ICU-1","spo2":98,"heartRate":75,"dripRate":20}
 ```
 
-Field names are matched case-insensitively with several accepted aliases per
-field (kept for backward compatibility with existing firmware) — see
-`Ingestion/BedDataParser.cs` for the full alias list.
+Tên trường khớp **không phân biệt hoa thường** và mỗi trường có nhiều alias, giữ
+lại cho tương thích với firmware cũ. Danh sách alias đầy đủ nằm trong
+[`src/HisServer/Ingestion/BedDataParser.cs`](src/HisServer/Ingestion/BedDataParser.cs) —
+đó là nguồn sự thật, không phải tài liệu này.
 
-## Deployment notes
+Ý nghĩa các trường Smart IV (`final_alert_level`, `alerts_armed`,
+`drop_training_samples`, `line_branch`, ...): xem
+[`../../docs/03-zigbee.md`](../../docs/03-zigbee.md).
 
-- The app is a single self-contained Kestrel process — run it behind a
-  reverse proxy (nginx, Caddy, IIS) or an OS-level tunnel if it needs to be
-  reachable outside the local network. The app itself does not spawn any
-  tunnel process.
-- On Linux, run it as a `systemd` service (`dotnet src/HisServer/bin/Release/net8.0/HisServer.dll`).
-- On Windows, run it as a Windows Service or via `dotnet run` / the published
-  executable — no admin rights are required for the HTTP port (unlike the
-  old `HttpListener`-based implementation).
+---
+
+## Thành phần
+
+| Thư mục | Việc |
+|---|---|
+| `Api/` | 12 nhóm REST endpoint: auth, bed, alert, device, patient, user, profile, settings, log, fault report, OTA image, mobile |
+| `Hubs/` | SignalR hub — đẩy realtime lên trình duyệt, chia nhóm theo quyền |
+| `Ingestion/` | `BedTcpIngestionService` (listener) và `BedDataParser` (wire format) |
+| `Domain/` | `VitalsStatusEvaluator` (trạng thái giường), `AlertTransitionTracker`, `DeviceHealthEvaluator`, `BedStateStore`, `BedConnectionRegistry`, `Capabilities`, và hai scanner offline |
+| `Data/` | 9 repository dùng Dapper + MySqlConnector |
+| `Services/` | `VitalsPersistenceCoordinator` (throttle ghi), `FcmPushService`, `OtaImageStore`, `OtaStatusRegistry`, `PasswordHasher` |
+| `Models/` | DTO dùng chung |
+| `wwwroot/` | Frontend HTML/CSS/JS thuần — **không có bước build**, sửa xong F5 là thấy |
+
+`VitalsStatusEvaluator.cs` là **nơi duy nhất** trên server quyết định trạng thái
+giường. Đừng thêm logic đánh giá trạng thái ở chỗ khác.
+
+Trạng thái OTA (`OtaStatusRegistry`) **cố ý không lưu vào database**: một lần
+cập nhật firmware không sống sót qua restart server, nên bản ghi về nó cũng
+không nên sống sót.
+
+---
+
+## Kiểm thử
+
+```bash
+dotnet build HisServer.sln
+dotnet run --project tests/EvaluatorTests
+```
+
+`EvaluatorTests` là console app thuần, kiểm bộ đánh giá trạng thái giường,
+không cần NuGet package nào ngoài SDK.
+
+---
+
+## Triển khai
+
+Ứng dụng là **một tiến trình Kestrel duy nhất**, không tự sinh tiến trình tunnel
+nào. Muốn truy cập từ ngoài mạng nội bộ thì đặt sau reverse proxy (nginx, Caddy,
+IIS) hoặc tunnel ở mức hệ điều hành.
+
+**Linux** — chạy bằng systemd:
+
+```bash
+dotnet src/HisServer/bin/Release/net8.0/HisServer.dll
+```
+
+**Windows** — chạy như Windows Service, hoặc `dotnet run`, hoặc file thực thi đã
+publish. Không cần quyền admin cho cổng HTTP.
