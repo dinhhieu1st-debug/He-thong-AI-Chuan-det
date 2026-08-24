@@ -161,17 +161,36 @@ public sealed class OtaImageStore
         return File.Exists(path) ? path : null;
     }
 
-    public bool Delete(string fileName)
+    /// <summary>
+    /// Deletes an image and its sidecar files. The protected v3 bridge only
+    /// comes out with <paramref name="force"/> set - a technician confirming a
+    /// specific warning in the UI, not an accidental click. Note this only
+    /// removes the LIVE copy in ota-images: if ota-system/smart-iv-ota-bridge-v3.ota
+    /// still exists, <see cref="EnsureSystemBridge"/> re-copies it back on the
+    /// next server start, by design (that is how an updated official bridge
+    /// gets deployed). Force-deleting here does not touch that source copy.
+    /// </summary>
+    public bool Delete(string fileName, bool force = false)
     {
-        if (IsProtected(fileName)) return false;
+        if (IsProtected(fileName) && !force) return false;
         var path = PathFor(fileName);
         if (path is null) return false;
         File.Delete(path);
-        var policyPath = path + ".policy.json";
-        if (File.Exists(policyPath)) File.Delete(policyPath);
-        log.LogInformation("OTA image deleted: {File}", Path.GetFileName(path));
+        foreach (var sidecarSuffix in SidecarSuffixes)
+        {
+            var sidecarPath = path + sidecarSuffix;
+            if (File.Exists(sidecarPath)) File.Delete(sidecarPath);
+        }
+        log.LogInformation("OTA image deleted: {File}{Forced}",
+            Path.GetFileName(path), force ? " (forced)" : "");
         return true;
     }
+
+    // .policy.json is real (see ReadPolicy). .state.json does not exist in this
+    // codebase - OTA transfer state lives in OtaStatusRegistry, in memory, not
+    // as a per-image file - but the suffix is listed here so deleting an image
+    // never leaves an orphaned sidecar if that ever changes.
+    private static readonly string[] SidecarSuffixes = [".policy.json", ".state.json"];
 
     public bool IsProtected(string fileName) =>
         string.Equals(Path.GetFileName(fileName), BridgeFileName,

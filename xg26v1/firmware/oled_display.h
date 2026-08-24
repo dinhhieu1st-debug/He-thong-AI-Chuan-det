@@ -29,4 +29,36 @@ void oled_display_monitor(int16_t heart_rate,
                           bool alerts_armed,
                           bool baseline_recalibrating);
 
+/* --- OTA progress screen ---------------------------------------------------
+ *
+ * Overrides the vitals/notification screens while an OTA is in flight:
+ * oled_display_monitor() and oled_display_message() become no-ops until the
+ * OTA screen clears, so a vitals update mid-download cannot knock the OLED
+ * off the progress screen.
+ *
+ * Callable from a Zigbee OTA callback: these two setters only update state
+ * and a dirty flag, they never touch I2C. oled_display_ota_step(), called
+ * every app_process_action() iteration like the rest of this app's polling,
+ * owns all actual rendering/flushing and its own redraw/animation timing -
+ * matching how the OTA client itself only ever reports real progress (never
+ * simulated by a timer).
+ */
+
+/* percent is the real downloaded_bytes * 100 / total_image_size from the OTA
+ * client (clamped 0..100), not a timer simulation. active=false clears the
+ * OTA screen back to idle immediately (no held result screen). */
+void oled_display_set_ota_progress(bool active, uint8_t percent);
+
+/* success=true is meant to be called exactly once, right before the OTA
+ * client reboots into the new image - hold "UPDATE DONE / REBOOT" until the
+ * actual reset. success=false starts a ~4s "UPDATE FAIL / <message>" hold,
+ * then returns to the normal screen automatically. message may be NULL/long;
+ * it is copied and truncated to fit the screen, never causes a crash. */
+void oled_display_set_ota_result(bool success, const char *message);
+
+/* Advances the UPDATE... animation and (re)draws the OTA screen at a bounded
+ * rate (see oled_display.c) so frequent progress updates cannot flood I2C or
+ * block the Zigbee stack. No-op when no OTA screen is active. */
+void oled_display_ota_step(uint32_t now_ms);
+
 #endif
