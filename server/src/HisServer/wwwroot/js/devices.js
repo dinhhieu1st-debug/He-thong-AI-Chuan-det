@@ -46,10 +46,187 @@ const DevicesTab = (() => {
    * bản ghi thiết bị thì gần như không đổi. */
   const otaByDevice = new Map();
 
+  /* --- smooth OTA progress/ETA, patched in place -----------------------
+   *
+   * ota.progress from the gateway is authoritative and jumps in ~4% steps.
+   * This layer only interpolates the DISPLAYED number/bar toward that real
+   * value over OTA_ANIM_DURATION_MS - it never predicts beyond it, and a
+   * full page render() never runs per progress tick (see applyOtaStatus).
+   */
+  const OTA_ANIM_DURATION_MS = 800;
+  const otaAnim = new Map(); // deviceId -> anim state, see applyOtaStatus
+  let otaClockTimer = null;
+
+  function otaSessionActive(state) {
+    return state === "Starting" || state === "Updating";
+  }
+
+  function otaEnsureClock() {
+    if (otaClockTimer) return;
+    // One shared 1Hz timer for the whole tab - never a per-device timer -
+    // and it only ever touches the countdown text of devices with a tracked
+    // anchor, never calls render().
+    otaClockTimer = setInterval(() => {
+      otaAnim.forEach((anim, deviceId) => {
+        if (anim.remainAnchorSec == null) return;
+        const displaySec = Math.max(0, anim.remainAnchorSec
+          - Math.floor((performance.now() - anim.remainAnchorAt) / 1000));
+        if (displaySec !== anim.lastShownSec) {
+          anim.lastShownSec = displaySec;
+          updateOtaTextNode(deviceId);
+        }
+      });
+    }, 1000);
+  }
+
+  function otaStopClockIfIdle() {
+    if (otaAnim.size === 0 && otaClockTimer) {
+      clearInterval(otaClockTimer);
+      otaClockTimer = null;
+    }
+  }
+
+  function formatEta(totalSeconds) {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const hh = Math.floor(s / 3600);
+    const mm = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    const mmss = `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    return (hh > 0 ? `${hh}:${mmss}` : mmss) + " left";
+  }
+
+  /* Text for the OTA sub-line, given a device's live anim state (if any) and
+   * its raw status. Used both for the very first paint (deviceCardHtml) and
+   * every subsequent in-place update (updateOtaTextNode). */
+  function otaProgressText(deviceId, status) {
+    if (!status) return "preparing…";
+    const anim = otaAnim.get(deviceId);
+    const shown = anim ? Math.round(anim.displayed) : (status.progress ?? null);
+    if (shown == null) return "preparing…";
+    // Reached 100% but the backend has not reported Done/Failed yet: the
+    // device is verifying the image, not finished - never say "done" here.
+    if (shown >= 100 && status.inFlight) return "100% · verifying…";
+    let text = `${shown}%`;
+    if (anim && anim.remainAnchorSec != null) {
+      const displaySec = Math.max(0, anim.remainAnchorSec
+        - Math.floor((performance.now() - anim.remainAnchorAt) / 1000));
+      text += " · " + formatEta(displaySec);
+    }
+    return text;
+  }
+
+  function updateOtaTextNode(deviceId) {
+    const el = document.querySelector(`[data-ota-progress-text="${CSS.escape(deviceId)}"]`);
+    if (!el) return;
+    const text = otaProgressText(deviceId, otaByDevice.get(deviceId));
+    if (el.textContent !== text) el.textContent = text;
+  }
+
+  function animateOtaNumber(deviceId, fromVal, toVal) {
+    const anim = otaAnim.get(deviceId);
+    if (!anim) return;
+    if (anim.numberRafId) cancelAnimationFrame(anim.numberRafId);
+    const start = performance.now();
+    const step = (now) => {
+      const current = otaAnim.get(deviceId);
+      if (!current) return; // session ended mid-animation
+      const t = Math.min(1, (now - start) / OTA_ANIM_DURATION_MS);
+      current.displayed = fromVal + (toVal - fromVal) * t;
+      updateOtaTextNode(deviceId);
+      if (t < 1) {
+        current.numberRafId = requestAnimationFrame(step);
+      } else {
+        current.displayed = toVal;
+        current.numberRafId = null;
+        updateOtaTextNode(deviceId);
+      }
+    };
+    anim.numberRafId = requestAnimationFrame(step);
+  }
+
+  /* Rebuilds ONLY this device's .ota-block (state label, bar, buttons) in
+   * place - used for session start/end and non-progress field changes.
+   * Returns false when the card is not currently in the DOM (filtered out,
+   * or no full render has happened yet), so the caller can fall back to a
+   * normal render() instead of silently doing nothing. */
+  function patchOtaBlock(deviceId) {
+    const card = document.querySelector(`.device-card[data-device-id="${CSS.escape(deviceId)}"]`);
+    const device = State.devices.get(deviceId);
+    const otaBlock = card && card.querySelector(".ota-block");
+    if (!card || !device || !otaBlock) return false;
+    otaBlock.outerHTML = otaSectionHtml(device);
+    bindOtaButtons(card);
+    return true;
+  }
+
+  /* Applies one OTA status message: authoritative-progress clamping (never
+   * regresses within a session, resets cleanly on a new one), ETA
+   * re-anchoring, and an in-place DOM patch - never a full render() just
+   * because progress ticked. */
+  function applyOtaStatus(status) {
+    const deviceId = status.deviceId;
+    const prevStatus = otaByDevice.get(deviceId);
+    otaByDevice.set(deviceId, status);
+
+    const wasActive = prevStatus && otaSessionActive(prevStatus.state);
+    const isActive = otaSessionActive(status.state);
+
+    if (!isActive) {
+      const anim = otaAnim.get(deviceId);
+      if (anim) {
+        if (anim.numberRafId) cancelAnimationFrame(anim.numberRafId);
+        otaAnim.delete(deviceId);
+        otaStopClockIfIdle();
+      }
+      if (!patchOtaBlock(deviceId)) render();
+      return;
+    }
+
+    let anim = otaAnim.get(deviceId);
+    if (!anim || !wasActive) {
+      // A brand new session: progress starts clean, never clamped against
+      // whatever a previous Update/Done/Failed cycle last showed.
+      anim = {
+        displayed: 0, target: 0, effectiveProgress: 0,
+        remainAnchorSec: null, remainAnchorAt: 0, lastShownSec: null,
+        numberRafId: null,
+      };
+      otaAnim.set(deviceId, anim);
+      otaEnsureClock();
+      if (!patchOtaBlock(deviceId)) { render(); return; }
+    }
+
+    if (status.progress != null) {
+      const clamped = Math.min(100, Math.max(0, status.progress));
+      anim.effectiveProgress = Math.max(anim.effectiveProgress, clamped); // PHẦN G: never regress
+    }
+    const newTarget = anim.effectiveProgress;
+
+    if (status.remainingSeconds != null) {
+      // A fresh estimate from the gateway is always the new anchor, whether
+      // it went down (normal) or up (the transfer slowed) - it is an
+      // estimate, not a promise.
+      anim.remainAnchorSec = Math.max(0, status.remainingSeconds);
+      anim.remainAnchorAt = performance.now();
+      anim.lastShownSec = null; // force the 1Hz tick to repaint immediately
+    }
+
+    const fillEl = document.querySelector(`[data-ota-progress-fill="${CSS.escape(deviceId)}"]`);
+    if (!fillEl) { patchOtaBlock(deviceId); return; }
+
+    if (newTarget !== anim.target) {
+      const from = anim.displayed;
+      anim.target = newTarget;
+      fillEl.style.width = newTarget + "%"; // CSS transition (app.css) animates this
+      animateOtaNumber(deviceId, from, newTarget);
+    } else {
+      updateOtaTextNode(deviceId);
+    }
+  }
+
   State.on("ota-status", (status) => {
     if (!status || !status.deviceId) return;
-    otaByDevice.set(status.deviceId, status);
-    render();
+    applyOtaStatus(status);
   });
 
   const OTA_LABEL = {
@@ -79,13 +256,19 @@ const DevicesTab = (() => {
      * mời người ta bấm ngay từ đầu. */
     const busy = ota?.inFlight === true;
 
+    /* The bar/number/countdown below are the DOM this OTA session animates
+     * in place (see otaAnim/applyOtaStatus) - width and text are mutated
+     * directly on these exact nodes on every progress tick, never rebuilt,
+     * so the CSS transition on .ota-bar-fill actually gets to run. Initial
+     * width/text come from otaAnim if a session is already tracked (so a
+     * full render mid-session does not reset the animation), else from the
+     * raw status. */
+    const anim = otaAnim.get(device.deviceId);
+    const initialWidth = anim ? anim.target : (ota?.progress ?? 0);
+    const initialText = otaProgressText(device.deviceId, ota);
     const bar = busy
-      ? `<div class="ota-bar"><div class="ota-bar-fill" style="width:${
-           ota.progress != null ? ota.progress : 0}%;"></div></div>
-         <div class="ota-sub">${
-           ota.progress != null ? ota.progress + "%" : "preparing…"}${
-           ota.remainingSeconds != null && ota.remainingSeconds > 0
-             ? " · about " + Math.round(ota.remainingSeconds / 60) + " min left" : ""}</div>
+      ? `<div class="ota-bar" data-ota-progress-device="${id}"><div class="ota-bar-fill" data-ota-progress-fill="${id}" style="width:${initialWidth}%;"></div></div>
+         <div class="ota-sub" data-ota-progress-text="${id}">${initialText}</div>
          <div class="ota-warn">Installing firmware — do not disconnect power.</div>`
       : "";
 
@@ -509,26 +692,11 @@ const DevicesTab = (() => {
     });
   }
 
-  function render() {
-    const total = State.devices.size;
-    const devices = Array.from(State.devices.values())
-      .filter(matchesFilters)
-      .sort((a, b) => {
-        const ra = DEVICE_SEVERITY_RANK[statusKey(a)] ?? 4, rb = DEVICE_SEVERITY_RANK[statusKey(b)] ?? 4;
-        return ra - rb || a.deviceId.localeCompare(b.deviceId);
-      });
-    const grid = document.getElementById("devicesGrid");
-    const banner = document.getElementById("pendingDevices");
-    renderPendingBanner();
-
-    grid.innerHTML = devices.length === 0
-      ? `<div class="empty-state">No devices match the current filters.</div>`
-      : devices.map(deviceCardHtml).join("");
-
-    const countEl = document.getElementById("devicesCount");
-    if (countEl) countEl.textContent = devices.length === total ? `${total} devices` : `Showing ${devices.length} of ${total}`;
-
-    document.querySelectorAll("[data-ota-check]").forEach((btn) => {
+  /* Binds the "Check for update" / "Update" buttons within `scope` - the
+   * whole grid after a full render(), or just one card after patchOtaBlock()
+   * rebuilt a single .ota-block. */
+  function bindOtaButtons(scope) {
+    scope.querySelectorAll("[data-ota-check]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.getAttribute("data-ota-check");
         btn.disabled = true;
@@ -542,7 +710,7 @@ const DevicesTab = (() => {
       });
     });
 
-    document.querySelectorAll("[data-ota-update]").forEach((btn) => {
+    scope.querySelectorAll("[data-ota-update]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.getAttribute("data-ota-update");
         /* Nạp firmware mất vài phút và không huỷ giữa chừng được, nên hỏi lại
@@ -565,6 +733,28 @@ const DevicesTab = (() => {
         }
       });
     });
+  }
+
+  function render() {
+    const total = State.devices.size;
+    const devices = Array.from(State.devices.values())
+      .filter(matchesFilters)
+      .sort((a, b) => {
+        const ra = DEVICE_SEVERITY_RANK[statusKey(a)] ?? 4, rb = DEVICE_SEVERITY_RANK[statusKey(b)] ?? 4;
+        return ra - rb || a.deviceId.localeCompare(b.deviceId);
+      });
+    const grid = document.getElementById("devicesGrid");
+    const banner = document.getElementById("pendingDevices");
+    renderPendingBanner();
+
+    grid.innerHTML = devices.length === 0
+      ? `<div class="empty-state">No devices match the current filters.</div>`
+      : devices.map(deviceCardHtml).join("");
+
+    const countEl = document.getElementById("devicesCount");
+    if (countEl) countEl.textContent = devices.length === total ? `${total} devices` : `Showing ${devices.length} of ${total}`;
+
+    bindOtaButtons(grid);
 
     document.querySelectorAll("[data-assign-device]").forEach((btn) => {
       btn.addEventListener("click", () => assignDevice(btn.getAttribute("data-assign-device")));
