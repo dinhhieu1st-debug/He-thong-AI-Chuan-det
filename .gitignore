@@ -1,0 +1,36 @@
+# Build products (recreated from source)
+xg26v1/cmake_gcc/build/
+xg26v1/bootloader/cmake_gcc/build/
+*.hex
+*.bin
+*.s37
+*.out
+*.map
+*.o
+*.obj
+
+# Local Silicon Labs / VS Code machine state
+.silabsExtContext
+.projectlinkstore
+.uceditor/
+vscode.conf
+
+# Recovery archives and installers
+.cleanup-backup-*.zip
+*.vsix
+
+# Logs, caches, and temporary files
+*.log
+*.tmp
+*.bak
+.tmp-main-audit/
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# .NET build output (server)
+bin/
+obj/
+
+# Leftover files from a killed process still holding a deleted file open
+.fuse_hidden*

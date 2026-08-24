@@ -1,0 +1,1 @@
+cd ~/pi-aarch64 && bash run.sh 127.0.0.1

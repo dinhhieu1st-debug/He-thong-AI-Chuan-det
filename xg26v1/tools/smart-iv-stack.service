@@ -1,0 +1,15 @@
+[Unit]
+Description=Smart IV unified Pi stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iotchallenge
+WorkingDirectory=/home/iotchallenge/pi-aarch64
+ExecStart=/bin/bash /home/iotchallenge/pi-aarch64/run.sh 127.0.0.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

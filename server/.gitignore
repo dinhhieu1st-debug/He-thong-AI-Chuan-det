@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS/editor
+.DS_Store
+Thumbs.db
+
+# Logs/temp
+*.log
+*.tmp
+
+# Local runtime state and ad-hoc build/test output
+.runtime/
+.build*/
+
+# Runtime-generated OTA firmware uploads (not source)
+ota-images/
+ota-staging/
+ota-system/
