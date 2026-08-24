@@ -1,6 +1,6 @@
 # Build products (recreated from source)
-cmake_gcc/build/
-bootloader/cmake_gcc/build/
+xg26v1/cmake_gcc/build/
+xg26v1/bootloader/cmake_gcc/build/
 *.hex
 *.bin
 *.s37
@@ -28,7 +28,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# .NET build output (software/server)
+# .NET build output (server)
 bin/
 obj/
 
