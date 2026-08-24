@@ -136,6 +136,42 @@ Console.WriteLine("\n== manufacturer / image type isolation ==");
     Check("device with a different imageType -> nothing offered", wrongType is null, wrongType?.FileName ?? "none");
 }
 
+Console.WriteLine("\n== protected image delete: normal delete is refused, force delete really removes the file ==");
+{
+    var bridgePath = Path.Combine(otaImagesPath, "smart-iv-ota-bridge-v3.ota");
+    var bridgePolicyPath = bridgePath + ".policy.json";
+    var bridgeStatePath = bridgePath + ".state.json";
+    File.WriteAllText(bridgePolicyPath, """{ "maxFileVersion": 2 }""");
+    File.WriteAllText(bridgeStatePath, "{}"); // orphan-sidecar regression check
+
+    Check("bridge still listed before any delete attempt",
+        store.List().Any(i => i.FileName == "smart-iv-ota-bridge-v3.ota"), "present");
+
+    var refused = store.Delete("smart-iv-ota-bridge-v3.ota", force: false);
+    Check("delete without force is refused", refused == false, $"{refused}");
+    Check("file still on disk after refused delete", File.Exists(bridgePath), $"{File.Exists(bridgePath)}");
+
+    var forced = store.Delete("smart-iv-ota-bridge-v3.ota", force: true);
+    Check("delete with force succeeds", forced == true, $"{forced}");
+    Check("file actually removed from disk", !File.Exists(bridgePath), $"exists={File.Exists(bridgePath)}");
+    Check("sidecar .policy.json removed", !File.Exists(bridgePolicyPath), $"exists={File.Exists(bridgePolicyPath)}");
+    Check("sidecar .state.json removed", !File.Exists(bridgeStatePath), $"exists={File.Exists(bridgeStatePath)}");
+    Check("GET-equivalent (List()) no longer includes it",
+        !store.List().Any(i => i.FileName == "smart-iv-ota-bridge-v3.ota"), "absent");
+
+    // Re-upload (SaveAsync refuses protected names - a technician replaces it
+    // by writing the file directly, same as EnsureSystemBridge does), then
+    // confirm it is force-deletable again, not permanently special-cased.
+    File.WriteAllBytes(bridgePath, MakeOtaHeader(XG26_MFG, XG26_IMAGE_TYPE, 3, "ICTU SmartIV OTA bridge v3"));
+    Check("re-uploaded bridge is listed again",
+        store.List().Any(i => i.FileName == "smart-iv-ota-bridge-v3.ota"), "present");
+    Check("re-uploaded bridge is still isProtected / Required bridge",
+        store.List().Single(i => i.FileName == "smart-iv-ota-bridge-v3.ota").IsProtected, "true");
+
+    var forcedAgain = store.Delete("smart-iv-ota-bridge-v3.ota", force: true);
+    Check("force-delete works again after re-upload", forcedAgain == true, $"{forcedAgain}");
+}
+
 Directory.Delete(root, recursive: true);
 
 Console.WriteLine($"\n{(failures == 0 ? "ALL PASS" : $"{failures} FAILURE(S)")}");

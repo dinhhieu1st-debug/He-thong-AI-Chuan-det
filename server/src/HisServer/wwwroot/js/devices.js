@@ -481,21 +481,28 @@ const DevicesTab = (() => {
                   : `<span class="ota-fail">unknown code: ${i.manufacturerCode}</span>`}</td>
             <td>v${i.fileVersion}</td>
             <td class="muted">${Math.round(i.sizeBytes / 1024)} KB</td>
-            <td>${i.isProtected
-              ? `<span class="muted">Required bridge</span>`
-              : `<button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}">Delete</button>`}</td>
+            <td>${i.isProtected ? `<span class="muted">Required bridge</span> ` : ""}<button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}" data-ota-protected="${i.isProtected ? "1" : "0"}">Delete</button></td>
           </tr>`).join("")}
       </table>`;
 
     host.querySelectorAll("[data-ota-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const name = btn.getAttribute("data-ota-del");
-        if (!(await UiUtils.confirm(`Remove ${name} from the firmware library?\n\n`
+        const protectedImage = btn.getAttribute("data-ota-protected") === "1";
+
+        if (protectedImage) {
+          if (!(await UiUtils.confirm(
+                     "This image is required by an active OTA policy.\n"
+                     + "Deleting it may break OTA upgrades for legacy firmware.\n"
+                     + "Delete anyway?",
+                     { title: "Delete required bridge image?", confirmLabel: "Delete", danger: true }))) return;
+        } else if (!(await UiUtils.confirm(`Remove ${name} from the firmware library?\n\n`
                    + `Devices already running this image are unaffected — it just `
                    + `stops being offered to anything from now on.`,
                    { title: "Remove firmware image?", confirmLabel: "Remove", danger: true }))) return;
+
         try {
-          await Api.otaDeleteImage(name);
+          await Api.otaDeleteImage(name, protectedImage);
           renderOtaLibrary();
         } catch (err) { UiUtils.toast(err.message, true); }
       });

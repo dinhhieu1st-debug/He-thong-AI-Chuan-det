@@ -84,8 +84,8 @@ const Api = (() => {
       request("GET", `/api/devices/${encodeURIComponent(deviceId)}/ota`),
     otaStatuses: () => request("GET", "/api/devices/ota"),
     otaImages: () => request("GET", "/api/ota/images"),
-    otaDeleteImage: (fileName) =>
-      request("DELETE", `/api/ota/images/${encodeURIComponent(fileName)}`),
+    otaDeleteImage: (fileName, force = false) =>
+      request("DELETE", `/api/ota/images/${encodeURIComponent(fileName)}${force ? "?force=true" : ""}`),
     /* Multipart, so it does not go through request() - that helper sets a JSON
      * content type, and setting any content type by hand on a FormData upload
      * strips the boundary the server needs to parse it. */
