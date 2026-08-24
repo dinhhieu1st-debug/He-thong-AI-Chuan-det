@@ -23,8 +23,6 @@ public sealed class BedRepository
             "tare_just_completed, hr_baseline_just_completed, hr_baseline_seconds_remaining, " +
             "hr_baseline_bpm, hr_baseline_captured_at, last_tare_completed_at, " +
             "last_seen_tare_event_count, last_seen_hr_baseline_event_count, " +
-            "final_alert_level, line_branch, patient_branch, spo2_alarm, heart_rate_alarm, " +
-            "drop_training_samples, vitals_training_samples, alerts_armed, monitoring, " +
             "alert_message, device_id, last_data_at, " +
             "patient_name, patient_code, admitted_at " +
             "FROM beds");
@@ -57,15 +55,6 @@ public sealed class BedRepository
             LastTareCompletedAt = row.last_tare_completed_at,
             LastSeenTareEventCount = row.last_seen_tare_event_count,
             LastSeenHrBaselineEventCount = row.last_seen_hr_baseline_event_count,
-            AlertLevel = row.final_alert_level,
-            LineBranch = row.line_branch,
-            PatientBranch = row.patient_branch,
-            Spo2Alarm = row.spo2_alarm,
-            HeartRateAlarm = row.heart_rate_alarm,
-            DropTrainingSamples = row.drop_training_samples,
-            VitalsTrainingSamples = row.vitals_training_samples,
-            AlertsArmed = row.alerts_armed,
-            Monitoring = row.monitoring,
             AlertMessage = row.alert_message,
             DeviceId = row.device_id,
             LastDataAt = row.last_data_at,
@@ -125,16 +114,12 @@ public sealed class BedRepository
               tare_just_completed, hr_baseline_just_completed, hr_baseline_seconds_remaining,
               hr_baseline_bpm, hr_baseline_captured_at, last_tare_completed_at,
               last_seen_tare_event_count, last_seen_hr_baseline_event_count,
-              final_alert_level, line_branch, patient_branch, spo2_alarm, heart_rate_alarm,
-              drop_training_samples, vitals_training_samples, alerts_armed, monitoring,
               alert_message, device_id, last_data_at)
             VALUES (@BedId, @Room, @Status, @Spo2, @HeartRate, @DripRate, @FlowRate,
               @HeartRateSignal, @Spo2Signal, @FlowSignal, @DripRateSignal, @LineBlocked, @AeAlarm,
               @WeightG, @DropsPerMin, @TargetFlowMlH, @TargetDropsPerMin, @TareInProgress, @TareJustCompleted,
               @HrBaselineJustCompleted, @HrBaselineSecondsRemaining, @HrBaselineBpm, @HrBaselineCapturedAt,
               @LastTareCompletedAt, @LastSeenTareEventCount, @LastSeenHrBaselineEventCount,
-              @AlertLevel, @LineBranch, @PatientBranch, @Spo2Alarm, @HeartRateAlarm,
-              @DropTrainingSamples, @VitalsTrainingSamples, @AlertsArmed, @Monitoring,
               @AlertMessage, @DeviceId, @LastDataAt)
             ON DUPLICATE KEY UPDATE
               room = VALUES(room),
@@ -162,15 +147,6 @@ public sealed class BedRepository
               last_tare_completed_at = VALUES(last_tare_completed_at),
               last_seen_tare_event_count = VALUES(last_seen_tare_event_count),
               last_seen_hr_baseline_event_count = VALUES(last_seen_hr_baseline_event_count),
-              final_alert_level = VALUES(final_alert_level),
-              line_branch = VALUES(line_branch),
-              patient_branch = VALUES(patient_branch),
-              spo2_alarm = VALUES(spo2_alarm),
-              heart_rate_alarm = VALUES(heart_rate_alarm),
-              drop_training_samples = VALUES(drop_training_samples),
-              vitals_training_samples = VALUES(vitals_training_samples),
-              alerts_armed = VALUES(alerts_armed),
-              monitoring = VALUES(monitoring),
               alert_message = VALUES(alert_message),
               device_id = VALUES(device_id),
               last_data_at = VALUES(last_data_at)
@@ -203,15 +179,6 @@ public sealed class BedRepository
                 bed.LastTareCompletedAt,
                 bed.LastSeenTareEventCount,
                 bed.LastSeenHrBaselineEventCount,
-                bed.AlertLevel,
-                bed.LineBranch,
-                bed.PatientBranch,
-                bed.Spo2Alarm,
-                bed.HeartRateAlarm,
-                bed.DropTrainingSamples,
-                bed.VitalsTrainingSamples,
-                bed.AlertsArmed,
-                bed.Monitoring,
                 bed.AlertMessage,
                 bed.DeviceId,
                 bed.LastDataAt

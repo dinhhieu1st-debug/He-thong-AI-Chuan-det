@@ -1,25 +1,12 @@
 // Thin fetch wrappers around the REST API. No build step / bundler — plain
 // browser JS, loaded as a global `Api` object.
 const Api = (() => {
-  async function request(method, path, body, timeoutMs = 15000) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    let response;
-    try {
-      response = await fetch(path, {
-        method,
-        headers: body ? { "Content-Type": "application/json" } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal
-      });
-    } catch (err) {
-      if (err?.name === "AbortError") {
-        throw new Error("The device did not respond in time. Check the gateway connection and try again.");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
+  async function request(method, path, body) {
+    const response = await fetch(path, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
 
     /* The session cookie lasts one shift. When it expires mid-use every call
      * starts failing, and without this the UI would show a wall of parse
@@ -57,10 +44,11 @@ const Api = (() => {
       request("PUT", `/api/beds/${encodeURIComponent(bedId)}/target-drops`, { targetDropsPerMin }),
     resetTare: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/tare`),
     setMonitoring: (bedId, enabled) =>
-      request("POST", `/api/beds/${encodeURIComponent(bedId)}/monitoring`, { enabled }, 6000),
+      request("POST", `/api/beds/${encodeURIComponent(bedId)}/monitoring`, { enabled }),
     recalibrateHr: (bedId) => request("POST", `/api/beds/${encodeURIComponent(bedId)}/recalibrate-hr`),
-    setVitalsTest: (bedId, level) =>
-      request("POST", `/api/beds/${encodeURIComponent(bedId)}/vitals-test`, { level }),
+    /* 0 real sensor data, 2 force the attention band, 3 force the alarm band. */
+    setVitalsTestMode: (bedId, mode) =>
+      request("PUT", `/api/beds/${encodeURIComponent(bedId)}/vitals-test-mode`, { mode }),
     getBedHistory: (bedId, minutes) =>
       request("GET", `/api/beds/${encodeURIComponent(bedId)}/history?minutes=${encodeURIComponent(minutes)}`),
 

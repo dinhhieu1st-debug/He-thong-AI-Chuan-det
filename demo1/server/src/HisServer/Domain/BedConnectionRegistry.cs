@@ -40,9 +40,25 @@ public sealed class BedConnectionRegistry
     /// </summary>
     public async Task<int> BroadcastCommandAsync(string jsonLine, CancellationToken cancellationToken = default)
     {
+        /* Once per SOCKET, not once per bed. A Pi gateway forwards every
+         * device paired to it, so several beds share one connection, and a
+         * broadcast command is addressed to the gateway rather than to a bed -
+         * "re-read your device inventory" concerns the gateway itself. Sending
+         * it per bed wrote the same line down the same socket three times and
+         * had the gateway publish the same MQTT request three times.
+         *
+         * The count is therefore gateways reached, which is what the caller
+         * wants to report. */
         var delivered = 0;
-        foreach (var bedId in connections.Keys)
+        var reached = new HashSet<NetworkStream>();
+
+        foreach (var (bedId, connection) in connections)
         {
+            if (!reached.Add(connection.Stream))
+            {
+                continue;
+            }
+
             if (await TrySendCommandAsync(bedId, jsonLine, cancellationToken))
             {
                 delivered++;
@@ -70,17 +86,13 @@ public sealed class BedConnectionRegistry
 
         var bytes = Encoding.UTF8.GetBytes(jsonLine.EndsWith('\n') ? jsonLine : jsonLine + "\n");
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
-        var lockTaken = false;
+        await connection.WriteLock.WaitAsync(cancellationToken);
         try
         {
-            await connection.WriteLock.WaitAsync(timeout.Token);
-            lockTaken = true;
-            await connection.Stream.WriteAsync(bytes, timeout.Token);
+            await connection.Stream.WriteAsync(bytes, cancellationToken);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException)
+        catch (IOException)
         {
             // Connection died between the registry check and the write - the
             // ingestion service's read loop will notice and Unregister() on
@@ -89,10 +101,7 @@ public sealed class BedConnectionRegistry
         }
         finally
         {
-            if (lockTaken)
-            {
-                connection.WriteLock.Release();
-            }
+            connection.WriteLock.Release();
         }
     }
 }

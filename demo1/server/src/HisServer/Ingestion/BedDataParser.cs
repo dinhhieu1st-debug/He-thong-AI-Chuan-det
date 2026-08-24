@@ -20,7 +20,18 @@ public static class BedDataParser
         var room = ReadString(root, "phong", "room") ?? "Unknown room";
         var spo2 = ReadInt(root, 0, "spo2", "SpO2", "SpO₂");
         var heartRate = ReadInt(root, 0, "nhipTim", "heartRate", "heart_rate", "bpm");
-        var dripRate = ReadInt(root, 0, "tocDoNhoGiot", "dripRate", "drip_rate", "dropRate");
+        /* Drops-per-minute as a percentage of the doctor's target.
+         *
+         * "drop_rate" is the name the zigbee2mqtt converter actually publishes,
+         * and it was missing here: the list had "drip_rate" (drip, not drop)
+         * and "dropRate" (no underscore), and TryGetProperty compares whole
+         * strings, so neither matched. Every reading therefore fell through to
+         * the default 0 while drops_signal stayed true, and the console showed
+         * a confident "0%" for a line that was running perfectly - the exact
+         * fabricated-number failure the rest of this parser is careful to
+         * avoid. Keep all the spellings: older gateways send the other ones. */
+        var dripRate = ReadInt(root, 0, "tocDoNhoGiot", "dripRate", "drip_rate",
+                               "dropRate", "drop_rate", "dropRatio");
         var flowRate = ReadInt(root, 0, "flowRate", "flow_rate", "flow");
 
         // Cac co "co tin hieu" tung kenh cam bien. Mac dinh true (coi nhu co
@@ -45,13 +56,6 @@ public static class BedDataParser
         var dropsPerMin = ReadNullableInt(root, "dropsPerMin", "drops_per_min");
         var targetFlowMlH = ReadNullableInt(root, "targetFlowMlH", "target_flow_ml_h");
         var targetDropsPerMin = ReadNullableInt(root, "targetDropsPerMin", "target_drops_per_min");
-        // Attribute reports can arrive separately after a reset/target write:
-        // the physical rate and target are current while DropRatio still has
-        // its previous zero. Reconstruct the exact ratio from this payload.
-        if (dripRate == 0 && dropsPerMin is > 0 && targetDropsPerMin is > 0)
-        {
-            dripRate = (int)Math.Round(dropsPerMin.Value * 100.0 / targetDropsPerMin.Value);
-        }
         var tareInProgress = ReadBool(root, false, "tareInProgress", "tare_in_progress");
         var tareJustCompleted = ReadBool(root, false, "tareJustCompleted", "tare_just_completed");
         var hrBaselineJustCompleted = ReadBool(root, false, "hrBaselineJustCompleted", "hr_baseline_just_completed");
@@ -90,18 +94,9 @@ public static class BedDataParser
         // to 0 - "this device cannot tell us" and "this device says everything
         // is fine" are different facts, and collapsing them would let an old
         // device report a permanently green bed.
-        // G26 is the authority for alert fusion. New converters publish its
-        // exact 1/2/3 result. Older converters exposed the physical 0/1/2 LED
-        // enum, which must be translated instead of reinterpreted by HIS.
-        var alertLevel = ReadNullableInt(root, "finalAlertLevel", "final_alert_level");
-        if (alertLevel is null)
-        {
-            var physicalLevel = ReadNullableInt(root, "alertLevel", "alert_level");
-            if (physicalLevel is not null)
-            {
-                alertLevel = Math.Clamp(physicalLevel.Value + 1, 1, 3);
-            }
-        }
+        var alertLevel = ReadNullableInt(root, "alertLevel", "alert_level");
+        var finalAlertLevel = ReadNullableInt(root, "finalAlertLevel", "final_alert_level");
+        if (finalAlertLevel is < 1 or > 3) finalAlertLevel = null;
         var lineBranch = ReadBool(root, false, "lineBranch", "line_branch");
         var patientBranch = ReadBool(root, false, "patientBranch", "patient_branch");
         var dripAnomaly = ReadBool(root, false, "dripAnomaly", "drip_anomaly");
@@ -113,6 +108,10 @@ public static class BedDataParser
         if (remainingMl is < 0) remainingMl = null;
         var remainingMin = ReadNullableInt(root, "remainingMin", "remaining_min");
         if (remainingMin is < 0) remainingMin = null;
+        var dropTrainingSamples = ReadNullableInt(root, "dropTrainingSamples", "drop_training_samples");
+        if (dropTrainingSamples is < 0) dropTrainingSamples = null;
+        var vitalsTrainingSamples = ReadNullableInt(root, "vitalsTrainingSamples", "vitals_training_samples");
+        if (vitalsTrainingSamples is < 0) vitalsTrainingSamples = null;
 
         return new BedReading(
             bedId, room, spo2, heartRate, dripRate, DateTime.UtcNow,
@@ -124,21 +123,30 @@ public static class BedDataParser
             spo2Forecast16s, hrTrendBpmPerMin, tsAnomalyScoreX100,
             dropsTrend, dropsTrendDpmPerMin, dropsForecast16s,
             hrForecastTrusted, dropsForecastTrusted, linkQuality, deviceId,
-            alertLevel, lineBranch, patientBranch, dripAnomaly, vitalsAnomaly,
+            alertLevel, finalAlertLevel, lineBranch, patientBranch, dripAnomaly, vitalsAnomaly,
             lineState, remainingMl, remainingMin,
             ReadBool(root, true, "monitoring"),
-            ReadBool(root, false, "spo2Low", "spo2_low"),
-            ReadBool(root, false, "heartRateAbnormal", "heart_rate_abnormal"),
-            Math.Clamp(ReadInt(root, 0, "dropTrainingSamples", "drop_training_samples"), 0, 20),
-            Math.Clamp(ReadInt(root, 0, "vitalsTrainingSamples", "vitals_training_samples"), 0, 64),
-            ReadBool(root, true, "alertsArmed", "alerts_armed"),
-            ReadNullableInt(root, "dropIntervalMs", "drop_interval_ms"),
-            ReadNullableInt(root, "dropEventCount", "drop_event_count"),
-            ReadNullableInt(root, "serverDropLevel", "server_drop_level"),
-            ReadNullableInt(root, "vitalsTestMode", "vitals_test_mode"),
+            dropTrainingSamples,
+            vitalsTrainingSamples,
+            ReadNullableBool(root, "alertsArmed", "alerts_armed"),
+
+            /* The chip's echo of what it accepted, as opposed to what it
+             * measured. Without these there is no way to tell "the server took
+             * the command" from "the device is running it" - the difference a
+             * nurse needs when a target rate does not seem to have applied. */
             ReadNullableInt(root, "aiInputHeartRate", "ai_input_heart_rate"),
             ReadNullableInt(root, "aiInputSpo2", "ai_input_spo2"),
-            ReadNullableInt(root, "vitalsLevel", "vitals_level"));
+            ReadNullableInt(root, "vitalsLevel", "vitals_level"),
+            ReadNullableInt(root, "serverDropLevel", "server_drop_level"),
+            ReadNullableInt(root, "vitalsTestMode", "vitals_test_mode"),
+
+            /* The remaining two cause bits of the firmware's alarm bitmap. The
+             * other three (line_blocked, ae_alarm, signal loss) were already
+             * read above; these two were not, so the console could show that a
+             * bed was in alarm but not that SpO2 was the reason. */
+            ReadBool(root, false, "spo2Low", "spo2_low"),
+            ReadBool(root, false, "heartRateAbnormal", "heart_rate_abnormal"),
+            ReadNullableInt(root, "dropIntervalMs", "drop_interval_ms"));
     }
 
     private static string? ReadString(JsonElement root, params string[] names)
@@ -240,6 +248,20 @@ public static class BedDataParser
         }
 
         return defaultValue;
+    }
+
+    private static bool? ReadNullableBool(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryGetProperty(root, name, out var property)) continue;
+            if (property.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                return property.GetBoolean();
+            if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var number))
+                return number != 0;
+            if (bool.TryParse(property.ToString(), out var parsed)) return parsed;
+        }
+        return null;
     }
 
     private static bool TryGetProperty(JsonElement root, string name, out JsonElement property)

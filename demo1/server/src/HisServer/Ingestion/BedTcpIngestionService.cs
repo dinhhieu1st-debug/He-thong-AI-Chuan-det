@@ -32,7 +32,6 @@ public sealed class BedTcpIngestionService : BackgroundService
     private readonly VitalsPersistenceCoordinator persistenceCoordinator;
     private readonly FcmPushService fcmPushService;
     private readonly BedConnectionRegistry connectionRegistry;
-    private readonly ServerDropDecisionEngine dropDecisionEngine;
     private readonly DeviceRepository deviceRepository;
     private readonly OtaStatusRegistry otaRegistry;
     private readonly IHubContext<MonitoringHub, IMonitoringClient> hub;
@@ -49,7 +48,6 @@ public sealed class BedTcpIngestionService : BackgroundService
         VitalsPersistenceCoordinator persistenceCoordinator,
         FcmPushService fcmPushService,
         BedConnectionRegistry connectionRegistry,
-        ServerDropDecisionEngine dropDecisionEngine,
         DeviceRepository deviceRepository,
         OtaStatusRegistry otaRegistry,
         IHubContext<MonitoringHub, IMonitoringClient> hub,
@@ -65,7 +63,6 @@ public sealed class BedTcpIngestionService : BackgroundService
         this.persistenceCoordinator = persistenceCoordinator;
         this.fcmPushService = fcmPushService;
         this.connectionRegistry = connectionRegistry;
-        this.dropDecisionEngine = dropDecisionEngine;
         this.deviceRepository = deviceRepository;
         this.otaRegistry = otaRegistry;
         this.hub = hub;
@@ -107,14 +104,19 @@ public sealed class BedTcpIngestionService : BackgroundService
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
-        // Tracks which bedId this connection is currently registered under in
-        // BedConnectionRegistry, so a command sent from the REST API (e.g. a
-        // doctor's target flow rate change) can be written back down this
-        // same socket. Registered lazily on the first successfully-parsed
-        // line (bedId isn't known before that), and always unregistered when
-        // the connection ends - a gateway only ever forwards one bed, so this
-        // never actually changes mid-connection in practice.
-        string? registeredBedId = null;
+        /* Every bed this connection is registered for in BedConnectionRegistry,
+         * so a command from the REST API - a nurse's target-rate change, a tare
+         * - can be written back down the same socket. Registered lazily,
+         * because a bed id is not known until the first line parses.
+         *
+         * A SET, not a single id. One Pi gateway forwards every device paired
+         * to it, so one socket routinely carries several beds. While this was a
+         * single slot, each reading from a different bed unregistered the
+         * previous one, leaving only the most recently reporting bed
+         * addressable: every other bed's command failed with "no live gateway
+         * connection" while that gateway was connected the whole time, and
+         * which bed worked changed from second to second. */
+        var registeredBedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
@@ -159,24 +161,9 @@ public sealed class BedTcpIngestionService : BackgroundService
                         var reading = await RouteToAssignedBedAsync(
                             BedDataParser.Parse(line), cancellationToken);
 
-                        if (registeredBedId != reading.BedId)
+                        if (registeredBedIds.Add(reading.BedId))
                         {
-                            if (registeredBedId is not null)
-                            {
-                                connectionRegistry.Unregister(registeredBedId);
-                            }
-
                             connectionRegistry.Register(reading.BedId, stream);
-                            registeredBedId = reading.BedId;
-                        }
-
-                        var dropDecision = dropDecisionEngine.Evaluate(reading);
-                        if (dropDecision.Changed || reading.ServerDropLevel != dropDecision.Level)
-                        {
-                            var command = $$"""{"cmd":"set_drop_level","value":{{dropDecision.Level}}}""";
-                            await connectionRegistry.TrySendCommandAsync(reading.BedId, command, cancellationToken);
-                            logger.LogInformation("{BedId}: server drip level {Level}: {Reason}",
-                                reading.BedId, dropDecision.Level, dropDecision.Reason);
                         }
 
                         await ProcessReadingAsync(reading, cancellationToken);
@@ -191,9 +178,9 @@ public sealed class BedTcpIngestionService : BackgroundService
         }
         finally
         {
-            if (registeredBedId is not null)
+            foreach (var bedId in registeredBedIds)
             {
-                connectionRegistry.Unregister(registeredBedId);
+                connectionRegistry.Unregister(bedId);
             }
         }
     }
@@ -380,14 +367,32 @@ public sealed class BedTcpIngestionService : BackgroundService
 
             device.Eui64 = deviceId;
             device.LastSeenAt = DateTime.UtcNow;
+
+            await deviceRepository.UpsertAsync(device);
+
+            /* DeviceDiscovered is what makes the Devices tab announce "New
+             * device joined" out loud, so it must fire only for a device the
+             * server has genuinely never seen.
+             *
+             * It used to fire on every announce. A gateway re-announces after
+             * every reconnect, and a gateway carrying more than one device
+             * re-announced constantly, so a technician got a stream of "new
+             * device" toasts for hardware that had been assigned for days -
+             * which is exactly how a real new device ends up unnoticed.
+             *
+             * A device that is merely coming back still needs its row
+             * refreshed, and that is DeviceUpdated: same payload, repaints
+             * silently, no toast. */
             if (existing is null)
             {
                 logger.LogInformation("New Zigbee device announced: {DeviceId} ({FriendlyName})",
                     deviceId, friendlyName ?? "unnamed");
+                await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceDiscovered(DeviceDto.From(device));
             }
-
-            await deviceRepository.UpsertAsync(device);
-            await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceDiscovered(DeviceDto.From(device));
+            else
+            {
+                await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
+            }
         }
         catch (Exception ex)
         {
@@ -574,6 +579,25 @@ public sealed class BedTcpIngestionService : BackgroundService
     private async Task ProcessReadingAsync(BedReading reading, CancellationToken cancellationToken)
     {
         var previousBed = bedStateStore.Get(reading.BedId);
+        /* Zigbee attribute reports are partial: an HR report normally contains
+         * no startup counters and no AlertsArmed attribute. Null therefore
+         * means "not present in this frame", not "training ended". Preserve
+         * the last authoritative values (including the immediate state set by
+         * the Start endpoint) until the device explicitly reports replacements.
+         * Without this merge COLLECTING DATA appeared for one frame and then
+         * vanished as soon as the next HR-only report arrived. */
+        if (previousBed is not null)
+        {
+            reading = reading with
+            {
+                DropTrainingSamples = reading.DropTrainingSamples
+                                      ?? previousBed.DropTrainingSamples,
+                VitalsTrainingSamples = reading.VitalsTrainingSamples
+                                        ?? previousBed.VitalsTrainingSamples,
+                AlertsArmed = reading.AlertsArmed ?? previousBed.AlertsArmed,
+                FinalAlertLevel = reading.FinalAlertLevel ?? previousBed.FinalAlertLevel
+            };
+        }
         var previousStatus = previousBed?.Status ?? BedStatus.Offline;
         var previousHysteresis = previousBed?.Hysteresis ?? VitalsStatusEvaluator.MetricHysteresis.None;
         var status = VitalsStatusEvaluator.Evaluate(reading, previousHysteresis);
@@ -584,23 +608,26 @@ public sealed class BedTcpIngestionService : BackgroundService
         if (status is BedStatus.Warning or BedStatus.Critical)
         {
             (alertType, alertMessage) = VitalsStatusEvaluator.DescribeAlert(reading, previousHysteresis);
-            if (reading.PatientBranch)
-            {
-                alertType = "Patient vital signs";
-                alertMessage = VitalsStatusEvaluator.DescribePatientCause(reading);
-            }
-            if (reading.LineBranch && dropDecisionEngine.CurrentReason(reading.BedId) is string dripReason)
-            {
-                alertType = reading.PatientBranch ? "Patient and infusion line" : "Infusion line";
-                alertMessage = reading.PatientBranch
-                    ? $"{dripReason} · {VitalsStatusEvaluator.DescribePatientCause(reading)}"
-                    : dripReason;
-            }
         }
 
         var bed = bedStateStore.Upsert(reading.BedId, state =>
         {
-            state.Room = reading.Room;
+            /* A bed's room is DIRECTORY data. An administrator sets it in the
+             * Bed directory, and that is the only writer allowed to win.
+             *
+             * The gateway also puts a room on every reading, but that value
+             * comes from BED_ROOM in a config file on the Pi and ships as the
+             * literal string "Unknown room". Assigning it here overwrote the
+             * administrator's rename on the very next reading - about a second
+             * later - so a room change appeared to save and then silently
+             * reverted on the nurse's screen. Only fill a room in when the bed
+             * does not have one yet, which is the bed-created-by-a-reading
+             * case this line was originally for. */
+            if (string.IsNullOrWhiteSpace(state.Room))
+            {
+                state.Room = reading.Room;
+            }
+
             state.Status = status;
             state.Hysteresis = nextHysteresis;
             state.Spo2 = reading.Spo2;
@@ -613,6 +640,9 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.DripRateSignal = reading.DripRateSignal;
             state.LineBlocked = reading.LineBlocked;
             state.Monitoring = reading.Monitoring;
+            state.DropTrainingSamples = reading.DropTrainingSamples;
+            state.VitalsTrainingSamples = reading.VitalsTrainingSamples;
+            state.AlertsArmed = reading.AlertsArmed;
             state.AeAlarm = reading.AeAlarm;
             state.WeightG = reading.WeightG;
             state.DropsPerMin = reading.DropsPerMin;
@@ -668,6 +698,7 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.DropsForecastTrusted = reading.DropsForecastTrusted;
 
             state.AlertLevel = reading.AlertLevel;
+            state.FinalAlertLevel = reading.FinalAlertLevel;
             state.LineBranch = reading.LineBranch;
             state.PatientBranch = reading.PatientBranch;
             state.DripAnomaly = reading.DripAnomaly;
@@ -675,16 +706,18 @@ public sealed class BedTcpIngestionService : BackgroundService
             state.LineState = reading.LineState;
             state.RemainingMl = reading.RemainingMl;
             state.RemainingMin = reading.RemainingMin;
-            state.Monitoring = reading.Monitoring;
-            state.Spo2Alarm = reading.Spo2Alarm;
-            state.HeartRateAlarm = reading.HeartRateAlarm;
-            state.DropTrainingSamples = reading.DropTrainingSamples;
-            state.VitalsTrainingSamples = reading.VitalsTrainingSamples;
-            state.AlertsArmed = reading.AlertsArmed;
-            state.VitalsTestMode = reading.VitalsTestMode;
+
+            /* The chip's echo of what it is running on. Kept separate from
+             * the measured HeartRate/Spo2 above so a console can show both and
+             * a nurse can see that a command took effect. */
             state.AiInputHeartRate = reading.AiInputHeartRate;
             state.AiInputSpo2 = reading.AiInputSpo2;
             state.VitalsLevel = reading.VitalsLevel;
+            state.ServerDropLevel = reading.ServerDropLevel;
+            state.VitalsTestMode = reading.VitalsTestMode;
+            state.Spo2Low = reading.Spo2Low;
+            state.HeartRateAbnormal = reading.HeartRateAbnormal;
+            state.DropIntervalMs = reading.DropIntervalMs;
 
             state.AlertMessage = alertMessage;
             state.LastDataAt = reading.ReceivedAt;
@@ -707,7 +740,13 @@ public sealed class BedTcpIngestionService : BackgroundService
             var alertId = await alertRepository.InsertAsync(new AlertRecord
             {
                 BedId = reading.BedId,
-                Room = reading.Room,
+                /* The BED's room, not the reading's. The reading carries
+                 * whatever BED_ROOM says on the Pi - "Unknown room" by
+                 * default - so alert history used to record that instead of
+                 * the room the administrator actually named. An alert is read
+                 * back long after the fact, by someone trying to work out
+                 * where it happened. */
+                Room = bed.Room,
                 DeviceId = bed.DeviceId,
                 Level = status,
                 AlertType = alertType,

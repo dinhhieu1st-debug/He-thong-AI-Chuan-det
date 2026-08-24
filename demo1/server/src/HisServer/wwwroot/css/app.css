@@ -507,6 +507,7 @@ body.no-scroll { overflow: hidden; }
 .bd-channel-state { font-weight: 600; }
 .bd-channel-state.is-ok { color: var(--stable); }
 .bd-channel-state.is-lost { color: var(--offline); }
+.bd-channel-state.is-warn { color: var(--warning); }
 
 .bd-card-alert.sev-critical {
   border-color: var(--critical); background: var(--critical-tint);
@@ -1104,19 +1105,6 @@ body.no-scroll { overflow: hidden; }
 .monitoring-block { border-left: 3px solid #1ea050; padding-left: 10px; }
 .monitoring-block.is-standby { border-left-color: #8a97a8; background: #f6f8fa; }
 .monitoring-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.vitals-test-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid #dce3ec; }
-.vitals-test-title { display: block; margin-bottom: 7px; color: #42556d; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
-.vitals-test-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
-.vitals-test-btn { min-width: 0; padding: 7px 4px; font-size: 11px; white-space: nowrap; }
-.vitals-test-btn.test-l2 { border-color: #d99500; color: #9b6500; }
-.vitals-test-btn.test-l3 { border-color: #df3030; color: #b51f1f; }
-.vitals-test-values {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px;
-  margin-top: 8px; padding: 7px 8px; border-radius: 6px;
-  background: #f5f8fc; color: #52647a; font-size: 10.5px;
-}
-.vitals-test-values b { color: #17263a; font-variant-numeric: tabular-nums; }
-.vitals-test-note { display: block; margin-top: 6px; color: #738197; font-size: 10px; line-height: 1.35; }
 
 /* Giường đang ở chế độ chờ: làm nhạt đi và ghi rõ, để không ai nhìn một giường
    chưa được theo dõi rồi tưởng nó đang bình thường. */

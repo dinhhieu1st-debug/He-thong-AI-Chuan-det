@@ -8,11 +8,6 @@ const DashboardTab = (() => {
 
   function bedCardHtml(bed) {
     const color = UiUtils.statusColor(bed.status);
-    const learning = bed.monitoring !== false && bed.alertsArmed === false
-      ? `<div class="status-line status-line-active">TRAINING - drops ${bed.dropTrainingSamples ?? 0}/20 · vitals ${bed.vitalsTrainingSamples ?? 0}/64</div>`
-      : bed.monitoring !== false
-        ? `<div class="status-line status-line-done">G26 ARMED · LEVEL ${bed.alertLevel ?? "--"}</div>`
-        : "";
     return `
       <div class="bed-card${bed.monitoring === false ? " standby" : ""}" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
         <div class="stripe" style="background:${color};"></div>
@@ -34,7 +29,6 @@ const DashboardTab = (() => {
           ${bed.monitoring === false
             ? `<div><span class="bed-standby-tag">STANDBY — not monitoring</span></div>`
             : ""}
-          ${learning}
           ${bed.alertMessage ? `<div class="bed-message">${UiUtils.escapeHtml(bed.alertMessage)}</div>` : ""}
           <div class="bed-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
         </div>

@@ -81,15 +81,8 @@ public static class VitalsStatusEvaluator
         // Pausing monitoring starts a clean alarm session. Keeping a previous
         // warning latch here would make Start inherit an alarm from before the
         // nurse deliberately paused the bed.
-        if (!reading.Monitoring)
-        {
-            return MetricHysteresis.None;
-        }
-
-        // Current G26 firmware already applies its own persistence and fuses
-        // both channels. A second server-side latch would make the dashboard
-        // disagree with the OLED. Keep this only for legacy devices.
-        if (reading.AlertLevel is not null)
+        if (!reading.Monitoring || reading.AlertsArmed == false
+            || reading.FinalAlertLevel is not null)
         {
             return MetricHysteresis.None;
         }
@@ -112,9 +105,23 @@ public static class VitalsStatusEvaluator
          * Trả về Stable chứ không phải Offline: thiết bị vẫn đang nói chuyện
          * bình thường, chỉ là chưa được giao việc. Offline nghĩa là mất liên
          * lạc, một chuyện hoàn toàn khác và cần người đi kiểm tra. */
-        if (!reading.Monitoring)
+        if (!reading.Monitoring || reading.AlertsArmed == false)
         {
             return BedStatus.Stable;
+        }
+
+        // New XG26 firmware sends the already-fused main-branch severity.
+        // This is the only clinical decision for that protocol version. Signal
+        // loss and the alarm bitmap remain useful diagnostic/cause fields, but
+        // must never silently promote or demote the level chosen on the chip.
+        if (reading.FinalAlertLevel is int finalLevel)
+        {
+            return finalLevel switch
+            {
+                3 => BedStatus.Critical,
+                2 => BedStatus.Warning,
+                _ => BedStatus.Stable,
+            };
         }
 
         // The device's own four-level verdict comes first when it is available.
@@ -149,17 +156,16 @@ public static class VitalsStatusEvaluator
         // ward learns to ignore the alarm that matters.
         var deviceStatus = reading.AlertLevel switch
         {
-            3 => BedStatus.Critical,
-            2 => BedStatus.Warning,
-            1 => BedStatus.Stable,
-            _ => BedStatus.Stable,
+            3 => BedStatus.Critical,   // line AND patient failing together
+            2 => BedStatus.Critical,   // the patient is in trouble
+            1 => BedStatus.Warning,    // the infusion line, patient still fine
+            0 => BedStatus.Stable,
+            _ => BedStatus.Stable,     // v1 device: says nothing, decide below
         };
 
-        // The final 1/2/3 verdict from G26 is authoritative. Raw measurements
-        // below are only a compatibility path for devices without that field.
-        if (reading.AlertLevel is not null)
+        if (deviceStatus == BedStatus.Critical)
         {
-            return deviceStatus;
+            return BedStatus.Critical;
         }
 
         // Critical is reserved for the PATIENT being in danger. A blocked or
@@ -215,6 +221,11 @@ public static class VitalsStatusEvaluator
     public static (string AlertType, string Message) DescribeAlert(
         BedReading reading, MetricHysteresis previous)
     {
+        if (reading.FinalAlertLevel is int finalLevel)
+        {
+            return DescribeCanonicalAlert(reading, finalLevel);
+        }
+
         var causes = new List<(string Type, string Text)>();
 
         // Level 3 leads, ahead even of a critical SpO2. Not because it is more
@@ -227,25 +238,21 @@ public static class VitalsStatusEvaluator
         // is hidden; only the order and the alert type change.
         if (reading.AlertLevel == 3)
         {
-            causes.Add(("G26_LEVEL_3", "G26 level 3 alarm"));
+            causes.Add(("FLUID_OVERLOAD_SUSPECTED",
+                "Infusion line AND patient vitals both abnormal — suspected fluid overload"));
         }
 
-        if (reading.Spo2Alarm)
+        if (IsCriticalSpo2(reading, previous.Spo2Critical))
         {
-            causes.Add(("SPO2_ABNORMAL", $"SpO2 abnormal: {reading.Spo2}%"));
+            causes.Add(("SPO2_LOW_CRITICAL", $"Critically low SpO2: {reading.Spo2}%"));
         }
 
-        if (reading.HeartRateAlarm)
+        if (reading.PatientBranch && reading.AlertLevel == 2)
         {
-            causes.Add(("HEART_RATE_ABNORMAL", $"Heart rate abnormal: {reading.HeartRate} bpm"));
+            causes.Add(("PATIENT_DETERIORATING",
+                "Patient vitals abnormal — the infusion line is behaving normally"));
         }
-
-        if (reading.PatientBranch && reading.AlertLevel is >= 2)
-        {
-            causes.Add(("PATIENT_ATTENTION", "Patient vital signs require attention"));
-        }
-
-        if (reading.LineBranch && reading.AlertLevel is >= 2)
+        else if (reading.LineBranch && reading.AlertLevel == 1)
         {
             causes.Add(("LINE_FAULT", DescribeLineState(reading)));
         }
@@ -258,14 +265,12 @@ public static class VitalsStatusEvaluator
             causes.Add(("LINE_BLOCKED", "IV line blocked or free-flowing — check tubing immediately"));
         }
 
-        if (reading.AlertLevel is null
-            && IsWarningSpo2(reading, previous.Spo2Critical, previous.Spo2Warning))
+        if (IsWarningSpo2(reading, previous.Spo2Critical, previous.Spo2Warning))
         {
             causes.Add(("SPO2_LOW", $"Low SpO2: {reading.Spo2}%"));
         }
 
-        if (reading.AlertLevel is null
-            && IsAbnormalHeartRate(reading, previous.HeartRateAbnormal))
+        if (IsAbnormalHeartRate(reading, previous.HeartRateAbnormal))
         {
             var direction = reading.HeartRate < LowHeartRate ? "Low" : "High";
             causes.Add(("HEART_RATE_ABNORMAL", $"{direction} heart rate: {reading.HeartRate} bpm"));
@@ -301,27 +306,45 @@ public static class VitalsStatusEvaluator
         return (causes[0].Type, Fit(causes.Select(c => c.Text)));
     }
 
-    public static string DescribePatientCause(BedReading reading)
+    private static (string AlertType, string Message) DescribeCanonicalAlert(
+        BedReading reading, int finalLevel)
     {
-        var level = Math.Clamp(reading.VitalsLevel ?? reading.AlertLevel ?? 2, 2, 3);
-        var causes = new List<string>();
-        var hr = reading.AiInputHeartRate ?? reading.HeartRate;
-        var spo2 = reading.AiInputSpo2 ?? reading.Spo2;
+        var causes = new List<(string Type, string Text)>();
 
-        if (reading.HeartRateAlarm)
+        if (reading.PatientBranch)
         {
-            var direction = reading.HrBaselineBpm is int baseline && hr < baseline ? "low" : "high";
-            causes.Add($"Heart rate level {level}: abnormally {direction} ({hr} bpm)");
+            causes.Add(("PATIENT_DETERIORATING", "Patient vitals branch is abnormal"));
         }
-        if (reading.Spo2Alarm)
+        if (reading.LineBranch)
         {
-            causes.Add($"SpO2 level {level}: abnormally low ({spo2}%)");
+            causes.Add(("LINE_FAULT", DescribeLineState(reading)));
         }
+        if (reading.AeAlarm)
+        {
+            causes.Add(("AE_ALARM", "AI detected an abnormal HR/SpO2 combination"));
+        }
+        if (reading.DripAnomaly)
+        {
+            causes.Add(("DRIP_MODEL_ANOMALY", "AI detected abnormal infusion timing"));
+        }
+        if (reading.VitalsAnomaly)
+        {
+            causes.Add(("VITALS_MODEL_ANOMALY", "AI detected an abnormal vitals trend"));
+        }
+        if (HasLostSignal(reading))
+        {
+            causes.Add(("SENSOR_DISCONNECTED", $"No signal from: {DescribeLostChannels(reading)}"));
+        }
+
         if (causes.Count == 0)
         {
-            causes.Add($"Vital signs level {level}: abnormal AI pattern");
+            var fallback = finalLevel >= 3
+                ? ("CRITICAL", "Level 3 critical alert from XG26")
+                : ("WARNING", "Level 2 warning from XG26");
+            return fallback;
         }
-        return string.Join(" · ", causes);
+
+        return (causes[0].Type, Fit(causes.Select(c => c.Text)));
     }
 
     /// <summary>

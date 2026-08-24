@@ -56,12 +56,14 @@ public sealed class BedState
     /// hoi ma y ta hoi dau tien: HONG O DAY TRUYEN HAY HONG O BENH NHAN? Hai
     /// su co nay xu tri hoan toan khac nhau, va v1 phat ra cung mot bao dong.
     ///
-    /// AlertLevel: final G26 severity, 1 binh thuong, 2 chu y, 3 canh bao.
+    /// AlertLevel: 0 binh thuong, 1 duong truyen, 2 benh nhan, 3 ca hai.
     /// null = thiet bi doi cu, khong bao duoc - KHAC voi "moi thu binh thuong".
     /// LineState: 0 ok, 1 sap het, 2 tac day, 3 chay tu do, 4 loi cam bien giot,
     /// 5 het dich. null khi cua so trong luong 60 giay chua day.
     /// </summary>
     public int? AlertLevel { get; set; }
+    /// <summary>Canonical XG26 severity: 1 normal, 2 warning, 3 critical.</summary>
+    public int? FinalAlertLevel { get; set; }
     public bool LineBranch { get; set; }
     public bool PatientBranch { get; set; }
     public bool DripAnomaly { get; set; }
@@ -82,15 +84,36 @@ public sealed class BedState
 
     /// <summary>Thiết bị đang theo dõi (true) hay đang chờ y tá bấm bắt đầu.</summary>
     public bool Monitoring { get; set; } = true;
-    public bool Spo2Alarm { get; set; }
-    public bool HeartRateAlarm { get; set; }
-    public int DropTrainingSamples { get; set; }
-    public int VitalsTrainingSamples { get; set; }
-    public bool AlertsArmed { get; set; } = true;
-    public int? VitalsTestMode { get; set; }
+    public int? DropTrainingSamples { get; set; }
+    public int? VitalsTrainingSamples { get; set; }
+    /// <summary>False while the device is collecting 20 drip intervals and 64 vitals samples.</summary>
+    public bool? AlertsArmed { get; set; }
+
+    /* What the device says it is RUNNING ON, as opposed to what it measured.
+     * These close the command loop: a console can show that an instruction
+     * actually reached the chip instead of only that the server accepted it. */
+
+    /// <summary>Heart rate actually fed to the AI. Equal to the measured value
+    /// in normal use; differs while a vitals test mode is active, and that
+    /// difference is the proof the write reached the chip.</summary>
     public int? AiInputHeartRate { get; set; }
+    /// <summary>SpO2 actually fed to the AI. See AiInputHeartRate.</summary>
     public int? AiInputSpo2 { get; set; }
+    /// <summary>Vitals branch verdict as decided on the chip: 1, 2 or 3.</summary>
     public int? VitalsLevel { get; set; }
+    /// <summary>Drip branch verdict as decided on the chip: 1, 2 or 3.</summary>
+    public int? ServerDropLevel { get; set; }
+    /// <summary>Vitals test mode echoed back: 0 real data, 2 attention band,
+    /// 3 alarm band.</summary>
+    public int? VitalsTestMode { get; set; }
+
+    /// <summary>SpO2 below 90 or 15% off baseline, from the firmware's alarm bitmap.</summary>
+    public bool Spo2Low { get; set; }
+    /// <summary>Heart rate outside 45..150 or 15% off baseline, same bitmap.</summary>
+    public bool HeartRateAbnormal { get; set; }
+    /// <summary>Most recent measured gap between two drops, in ms - the number
+    /// the drip level is computed from.</summary>
+    public int? DropIntervalMs { get; set; }
 
     /// <summary>
     /// Con so du bao cua kenh do co doc duoc nhu "du bao" khong. Khi false, no

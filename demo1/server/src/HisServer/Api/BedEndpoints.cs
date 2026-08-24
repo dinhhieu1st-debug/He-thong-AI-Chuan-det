@@ -3,6 +3,7 @@ using HisServer.Domain;
 using HisServer.Hubs;
 using HisServer.Models;
 using Microsoft.AspNetCore.SignalR;
+using System.Text.Json;
 
 namespace HisServer.Api;
 
@@ -130,6 +131,7 @@ public static class BedEndpoints
 
             await repository.UpsertAsync(bed);
             await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
+            await NotifyDirectoryAsync(hub);
             return Results.Created($"/api/beds/{bed.BedId}", BedDto.From(bed));
         }).RequireAuthorization(Capabilities.ManageBeds);
 
@@ -185,6 +187,7 @@ public static class BedEndpoints
             store.Remove(bedId);
 
             await hub.Clients.Group(MonitoringHub.WardGroup).BedRemoved(bedId);
+            await NotifyDirectoryAsync(hub);
             return Results.NoContent();
         }).RequireAuthorization(Capabilities.ManageBeds);
 
@@ -193,6 +196,7 @@ public static class BedEndpoints
             UpdateBedRequest request,
             BedStateStore store,
             BedRepository repository,
+            DeviceRepository devices,
             IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
             if (store.Get(bedId) is null)
@@ -215,6 +219,28 @@ public static class BedEndpoints
 
             await repository.UpsertAsync(bed);
             await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
+
+            /* A device carries its own copy of the room, taken when it was
+             * assigned to a bed and never refreshed. Renaming the bed's room
+             * therefore left the Devices tab showing the old name forever. The
+             * bed owns the room; the device copy follows it.
+             *
+             * Looked up through the DEVICES table, which is the maintained
+             * direction of the bed-device link. BedState.DeviceId is only
+             * written when a technician assigns a device through the UI, so for
+             * a seeded bed it is null and this sync would quietly never run. */
+            if (request.Room is not null)
+            {
+                var device = await devices.GetByBedAsync(bedId);
+                if (device is not null && !string.Equals(device.Room, bed.Room, StringComparison.Ordinal))
+                {
+                    device.Room = bed.Room;
+                    await devices.UpsertAsync(device);
+                    await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
+                }
+            }
+
+            await NotifyDirectoryAsync(hub);
             return Results.Ok(BedDto.From(bed));
         }).RequireAuthorization(Capabilities.ManageBeds);
 
@@ -222,9 +248,10 @@ public static class BedEndpoints
             string bedId,
             SetTargetFlowRequest request,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            DeviceRepository devices) =>
         {
-            if (store.Get(bedId) is null)
+            if (store.Get(bedId) is not { } flowBed)
             {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
             }
@@ -234,7 +261,8 @@ public static class BedEndpoints
                 return Results.BadRequest(new { error = "targetFlowMlH must be a positive number" });
             }
 
-            var commandLine = $$"""{"cmd":"set_target_flow_ml_h","value":{{request.TargetFlowMlH}}}""";
+            var commandLine = await AddressToBedDeviceAsync(devices, flowBed,
+                $$"""{"cmd":"set_target_flow_ml_h","value":{{request.TargetFlowMlH}}}""");
             return await SendDeviceCommandAsync(bedId, commandLine, connectionRegistry,
                 new { bedId, targetFlowMlH = request.TargetFlowMlH });
         }).RequireAuthorization(Capabilities.ControlBed);
@@ -243,21 +271,60 @@ public static class BedEndpoints
             string bedId,
             SetTargetDropsRequest request,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            BedRepository repository,
+            DeviceRepository devices,
+            IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
-            if (store.Get(bedId) is null)
+            if (store.Get(bedId) is not { } dropsBed)
             {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
             }
 
-            if (request.TargetDropsPerMin <= 0)
+            if (request.TargetDropsPerMin is < 1 or > 240)
             {
-                return Results.BadRequest(new { error = "targetDropsPerMin must be a positive number" });
+                return Results.BadRequest(new { error = "targetDropsPerMin must be between 1 and 240 dpm" });
             }
 
-            var commandLine = $$"""{"cmd":"set_target_drops_per_min","value":{{request.TargetDropsPerMin}}}""";
-            return await SendDeviceCommandAsync(bedId, commandLine, connectionRegistry,
-                new { bedId, targetDropsPerMin = request.TargetDropsPerMin });
+            var commandLine = await AddressToBedDeviceAsync(devices, dropsBed,
+                $$"""{"cmd":"set_target_drops_per_min","value":{{request.TargetDropsPerMin}}}""");
+            var delivered = await connectionRegistry.TrySendCommandAsync(bedId, commandLine);
+            if (!delivered)
+            {
+                return Results.Conflict(new
+                {
+                    error = $"Bed '{bedId}' has no live gateway connection right now - " +
+                            "the drop target was not changed."
+                });
+            }
+
+            // The firmware immediately closes only the alarm gate and starts a
+            // fresh 20-interval drip window. Mirror that accepted state now so
+            // the old warning does not linger on the page during the round trip.
+            var bed = store.Upsert(bedId, state =>
+            {
+                state.TargetDropsPerMin = request.TargetDropsPerMin;
+                state.DropTrainingSamples = 0;
+                state.AlertsArmed = false;
+                state.Status = BedStatus.Stable;
+                state.Hysteresis = VitalsStatusEvaluator.MetricHysteresis.None;
+                state.AlertMessage = null;
+                state.FinalAlertLevel = null;
+                state.AlertLevel = 0;
+                state.LineBranch = false;
+                state.PatientBranch = false;
+                state.DripAnomaly = false;
+            });
+            await repository.UpsertAsync(bed);
+            await hub.Clients.Group(MonitoringHub.WardGroup).BedUpdated(BedDto.From(bed));
+
+            return Results.Accepted(value: new
+            {
+                bedId,
+                targetDropsPerMin = request.TargetDropsPerMin,
+                dropTrainingSamples = 0,
+                alertsArmed = false
+            });
         }).RequireAuthorization(Capabilities.ControlBed);
 
         /* Bắt đầu / tạm dừng theo dõi.
@@ -276,16 +343,18 @@ public static class BedEndpoints
             BedStateStore store,
             BedConnectionRegistry connectionRegistry,
             BedRepository repository,
+            DeviceRepository devices,
             IHubContext<MonitoringHub, IMonitoringClient> hub) =>
         {
-            if (store.Get(bedId) is null)
+            if (store.Get(bedId) is not { } monitoringBed)
             {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
             }
 
             var value = request.Enabled ? 1 : 0;
             var delivered = await connectionRegistry.TrySendCommandAsync(bedId,
-                $$"""{"cmd":"set_monitoring","value":{{value}}}""");
+                await AddressToBedDeviceAsync(devices, monitoringBed,
+                    $$"""{"cmd":"set_monitoring","value":{{value}}}"""));
             if (!delivered)
             {
                 return Results.Conflict(new
@@ -302,18 +371,29 @@ public static class BedEndpoints
             var bed = store.Upsert(bedId, state =>
             {
                 state.Monitoring = request.Enabled;
+                state.AlertsArmed = request.Enabled ? false : null;
+                state.DropTrainingSamples = request.Enabled ? 0 : null;
+                state.VitalsTrainingSamples = request.Enabled ? 0 : null;
+                // Starting enters a silent training phase; pausing is also
+                // silent. In both cases clear any alarm left from the previous
+                // monitoring session immediately.
+                state.Status = BedStatus.Stable;
+                state.Hysteresis = VitalsStatusEvaluator.MetricHysteresis.None;
+                state.AlertMessage = null;
+                state.AlertLevel = 0;
+                // Protocol capability is learned from telemetry. Do not invent
+                // a canonical level here or an older device would be treated
+                // as if it supported the new on-chip severity contract.
+                state.FinalAlertLevel = null;
+                state.LineBranch = false;
+                state.PatientBranch = false;
+                state.DripAnomaly = false;
+                state.VitalsAnomaly = false;
+                state.AeAlarm = false;
                 if (!request.Enabled)
                 {
-                    state.Status = BedStatus.Stable;
-                    state.Hysteresis = VitalsStatusEvaluator.MetricHysteresis.None;
-                    state.AlertMessage = null;
-                    state.AlertLevel = 1;
-                    state.AlertsArmed = false;
-                    state.LineBranch = false;
-                    state.PatientBranch = false;
-                    state.DripAnomaly = false;
-                    state.VitalsAnomaly = false;
-                    state.AeAlarm = false;
+                    state.DropTrainingSamples = null;
+                    state.VitalsTrainingSamples = null;
                 }
             });
             await repository.UpsertAsync(bed);
@@ -323,6 +403,9 @@ public static class BedEndpoints
             {
                 bedId,
                 monitoring = request.Enabled,
+                alertsArmed = bed.AlertsArmed,
+                dropTrainingSamples = bed.DropTrainingSamples,
+                vitalsTrainingSamples = bed.VitalsTrainingSamples,
                 status = bed.Status.ToString()
             });
         }).RequireAuthorization(Capabilities.ControlBed);
@@ -330,47 +413,77 @@ public static class BedEndpoints
         group.MapPost("/{bedId}/tare", async (
             string bedId,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            DeviceRepository devices) =>
         {
-            if (store.Get(bedId) is null)
+            if (store.Get(bedId) is not { } tareBed)
             {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
             }
 
-            return await SendDeviceCommandAsync(bedId, """{"cmd":"reset_tare"}""", connectionRegistry,
-                new { bedId, action = "reset_tare" });
+            return await SendDeviceCommandAsync(bedId,
+                await AddressToBedDeviceAsync(devices, tareBed, """{"cmd":"reset_tare"}"""),
+                connectionRegistry, new { bedId, action = "reset_tare" });
         }).RequireAuthorization(Capabilities.ControlBed);
 
         group.MapPost("/{bedId}/recalibrate-hr", async (
             string bedId,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            DeviceRepository devices) =>
         {
-            if (store.Get(bedId) is null)
+            if (store.Get(bedId) is not { } hrBed)
             {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
             }
 
-            return await SendDeviceCommandAsync(bedId, """{"cmd":"recalibrate_hr_baseline"}""", connectionRegistry,
-                new { bedId, action = "recalibrate_hr_baseline" });
+            return await SendDeviceCommandAsync(bedId,
+                await AddressToBedDeviceAsync(devices, hrBed,
+                    """{"cmd":"recalibrate_hr_baseline"}"""),
+                connectionRegistry, new { bedId, action = "recalibrate_hr_baseline" });
         }).RequireAuthorization(Capabilities.ControlBed);
 
-        group.MapPost("/{bedId}/vitals-test", async (
+        /* Vitals test mode: feed the AI branch a fabricated heart rate and SpO2
+         * so the alarm path can be exercised without an unwell patient.
+         *
+         * The fabricated values go ONLY into the AI branch. The real sensor
+         * readings keep flowing and keep being reported separately, which is
+         * why the console can show "Real" and "AI test" side by side - and why
+         * switching back to real data does not cost the device its learned
+         * history.
+         *
+         * That pairing is also the only honest confirmation that a command
+         * crossed the whole chain. A toast means the SERVER accepted the
+         * request; the AI-input figures changing means the CHIP did.
+         *
+         * 0, 2 and 3 only. 1 is missing because the firmware's fake level enum
+         * has no "force normal" - real data already is level 1 - and the
+         * gateway rejects anything else outright. */
+        group.MapPut("/{bedId}/vitals-test-mode", async (
             string bedId,
-            VitalsTestRequest request,
+            SetVitalsTestModeRequest request,
             BedStateStore store,
-            BedConnectionRegistry connectionRegistry) =>
+            BedConnectionRegistry connectionRegistry,
+            DeviceRepository devices) =>
         {
-            if (store.Get(bedId) is null)
+            if (store.Get(bedId) is not { } testBed)
+            {
                 return Results.NotFound(new { error = $"Bed '{bedId}' not found" });
-            if (request.Level is not (0 or 2 or 3))
-                return Results.BadRequest(new { error = "level must be 0, 2 or 3" });
+            }
 
-            return await SendDeviceCommandAsync(
-                bedId,
-                $$"""{"cmd":"set_vitals_test_mode","value":{{request.Level}}}""",
-                connectionRegistry,
-                new { bedId, vitalsTestMode = request.Level });
+            if (request.Mode is not (0 or 2 or 3))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "mode must be 0 (real sensor data), 2 (force attention) or 3 (force alarm)"
+                });
+            }
+
+            var commandLine = await AddressToBedDeviceAsync(devices, testBed,
+                $$"""{"cmd":"set_vitals_test_mode","value":{{request.Mode}}}""");
+
+            return await SendDeviceCommandAsync(bedId, commandLine, connectionRegistry,
+                new { bedId, vitalsTestMode = request.Mode });
         }).RequireAuthorization(Capabilities.ControlBed);
     }
 
@@ -381,6 +494,58 @@ public static class BedEndpoints
     /// Zigbee attribute down to the device (app.c's
     /// sl_zigbee_af_post_attribute_change_cb() picks it up from there).
     /// </summary>
+    /// <summary>
+    /// Tells every open bed directory to re-fetch itself.
+    ///
+    /// Separate from BedUpdated because administrators and technicians hold
+    /// ViewBedDirectory but not ViewWard, so they are not in WardGroup and
+    /// never see BedUpdated at all.
+    /// </summary>
+    /// <summary>
+    /// Names the device a bed command is meant for, so the gateway does not
+    /// have to guess.
+    ///
+    /// The gateway honours a "deviceId" field and otherwise falls back to
+    /// whichever device published to it most recently (publish_command() in
+    /// server_client.c). That fallback is harmless for a gateway carrying one
+    /// bed and dangerous for a gateway carrying several: a target-rate change
+    /// for one bed gets published to whichever device happened to report last,
+    /// which is a different patient's pump. Every bed command therefore states
+    /// its device explicitly, as the OTA commands already did.
+    ///
+    /// The device is resolved from the DEVICES table (assigned_bed_id), which
+    /// is the one direction of the bed-device link that is actually maintained.
+    /// BedState.DeviceId is only written when a technician assigns a device
+    /// through the UI, so it is null for any bed that came from the seed or was
+    /// created by its first reading - addressing from it left the id off the
+    /// command entirely and put the gateway straight back on its guess.
+    /// </summary>
+    private static async Task<string> AddressToBedDeviceAsync(
+        DeviceRepository devices, BedState bed, string commandLine)
+    {
+        var deviceId = (await devices.GetByBedAsync(bed.BedId))?.DeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            deviceId = bed.DeviceId;
+        }
+
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            // Nothing to address it to. The command still fails the registry
+            // check a moment later, which is the honest outcome.
+            return commandLine;
+        }
+
+        // Escaped rather than interpolated raw: a device id comes off the
+        // Zigbee network, and a stray quote would produce a malformed line the
+        // gateway silently drops.
+        var escaped = JsonEncodedText.Encode(deviceId).ToString();
+        return commandLine[..^1] + $$""","deviceId":"{{escaped}}"}""";
+    }
+
+    private static Task NotifyDirectoryAsync(IHubContext<MonitoringHub, IMonitoringClient> hub) =>
+        hub.Clients.Group(MonitoringHub.DirectoryGroup).BedDirectoryChanged();
+
     private static async Task<IResult> SendDeviceCommandAsync(
         string bedId, string commandLine, BedConnectionRegistry connectionRegistry, object acceptedValue)
     {
@@ -410,4 +575,6 @@ public sealed record UpdateBedRequest(string? Room, string? DeviceId);
 public sealed record SetTargetFlowRequest(int TargetFlowMlH);
 
 public sealed record SetTargetDropsRequest(int TargetDropsPerMin);
-public sealed record VitalsTestRequest(int Level);
+
+/// <summary>0 real sensor data, 2 force the attention band, 3 force the alarm band.</summary>
+public sealed record SetVitalsTestModeRequest(int Mode);

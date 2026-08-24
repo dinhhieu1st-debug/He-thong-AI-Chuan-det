@@ -88,6 +88,12 @@ const AlertsTab = (() => {
   function alertRowHtml(alert) {
     const color = UiUtils.statusColor(alert.level);
     const patientName = patientNameOf(alert.bedId);
+    // alertType is the single most severe cause at the time this alert was
+    // raised (see VitalsStatusEvaluator.DescribeAlert) - describeAlertType
+    // turns that code into the sensor/source label, and alert.message stays
+    // the full server-written reason text (already includes measured values
+    // where the evaluator has them, e.g. "Critically low SpO2: 84%").
+    const info = UiUtils.describeAlertType(alert.alertType);
     // Only unacknowledged alerts are selectable - bulk-acknowledging an
     // already-handled alert has nothing to do.
     const checkbox = alert.acknowledged ? `<span class="alert-item-select"></span>` : `
@@ -101,7 +107,7 @@ const AlertsTab = (() => {
         <div>
           <div class="title" style="color:${color};">${UiUtils.escapeHtml(alert.level)} · ${UiUtils.escapeHtml(alert.bedId)}${
             patientName ? ` · ${UiUtils.escapeHtml(patientName)}` : ""}</div>
-          <div class="desc">${UiUtils.escapeHtml(alert.message)}</div>
+          <div class="desc"><b>${UiUtils.escapeHtml(info.sensor)}</b> — ${UiUtils.escapeHtml(alert.message)}</div>
           <div class="time">${UiUtils.escapeHtml(alert.room || "")} · ${UiUtils.formatDateTime(alert.createdAt)}</div>
           ${alert.acknowledged && alert.acknowledgementNote
             ? `<div class="time">Note: ${UiUtils.escapeHtml(alert.acknowledgementNote)}</div>` : ""}
@@ -124,11 +130,13 @@ const AlertsTab = (() => {
 
     const color = UiUtils.statusColor(alert.level);
     const patientName = patientNameOf(alert.bedId);
+    const info = UiUtils.describeAlertType(alert.alertType);
     panel.style.display = "block";
     panel.innerHTML = `
       <h3><span class="status-chip" style="background:${color};">${UiUtils.escapeHtml(alert.level)}</span></h3>
       <div class="sub">${UiUtils.escapeHtml(alert.bedId)} · ${UiUtils.escapeHtml(alert.room || "")}${
         patientName ? ` · ${UiUtils.escapeHtml(patientName)}` : ""}</div>
+      <div class="time">Source: ${UiUtils.escapeHtml(info.source)} · Sensor: ${UiUtils.escapeHtml(info.sensor)} · Channel: ${UiUtils.escapeHtml(info.channel)}</div>
       <div class="bed-message">${UiUtils.escapeHtml(alert.message)}</div>
       <div class="metric-row">
         <div class="metric"><b>${UiUtils.formatMetric(alert.spo2, "%")}</b><span>SpO2</span></div>

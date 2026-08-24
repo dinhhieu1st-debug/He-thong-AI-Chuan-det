@@ -57,7 +57,6 @@ builder.Services.AddSingleton<FaultReportRepository>();
 // Domain / services
 builder.Services.AddSingleton<BedStateStore>();
 builder.Services.AddSingleton<BedConnectionRegistry>();
-builder.Services.AddSingleton<ServerDropDecisionEngine>();
 // Firmware update progress. Singleton and in memory: a transfer does not
 // survive a restart, so neither should the record of it - see OtaStatus.
 builder.Services.AddSingleton<OtaStatusRegistry>();

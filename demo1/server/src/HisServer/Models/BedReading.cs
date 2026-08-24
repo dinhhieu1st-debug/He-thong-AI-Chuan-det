@@ -55,9 +55,13 @@ public sealed record BedReading(
     // All nullable/defaulted, because a device still on v1 firmware sends none
     // of them and must keep working.
 
-    /// <summary>Final G26 severity: 1 normal, 2 attention, 3 alarm.
+    /// <summary>0 normal, 1 infusion line, 2 patient vitals, 3 both at once.
     /// Null from a device too old to report it.</summary>
     int? AlertLevel = null,
+    /// <summary>Canonical severity decided by the XG26: 1 normal, 2 warning,
+    /// 3 critical. When present the server must not recalculate severity from
+    /// thresholds or sensor availability.</summary>
+    int? FinalAlertLevel = null,
     /// <summary>The infusion line is at fault: drip model anomaly, or the
     /// load-cell cross-check concluded occlusion / free flow.</summary>
     bool LineBranch = false,
@@ -84,15 +88,44 @@ public sealed record BedReading(
     /// nhiều so với chiều ngược lại.
     /// </summary>
     bool Monitoring = true,
-    bool Spo2Alarm = false,
-    bool HeartRateAlarm = false,
-    int DropTrainingSamples = 0,
-    int VitalsTrainingSamples = 0,
-    bool AlertsArmed = true,
-    int? DropIntervalMs = null,
-    int? DropEventCount = null,
-    int? ServerDropLevel = null,
-    int? VitalsTestMode = null,
+    int? DropTrainingSamples = null,
+    int? VitalsTrainingSamples = null,
+    bool? AlertsArmed = null,
+
+    // ---- What the device says it is actually running on -------------------
+    // The five fields below close the command loop. Everything above describes
+    // what the device MEASURED; these describe what it ACCEPTED, so a console
+    // can show that an instruction arrived rather than only that the server
+    // took it. The converter has always published them; nothing read them.
+
+    /// <summary>The heart rate actually fed to the AI. Equal to the measured
+    /// value in normal use, and deliberately different while a test mode is
+    /// active - which is what proves the command reached the chip.</summary>
     int? AiInputHeartRate = null,
+    /// <summary>The SpO2 actually fed to the AI. See AiInputHeartRate.</summary>
     int? AiInputSpo2 = null,
-    int? VitalsLevel = null);
+    /// <summary>Vitals branch verdict as the chip decided it: 1, 2 or 3.</summary>
+    int? VitalsLevel = null,
+    /// <summary>Drip branch verdict as the chip decided it: 1, 2 or 3.</summary>
+    int? ServerDropLevel = null,
+    /// <summary>Vitals test mode echoed back by the chip: 0 real sensor data,
+    /// 2 forces the attention band, 3 forces the alarm band. This is the echo
+    /// of a write, not a measurement.</summary>
+    int? VitalsTestMode = null,
+
+    /// <summary>SpO2 below 90, or 15% off this patient's own baseline. From the
+    /// firmware's alarm bitmap. Taken alongside LineBlocked and AeAlarm, which
+    /// come from the same bitmap - reading two of the five cause bits and
+    /// dropping the two most clinically direct ones left the console able to
+    /// say a bed was in alarm without saying which vital caused it.</summary>
+    bool Spo2Low = false,
+    /// <summary>Heart rate outside 45..150, or 15% off this patient's baseline.
+    /// Same bitmap, same reasoning as Spo2Low.</summary>
+    bool HeartRateAbnormal = false,
+    /// <summary>The most recent measured gap between two drops, in ms.
+    ///
+    /// This is what the drip verdict is actually computed from: within 200 ms
+    /// of target is level 1, beyond 800 ms is level 3. Without it a console can
+    /// report the level but not the number behind it, which is the first thing
+    /// anyone asks when a drip alarm looks wrong.</summary>
+    int? DropIntervalMs = null);

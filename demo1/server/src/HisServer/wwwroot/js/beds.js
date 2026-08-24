@@ -5,7 +5,7 @@ const BedsTab = (() => {
   let selectedStatus = persisted.selectedStatus;
   let myBedsOnly = persisted.myBedsOnly;
   let myBedIds = null;   // Set, lazily loaded from the duty roster - null means "not loaded yet"
-  let selectedBedId = sessionStorage.getItem("his.selectedBedId");
+  let selectedBedId = null;
   let renderedPatientSignature = null;
 
   const STATUS_FILTERS = ["all", "Stable", "Warning", "Critical", "Offline"];
@@ -40,11 +40,6 @@ const BedsTab = (() => {
 
   function bedCardHtml(bed) {
     const color = UiUtils.statusColor(bed.status);
-    const learning = bed.monitoring !== false && bed.alertsArmed === false
-      ? `<div class="status-line status-line-active">TRAINING - drops ${bed.dropTrainingSamples ?? 0}/20 · vitals ${bed.vitalsTrainingSamples ?? 0}/64</div>`
-      : bed.monitoring !== false
-        ? `<div class="status-line status-line-done">G26 ARMED · LEVEL ${bed.alertLevel ?? "--"}</div>`
-        : "";
     return `
       <div class="bed-card${bed.monitoring === false ? " standby" : ""}" data-bed-id="${UiUtils.escapeHtml(bed.bedId)}">
         <div class="stripe" style="background:${color};"></div>
@@ -69,8 +64,6 @@ const BedsTab = (() => {
           ${bed.monitoring === false
             ? `<div><span class="bed-standby-tag">STANDBY — not monitoring</span></div>`
             : ""}
-          ${learning}
-          ${bed.alertMessage ? `<div class="bed-message">${UiUtils.escapeHtml(bed.alertMessage)}</div>` : ""}
           <div class="bed-updated">Updated ${UiUtils.formatDateTime(bed.lastUpdated)}</div>
         </div>
       </div>`;
@@ -176,6 +169,69 @@ const BedsTab = (() => {
     5: { text: "Bag empty", cls: "ls-warn" },
   };
 
+  /* How the device arrived at its final level, shown as the two branch
+   * verdicts that produced it.
+   *
+   * The chip fuses one vitals level and one drip level into the number the
+   * ward acts on, by a rule with no middle ground: 1+1 is 1, 3+3 is 3, and
+   * every other combination is 2. The badge above says WHICH side is at fault;
+   * this says how bad each side is, which is the difference between "the line
+   * needs looking at" and "the line is why this bed is red".
+   *
+   * Both branch levels come straight from the chip. The server does not
+   * recompute them, so if these two do not produce the final level shown, the
+   * device and the console disagree and that is worth knowing.
+   */
+  function fusionSectionHtml(bed) {
+    if (bed.vitalsLevel == null && bed.serverDropLevel == null) {
+      // A device too old to report the branch levels. Say so rather than
+      // drawing an empty box that looks like "both branches normal".
+      return "";
+    }
+
+    const LEVEL = {
+      1: { text: "1 · normal", cls: "status-line-done" },
+      2: { text: "2 · attention", cls: "status-line-active" },
+      3: { text: "3 · alarm", cls: "status-line-active" },
+    };
+    const cell = (v) => {
+      const spec = LEVEL[v];
+      return spec
+        ? `<b class="${spec.cls}">${spec.text}</b>`
+        : `<b class="status-line-muted">--</b>`;
+    };
+
+    /* The measured gap is the number the drip level is computed from: within
+     * 200 ms of target is level 1, past 800 ms is level 3. Printing it next to
+     * the verdict answers "why is this a 2?" without a serial cable. */
+    const gap = bed.dropIntervalMs != null
+      ? `<div class="status-line status-line-muted">Measured drop gap:
+           <b>${UiUtils.escapeHtml(String(bed.dropIntervalMs))} ms</b>
+           <span class="fc-sub">(within 200 ms of target = 1, past 800 ms = 3)</span>
+         </div>`
+      : "";
+
+    const causes = [];
+    if (bed.spo2Low) causes.push("SpO2 low");
+    if (bed.heartRateAbnormal) causes.push("Heart rate abnormal");
+    if (bed.lineBlocked) causes.push("Line blocked");
+    if (bed.aeAlarm) causes.push("Vitals combination");
+    const causeLine = causes.length
+      ? `<div class="status-line status-line-active">Reported cause:
+           <b>${UiUtils.escapeHtml(causes.join(" · "))}</b></div>`
+      : "";
+
+    return `
+      <div class="line-status">
+        <h4>How the device decided</h4>
+        <div class="status-line">Patient branch: ${cell(bed.vitalsLevel)}</div>
+        <div class="status-line">IV line branch: ${cell(bed.serverDropLevel)}</div>
+        <div class="status-line">Final level: ${cell(bed.finalAlertLevel)}</div>
+        ${gap}
+        ${causeLine}
+      </div>`;
+  }
+
   function lineSectionHtml(bed) {
     if (bed.lineState == null) {
       /* Not "everything is fine" - the device has not worked it out yet. The
@@ -255,9 +311,6 @@ const BedsTab = (() => {
     // Score is sent x100 by the firmware to keep 2 decimals over an integer wire.
     const score = bed.tsAnomalyScoreX100 != null
       ? (bed.tsAnomalyScoreX100 / 100).toFixed(2) : "--";
-    const expectedDrops = bed.dropsForecast16s != null
-      ? bed.dropsForecast16s : bed.targetDropsPerMin;
-    const hasDropForecast = bed.dropsForecast16s != null;
 
     const flags = [];
     if (bed.tsEarlyWarning) {
@@ -276,10 +329,10 @@ const BedsTab = (() => {
             <b class="${dropTrend.cls}">${dropTrend.arrow} ${dropTrend.word}</b>
             <span class="fc-sub">${UiUtils.escapeHtml(dropRateText || "within deadband")}</span>
           </div>
-          <div class="fc-card${!hasDropForecast || bed.dropsForecastTrusted === false ? " fc-untrusted" : ""}">
-            <span class="fc-label">${!hasDropForecast ? "Drip target (normal)"
-              : bed.dropsForecastTrusted === false ? "Drips: expected if normal" : "Drips in 16s"}</span>
-            <b>${UiUtils.formatMetric(expectedDrops, " dpm")}</b>
+          <div class="fc-card${bed.dropsForecastTrusted === false ? " fc-untrusted" : ""}">
+            <span class="fc-label">${bed.dropsForecastTrusted === false
+              ? "Drips: expected if normal" : "Drips in 16s"}</span>
+            <b>${UiUtils.formatMetric(bed.dropsForecast16s, " dpm")}</b>
             <span class="fc-sub">now ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}${
               bed.dropsForecastTrusted === false ? " — not a forecast" : ""}</span>
           </div>
@@ -329,16 +382,25 @@ const BedsTab = (() => {
      * a nurse reads first and the trace they check second never disagree.
      * A channel with no signal is dimmed and never coloured by severity: a
      * reading of 0 from an unplugged probe is not a dangerous reading. */
+    // A lost channel shows "--", never the raw reading (which is often a
+    // stale or physically-impossible 0 from an unplugged probe) - a nurse
+    // must never be able to read "0%"/"0 bpm" as a real patient value.
     const tile = (key, unit, label, ok) => {
       const color = (METRIC_BY_KEY[key] || {}).color || "#2470c8";
       const sev = ok === false ? "ok" : severityOfValue(key, bed[key]);
       const cls = (ok === false ? " is-lost" : "") + (sev === "ok" ? "" : ` sev-${sev}`);
+      const value = ok === false ? "--" : UiUtils.formatMetric(bed[key], "");
       return `
         <div class="bd-vital${cls}" style="--vital-color:${color};">
-          <span class="v">${UiUtils.formatMetric(bed[key], "")}<span class="u">${UiUtils.escapeHtml(unit)}</span></span>
+          <span class="v">${value}${ok === false ? "" : `<span class="u">${UiUtils.escapeHtml(unit)}</span>`}</span>
           <span class="k">${UiUtils.escapeHtml(label)}${ok === false ? " · no signal" : ""}</span>
         </div>`;
     };
+
+    // Computed once and shared between the Active alert card and the Sensor
+    // channels row highlight below, so both read the exact same verdict.
+    const causes = UiUtils.buildAlertCauses(bed);
+    const lineCauseActive = causes.some((c) => c.type === "line");
 
     return `
       <div class="bd-card">
@@ -350,33 +412,105 @@ const BedsTab = (() => {
           ${tile("dropsPerMin", " dpm", "Drops per min", bed.dripRateSignal)}
           ${tile("weightG", " g", "IV bag weight", bed.flowSignal)}
         </div>
-        <div class="vitals-test-panel" data-cap="bed.control">
-          <span class="vitals-test-title">Vitals test</span>
-          <div class="vitals-test-buttons">
-            <button type="button" class="btn vitals-test-btn" data-vitals-test="0">Real data</button>
-            <button type="button" class="btn vitals-test-btn test-l2" data-vitals-test="2">Fake HR L2</button>
-            <button type="button" class="btn vitals-test-btn test-l3" data-vitals-test="3">Fake HR+O2 L3</button>
-          </div>
-          <div class="vitals-test-values">
-            <span>Real HR: <b>${bed.heartRateSignal ? `${UiUtils.formatMetric(bed.heartRate, "--")} bpm` : "--"}</b></span>
-            <span>AI test HR: <b>${bed.aiInputHeartRate != null ? `${bed.aiInputHeartRate} bpm` : "--"}</b></span>
-            <span>Real SpO2: <b>${bed.spo2Signal ? `${UiUtils.formatMetric(bed.spo2, "--")}%` : "--"}</b></span>
-            <span>AI test SpO2: <b>${bed.aiInputSpo2 != null ? `${bed.aiInputSpo2}%` : "--"}</b></span>
-          </div>
-          <span class="vitals-test-note">Raw HR/SpO2 stay real. Turning test off restores the saved AI history.</span>
-        </div>
       </div>
+      ${aiBaselineCardHtml(bed)}
+      ${activeAlertCardHtml(bed, causes)}
       <div class="bd-card">
         <h4>Sensor channels</h4>
         <div class="bd-channels">
           ${channelRow("Heart rate", bed.heartRateSignal)}
           ${channelRow("SpO2", bed.spo2Signal)}
           ${channelRow("Flow", bed.flowSignal)}
-          ${channelRow("Drip", bed.dripRateSignal)}
+          ${channelRow("Drip", bed.dripRateSignal, "Signal OK", "No signal", lineCauseActive && bed.dripRateSignal)}
           ${channelRow("IV line", !bed.lineBlocked, "Flowing", "Blocked / free-flow")}
         </div>
-      </div>
-      ${alertCardHtml(bed)}`;
+      </div>`;
+  }
+
+  /* AI-learned HR/SpO2 baseline (vitals_ai.hr_baseline / vitals_ai.spo2_baseline
+   * on the chip), NOT the 16s forecast and NOT the live reading - those answer
+   * different questions ("where is it heading" / "what is it now" vs "what does
+   * this AI consider this patient's normal").
+   *
+   * Readiness is vitalsTrainingSamples reaching 64 (vitals_ai.history_samples on
+   * the chip) - the same counter the Monitoring block's "HR+SpO2: n/64" progress
+   * bar already uses, so the two never disagree.
+   *
+   * SpO2 is always shown as "--": the firmware reports a learned HR baseline
+   * over Zigbee (ATTR_HR_BASELINE_BPM) but has no equivalent attribute for the
+   * SpO2 baseline it computes internally (vitals_ai.spo2_baseline never leaves
+   * the chip). Showing anything else here - the current SpO2, or the 16s
+   * forecast - would be a fabricated baseline, which is worse than "--". */
+  function baselineTileHtml(value, unit, label, ready, note) {
+    return `
+      <div class="bd-vital${ready ? "" : " is-lost"}">
+        <span class="v">${UiUtils.escapeHtml(value)}${unit ? `<span class="u">${UiUtils.escapeHtml(unit)}</span>` : ""}</span>
+        <span class="k">${UiUtils.escapeHtml(label)}${note ? ` · ${UiUtils.escapeHtml(note)}` : ""}</span>
+      </div>`;
+  }
+
+  function aiBaselineCardHtml(bed) {
+    const samples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const ready = samples >= 64;
+
+    const hrTile = ready
+      ? baselineTileHtml(bed.hrBaselineBpm != null ? String(bed.hrBaselineBpm) : "--", " bpm", "Heart rate", true)
+      : baselineTileHtml("Learning…", "", "Heart rate", false);
+    const spo2Tile = ready
+      ? baselineTileHtml("--", "", "SpO2", false, "not reported by firmware")
+      : baselineTileHtml("Learning…", "", "SpO2", false);
+
+    return `
+      <div class="bd-card">
+        <h4>AI learned baseline</h4>
+        ${ready
+          ? `<div class="status-line status-line-done">✓ READY · 64/64</div>`
+          : `<div class="status-line status-line-active">${samples} / 64 samples</div>`}
+        <div class="bd-vitals">${hrTile}${spo2Tile}</div>
+      </div>`;
+  }
+
+  /* One line of text per active cause, built from buildAlertCauses() - never
+   * from re-deriving WARNING/CRITICAL here. A bed with no cause list AND an
+   * active status (a v2 device's canonical fallback text, e.g. "Level 3
+   * critical alert from XG26") still falls back to the server's own message
+   * rather than showing nothing. */
+  function causeItemHtml(cause) {
+    let detail = "";
+    if (cause.type === "line") {
+      detail = ` — ${cause.value}${cause.target && cause.target !== "--" ? ` / target ${cause.target}` : ""}`;
+      if (cause.weight) detail += ` · bag ${cause.weight}`;
+    } else if (cause.threshold) {
+      detail = ` — ${cause.value} (limit ${cause.threshold})`;
+    } else if (cause.value && cause.value !== "--") {
+      detail = ` — ${cause.value}`;
+    }
+    return `<li><b>${UiUtils.escapeHtml(cause.sensor)}</b> · ${UiUtils.escapeHtml(cause.channel)}: ${UiUtils.escapeHtml(cause.reason)}${detail}</li>`;
+  }
+
+  function activeAlertCardHtml(bed, causes) {
+    const status = (bed.status || "").toLowerCase();
+    const active = status === "warning" || status === "critical";
+
+    if (!active) {
+      return `
+        <div class="bd-card bd-card-alert">
+          <h4>Active alert</h4>
+          <div class="status-line status-line-done">✓ No active alert</div>
+        </div>`;
+    }
+
+    const list = causes.length > 0
+      ? causes.map(causeItemHtml).join("")
+      : `<li>${UiUtils.escapeHtml(bed.alertMessage || "Vitals require attention")}</li>`;
+    const badge = status === "critical" ? "🔴 CRITICAL" : "⚠ WARNING";
+
+    return `
+      <div class="bd-card bd-card-alert sev-${status}">
+        <h4>Active alert${causes.length > 1 ? ` · ${causes.length} active causes` : ""}</h4>
+        <div class="status-line status-line-active">${badge}</div>
+        <ul class="bd-alert-list">${list}</ul>
+      </div>`;
   }
 
   function vitalsSectionHtml(bed) {
@@ -388,30 +522,13 @@ const BedsTab = (() => {
       ${faultCardHtml(bed)}`;
   }
 
-  /* The server sends every active cause in one string joined with " · ".
-   * Splitting it back into separate lines matters clinically: "Critically low
-   * SpO2 · IV line blocked · No signal from: HR" read as one run-on sentence
-   * is how the second and third problems get missed. */
-  function alertCardHtml(bed) {
-    if (!bed.alertMessage) return "";
-
-    const causes = String(bed.alertMessage).split(" · ").filter((c) => c.trim() !== "");
-    const critical = (bed.status || "").toLowerCase() === "critical";
-
-    return `
-      <div class="bd-card bd-card-alert${critical ? " sev-critical" : " sev-warning"}">
-        <h4>Active alert${causes.length > 1 ? ` · ${causes.length} problems` : ""}</h4>
-        <ul class="bd-alert-list">
-          ${causes.map((c) => `<li>${UiUtils.escapeHtml(c)}</li>`).join("")}
-        </ul>
-      </div>`;
-  }
-
-  function channelRow(label, ok, okText = "Signal OK", lostText = "No signal") {
+  function channelRow(label, ok, okText = "Signal OK", lostText = "No signal", warn = false) {
+    const cls = warn ? "is-warn" : (ok ? "is-ok" : "is-lost");
+    const text = warn ? "WARNING" : (ok ? okText : lostText);
     return `
       <div class="bd-channel">
         <span class="bd-channel-name">${UiUtils.escapeHtml(label)}</span>
-        <span class="bd-channel-state ${ok ? "is-ok" : "is-lost"}">${ok ? okText : lostText}</span>
+        <span class="bd-channel-state ${cls}">${UiUtils.escapeHtml(text)}</span>
       </div>`;
   }
 
@@ -531,26 +648,6 @@ const BedsTab = (() => {
     });
   }
 
-  function bindVitalsTestHandlers(bed) {
-    document.querySelectorAll("[data-vitals-test]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const level = Number(button.dataset.vitalsTest);
-        const buttons = document.querySelectorAll("[data-vitals-test]");
-        buttons.forEach((b) => { b.disabled = true; });
-        try {
-          await Api.setVitalsTest(bed.bedId, level);
-          UiUtils.toast(level === 0
-            ? `${bed.bedId}: real vitals and saved AI history restored`
-            : `${bed.bedId}: fake vitals level ${level} enabled`);
-        } catch (err) {
-          UiUtils.toast(err.message, true);
-        } finally {
-          buttons.forEach((b) => { b.disabled = false; });
-        }
-      });
-    });
-  }
-
   async function loadBedFaultReports(bedId) {
     if (!Session.can(Session.CAP.reportFaults)) return;
     try {
@@ -571,16 +668,29 @@ const BedsTab = (() => {
    * không phân biệt được "chưa bắt đầu" với "đã bắt đầu rồi". */
   function monitoringSectionHtml(bed) {
     const on = bed.monitoring !== false;
+    const calibrating = on && bed.alertsArmed === false;
+    const drops = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
+    const vitals = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const color = calibrating ? "#e68a00" : (on ? "#1ea050" : "#8a97a8");
     return `
-      <div class="settings-block monitoring-block ${on ? "is-on" : "is-standby"}">
+      <div class="settings-block monitoring-block ${calibrating ? "is-calibrating" : (on ? "is-on" : "is-standby")}">
         <label>Monitoring</label>
         <div class="monitoring-state">
-          <span class="status-chip" style="background:${on ? "#1ea050" : "#8a97a8"};">
-            ${on ? "MONITORING" : "STANDBY"}
+          <span class="status-chip" style="background:${color};">
+            ${calibrating ? "COLLECTING DATA" : (on ? "MONITORING" : "STANDBY")}
           </span>
           <span class="muted">${on
-            ? "AI and alarms are running for this bed."
+            ? (calibrating
+              ? "Collecting startup samples. AI alarms remain off until both counters finish."
+              : "AI and alarms are running for this bed.")
             : "Sensors are read and shown, but no AI and no alarms yet."}</span>
+        </div>
+        <div id="monitoringProgress" style="${calibrating ? "" : "display:none;"}margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;"><span>Drip intervals</span><b id="dropTrainingText">${drops}/20</b></div>
+          <progress id="dropTrainingProgress" max="20" value="${drops}" style="width:100%;"></progress>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:5px;"><span>HR/SpO2 samples</span><b id="vitalsTrainingText">${vitals}/64</b></div>
+          <progress id="vitalsTrainingProgress" max="64" value="${vitals}" style="width:100%;"></progress>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Alarms start automatically after 20/20 and 64/64.</div>
         </div>
         <div class="inline-form" style="margin-top:8px;">
           <button type="button" id="monitoringBtn" class="btn ${on ? "" : "primary"}">
@@ -597,6 +707,38 @@ const BedsTab = (() => {
                first impression of this patient.`}
         </div>
       </div>`;
+  }
+
+  /* Real measurement next to what the AI is actually being fed.
+   *
+   * The pairing is the point. A toast only says the SERVER accepted the
+   * command; these two figures diverging is the first thing on any screen that
+   * proves the write travelled server -> gateway -> MQTT -> Zigbee -> chip and
+   * was applied. If "Real" moves and "AI test" does not, the command stopped
+   * somewhere in that chain.
+   *
+   * Both fall back to "--" rather than 0 when the device has not reported
+   * them: an older firmware sends neither, and a fabricated zero here would
+   * read as a patient with no pulse. */
+  function vitalsTestHtml(bed) {
+    const mode = bed.vitalsTestMode;
+    const label = mode === 2 ? "Fake HR L2"
+                : mode === 3 ? "Fake HR+O2 L3"
+                : mode === 0 ? "Real data"
+                : "unknown";
+    const active = mode === 2 || mode === 3;
+
+    const real = `${UiUtils.formatMetric(bed.heartRateSignal ? bed.heartRate : null, " bpm")}`
+               + ` / ${UiUtils.formatMetric(bed.spo2Signal ? bed.spo2 : null, "%")}`;
+    const aiInput = `${UiUtils.formatMetric(bed.aiInputHeartRate, " bpm")}`
+                  + ` / ${UiUtils.formatMetric(bed.aiInputSpo2, "%")}`;
+
+    return `
+      <div class="status-line ${active ? "status-line-active" : "status-line-done"}">
+        Mode: <b>${UiUtils.escapeHtml(label)}</b>
+      </div>
+      <div class="status-line status-line-muted">Real HR / SpO2: <b>${real}</b></div>
+      <div class="status-line status-line-muted">AI test HR / SpO2: <b>${aiInput}</b></div>`;
   }
 
   function settingsSectionHtml(bed) {
@@ -623,15 +765,24 @@ const BedsTab = (() => {
         </div>
 
         <div class="settings-block">
+          <label>Vitals test mode</label>
+          <div id="vitalsTestState">${vitalsTestHtml(bed)}</div>
+          <div class="inline-form" style="margin-top:8px;">
+            <button type="button" class="btn" data-test-mode="0">Real data</button>
+            <button type="button" class="btn" data-test-mode="2">Fake HR L2</button>
+            <button type="button" class="btn" data-test-mode="3">Fake HR+O2 L3</button>
+          </div>
+        </div>
+
+        <div class="settings-block">
           <label>Drop rate (AI alert target)
             <b class="current-target" id="targetDropsCurrent">${UiUtils.formatMetric(bed.targetDropsPerMin, " dpm")}</b>
             <span class="measured" id="targetDropsMeasured">measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}</span>
           </label>
           <form id="targetDropsForm" class="inline-form">
-            <input type="number" min="1" id="targetDropsInput" placeholder="New target" value="">
-            <button type="submit" class="btn primary">Set & start</button>
+            <input type="number" min="1" max="240" id="targetDropsInput" placeholder="New target (dpm)" value="">
+            <button type="submit" class="btn primary">Set</button>
           </form>
-          <div class="muted">Setting a target starts a fresh 20-drop and 64-vitals sampling window on G26.</div>
         </div>
       </div>`;
   }
@@ -641,10 +792,15 @@ const BedsTab = (() => {
       e.preventDefault();
       const input = document.getElementById("targetDropsInput");
       const value = parseInt(input.value, 10);
-      if (!value || value <= 0) return;
+      if (!value || value < 1 || value > 240) {
+        UiUtils.toast("Drop target must be between 1 and 240 dpm", true);
+        return;
+      }
       try {
-        await Api.setTargetDrops(bed.bedId, value);
-        UiUtils.toast(`${bed.bedId}: target ${value} dpm sent; G26 sampling started`);
+        const result = await Api.setTargetDrops(bed.bedId, value);
+        const latest = State.beds.get(bed.bedId) || bed;
+        State.upsertBed({ ...latest, ...result });
+        UiUtils.toast(`${bed.bedId}: target drop rate set to ${value} dpm`);
         input.value = "";
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not set target drop rate (${err.message})`, true);
@@ -670,32 +826,23 @@ const BedsTab = (() => {
       }
 
       btn.disabled = true;
-      btn.textContent = turningOn ? "Starting..." : "Pausing...";
       try {
-        await Api.setMonitoring(bed.bedId, turningOn);
-        // The REST response means the gateway accepted the command. Update the
-        // visible control immediately; the next device report remains the
-        // authoritative end-to-end confirmation.
-        const latest = State.beds.get(bed.bedId);
-        if (latest) latest.monitoring = turningOn;
-        updateLiveDetail(latest || { ...bed, monitoring: turningOn });
+        const result = await Api.setMonitoring(bed.bedId, turningOn);
+        // The command is already accepted and persisted at this point. Apply
+        // the response immediately instead of waiting for another telemetry
+        // frame, which can be delayed while the gateway changes mode.
+        const latest = State.beds.get(bed.bedId) || bed;
+        State.upsertBed({ ...latest, ...result });
         UiUtils.toast(turningOn
           ? `${bed.bedId}: monitoring started`
           : `${bed.bedId}: monitoring paused`);
       } catch (err) {
         UiUtils.toast(err.message, true);
       } finally {
-        // A live update may have rebuilt the button while the request was in
-        // flight, so release both the original and the current DOM node.
-        btn.disabled = false;
-        const currentBtn = document.getElementById("monitoringBtn");
-        if (currentBtn) {
-          const latest = State.beds.get(bed.bedId) || bed;
-          currentBtn.disabled = false;
-          currentBtn.textContent = latest.monitoring === false
-            ? "Start monitoring"
-            : "Pause monitoring";
-        }
+        // updateLiveDetail deliberately keeps this DOM node alive, so unlock
+        // it explicitly for the next Start/Pause action.
+        const currentButton = document.getElementById("monitoringBtn");
+        if (currentButton) currentButton.disabled = false;
       }
     });
 
@@ -715,6 +862,21 @@ const BedsTab = (() => {
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not start HR recalibration (${err.message})`, true);
       }
+    });
+
+    /* The toast deliberately points at the AI test figures rather than
+     * claiming success: the request reaching the server is not the same event
+     * as the chip applying it, and only the second one matters here. */
+    document.querySelectorAll("[data-test-mode]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const mode = Number(btn.getAttribute("data-test-mode"));
+        try {
+          await Api.setVitalsTestMode(bed.bedId, mode);
+          UiUtils.toast(`${bed.bedId}: test mode requested - watch "AI test HR / SpO2" to confirm the chip applied it`);
+        } catch (err) {
+          UiUtils.toast(`${bed.bedId}: could not change test mode (${err.message})`, true);
+        }
+      });
     });
   }
 
@@ -867,14 +1029,19 @@ const BedsTab = (() => {
     const last = liveSamples[liveSamples.length - 1];
     if (last && new Date(last.recordedAt).getTime() === t.getTime()) return;
 
+    // A lost channel becomes a chart GAP (null), same as the stored history
+    // already does - never the raw reading, which can be a stale or
+    // physically-impossible 0 from an unplugged probe. Charts.metricChart
+    // skips nulls when drawing the line AND when picking the "now" corner
+    // value, so a disconnected sensor never paints as a flatlining 0.
     liveSamples.push({
       recordedAt: bed.lastUpdated,
-      spo2: bed.spo2,
-      heartRate: bed.heartRate,
-      flowRate: bed.flowRate,
-      dripRate: bed.dripRate,
-      dropsPerMin: bed.dropsPerMin,
-      weightG: bed.weightG,
+      spo2: bed.spo2Signal ? bed.spo2 : null,
+      heartRate: bed.heartRateSignal ? bed.heartRate : null,
+      flowRate: bed.flowSignal ? bed.flowRate : null,
+      dripRate: bed.dripRateSignal ? bed.dripRate : null,
+      dropsPerMin: bed.dripRateSignal ? bed.dropsPerMin : null,
+      weightG: bed.flowSignal ? bed.weightG : null,
       lineBlocked: bed.lineBlocked,
       aeAlarm: bed.aeAlarm
     });
@@ -1003,15 +1170,15 @@ const BedsTab = (() => {
     });
   }
 
-  function closeDetail() {
+  function closeDetail({ updateRoute = true } = {}) {
     selectedBedId = null;
-    sessionStorage.removeItem("his.selectedBedId");
     renderedPatientSignature = null;
     trendSamples = null;
     trendError = null;
     clearLiveSamples();
     stopTrendRefresh();
     renderDetail();
+    if (updateRoute) AppRoute.setBed(null);
   }
 
   /* The detail panel is rebuilt from scratch (innerHTML) on every bed update,
@@ -1176,6 +1343,9 @@ const BedsTab = (() => {
           <div class="bd-card" id="bedLineState">
             ${lineSectionHtml(bed)}
           </div>
+          <div class="bd-card" id="bedFusionState">
+            ${fusionSectionHtml(bed)}
+          </div>
           <div class="bd-card" id="bedForecastState">
             <h4>AI forecast (on-chip)</h4>
             ${forecastSectionHtml(bed)}
@@ -1201,7 +1371,6 @@ const BedsTab = (() => {
     restoreFormState(formState);
 
     bindSettingsHandlers(bed);
-    bindVitalsTestHandlers(bed);
     bindPatientHandlers(bed);
     bindFaultHandlers(bed);
 
@@ -1235,10 +1404,13 @@ const BedsTab = (() => {
     }
 
     document.getElementById("bedLiveState").innerHTML = liveVitalsSectionHtml(bed);
-    bindVitalsTestHandlers(bed);
 
     const line = document.getElementById("bedLineState");
     if (line) line.innerHTML = lineSectionHtml(bed);
+    /* Repainted on every update like the rest: these are the numbers somebody
+     * stares at while a level changes, so a stale copy is worse than none. */
+    const fusion = document.getElementById("bedFusionState");
+    if (fusion) fusion.innerHTML = fusionSectionHtml(bed);
 
     const forecast = document.getElementById("bedForecastState");
     if (forecast) {
@@ -1249,26 +1421,47 @@ const BedsTab = (() => {
     if (tare) tare.innerHTML = tareStatusHtml(bed);
     const hr = document.getElementById("hrStatusState");
     if (hr) hr.innerHTML = hrStatusHtml(bed);
+    /* Must be patched here, not only at first render: this block IS the
+     * confirmation that a test-mode command reached the chip, and a panel that
+     * never repaints it would show the moment before the command every time. */
+    const vitalsTest = document.getElementById("vitalsTestState");
+    if (vitalsTest) vitalsTest.innerHTML = vitalsTestHtml(bed);
     const target = document.getElementById("targetDropsCurrent");
     if (target) target.textContent = UiUtils.formatMetric(bed.targetDropsPerMin, " dpm");
     const measured = document.getElementById("targetDropsMeasured");
     if (measured) measured.textContent = `measured ${UiUtils.formatMetric(bed.dropsPerMin, " dpm")}`;
 
     const monitoringOn = bed.monitoring !== false;
+    const calibrating = monitoringOn && bed.alertsArmed === false;
     const monitoringBlock = document.querySelector("#bedDetailPanel .monitoring-block");
-    monitoringBlock?.classList.toggle("is-on", monitoringOn);
+    monitoringBlock?.classList.toggle("is-on", monitoringOn && !calibrating);
     monitoringBlock?.classList.toggle("is-standby", !monitoringOn);
+    monitoringBlock?.classList.toggle("is-calibrating", calibrating);
     const monitoringChip = monitoringBlock?.querySelector(".status-chip");
     if (monitoringChip) {
-      monitoringChip.textContent = monitoringOn ? "MONITORING" : "STANDBY";
-      monitoringChip.style.background = monitoringOn ? "#1ea050" : "#8a97a8";
+      monitoringChip.textContent = calibrating ? "COLLECTING DATA" : (monitoringOn ? "MONITORING" : "STANDBY");
+      monitoringChip.style.background = calibrating ? "#e68a00" : (monitoringOn ? "#1ea050" : "#8a97a8");
     }
     const monitoringDescription = monitoringBlock?.querySelector(".monitoring-state .muted");
     if (monitoringDescription) {
       monitoringDescription.textContent = monitoringOn
-        ? "AI and alarms are running for this bed."
+        ? (calibrating
+          ? "Collecting startup samples. AI alarms remain off until both counters finish."
+          : "AI and alarms are running for this bed.")
         : "Sensors are read and shown, but no AI and no alarms yet.";
     }
+    const dropSamples = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
+    const vitalsSamples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const progress = document.getElementById("monitoringProgress");
+    if (progress) progress.style.display = calibrating ? "" : "none";
+    const dropProgress = document.getElementById("dropTrainingProgress");
+    if (dropProgress) dropProgress.value = dropSamples;
+    const vitalsProgress = document.getElementById("vitalsTrainingProgress");
+    if (vitalsProgress) vitalsProgress.value = vitalsSamples;
+    const dropText = document.getElementById("dropTrainingText");
+    if (dropText) dropText.textContent = `${dropSamples}/20`;
+    const vitalsText = document.getElementById("vitalsTrainingText");
+    if (vitalsText) vitalsText.textContent = `${vitalsSamples}/64`;
     const monitoringBtn = document.getElementById("monitoringBtn");
     if (monitoringBtn) {
       monitoringBtn.textContent = monitoringOn ? "Pause monitoring" : "Start monitoring";
@@ -1339,7 +1532,7 @@ const BedsTab = (() => {
         const bedId = card.getAttribute("data-bed-id");
         const switchingBed = bedId !== selectedBedId;
         selectedBedId = bedId;
-        sessionStorage.setItem("his.selectedBedId", bedId);
+        AppRoute.setBed(bedId);
         if (switchingBed) {
           trendSamples = null;   // never show the previous bed's history
           trendError = null;
@@ -1371,12 +1564,6 @@ const BedsTab = (() => {
   }
 
   function init() {
-    // A stale selection can remain after a bed is deleted while this browser
-    // is closed. Do not let that leave an invisible fullscreen panel behind.
-    if (selectedBedId && !State.beds.has(selectedBedId)) {
-      selectedBedId = null;
-      sessionStorage.removeItem("his.selectedBedId");
-    }
     State.on("beds-changed", handleBedsChanged);
     loadMyBedIds();
 
@@ -1403,14 +1590,14 @@ const BedsTab = (() => {
   /* Opens a bed's full detail view from outside this module (the dashboard
    * cards use it). Kept here rather than duplicated there so the selection,
    * the history fetch and the refresh timer all stay in one place. */
-  function openBed(bedId) {
+  function openBed(bedId, { updateRoute = true } = {}) {
     if (!State.beds.has(bedId)) return;
     if (bedId !== selectedBedId) {
       trendSamples = null;
       trendError = null;
     }
     selectedBedId = bedId;
-    sessionStorage.setItem("his.selectedBedId", bedId);
+    if (updateRoute) AppRoute.setBed(bedId);
     bedFaultReports = [];
     renderDetail();
     loadTrends();
@@ -1418,5 +1605,5 @@ const BedsTab = (() => {
     startTrendRefresh();
   }
 
-  return { init, render, openBed };
+  return { init, render, openBed, closeDetail };
 })();

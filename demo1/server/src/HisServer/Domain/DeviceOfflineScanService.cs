@@ -78,6 +78,18 @@ public sealed class DeviceOfflineScanService : BackgroundService
                         continue;
                     }
 
+                    /* A null LastDataAt is skipped here, and that is the
+                     * OPPOSITE of what the bed scanner does with a bed that has
+                     * never reported - deliberately, and worth stating because
+                     * the asymmetry looks like a bug.
+                     *
+                     * A bed exists because somebody created it, so a bed that
+                     * has never sent anything really is offline. A device row
+                     * gets here only once it has announced or been entered by a
+                     * technician, and the Pending status above already covers
+                     * "known but not reporting yet". Flipping a never-reported
+                     * device to Offline would relabel hardware that is merely
+                     * waiting to be assigned. */
                     if (device.LastDataAt is null || now - device.LastDataAt.Value <= threshold)
                     {
                         continue;
@@ -85,13 +97,20 @@ public sealed class DeviceOfflineScanService : BackgroundService
 
                     try
                     {
+                        /* ChannelsLost describes the last reading that
+                         * arrived, not the silence since. Left set, the Devices
+                         * tab reports a specific sensor fault on a device that
+                         * is simply not there. Cleared in the database and in
+                         * the pushed copy together - clearing only one leaves
+                         * the fault text back on screen after a restart. */
                         await deviceRepository.UpdateHealthAsync(
                             device.DeviceId, DeviceStatus.Offline,
-                            device.LinkQuality, device.ChannelsLost, device.LastDataAt.Value, stoppingToken);
+                            device.LinkQuality, null, device.LastDataAt.Value, stoppingToken);
                         await deviceRepository.AddEventAsync(
                             device.DeviceId, device.AssignedBedId, DeviceEventType.Offline, null, stoppingToken);
 
                         device.Status = DeviceStatus.Offline;
+                        device.ChannelsLost = null;
                         await hub.Clients.Group(MonitoringHub.DeviceGroup).DeviceUpdated(DeviceDto.From(device));
                     }
                     catch (Exception ex)

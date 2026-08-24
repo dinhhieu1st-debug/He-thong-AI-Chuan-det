@@ -37,6 +37,24 @@ public interface IMonitoringClient
     /// all three: the payload carries the status, and the technician's queue
     /// re-renders from it either way.</summary>
     Task FaultReported(FaultReportDto report);
+
+    /// <summary>
+    /// The bed directory changed: a bed was created or removed, a room was
+    /// renamed, or a device was assigned to a different bed.
+    ///
+    /// Carries NO payload on purpose. A directory row is a join across the bed
+    /// store and the devices table (see the /api/beds/directory endpoint), and
+    /// rebuilding that join here would be the same logic in a second place,
+    /// free to drift from the first. The client re-fetches instead - the
+    /// directory changes when an administrator does something, not many times
+    /// a second, so the extra request costs nothing.
+    ///
+    /// Needed because administrators and technicians hold ViewBedDirectory but
+    /// NOT ViewWard, so they are not in WardGroup and BedUpdated never reaches
+    /// them. Before this, renaming a room left every other open directory
+    /// showing the old name until somebody reloaded the page.
+    /// </summary>
+    Task BedDirectoryChanged();
 }
 
 /// <summary>
@@ -58,6 +76,10 @@ public sealed class MonitoringHub : Hub<IMonitoringClient>
 
     /// <summary>Equipment fault reports, seen by whoever raises or handles them.</summary>
     public const string FaultGroup = "faults";
+
+    /// <summary>Bed identifiers and rooms - no vitals, no patient. Held by
+    /// nurses, technicians and administrators alike.</summary>
+    public const string DirectoryGroup = "directory";
 
     private readonly UserRepository users;
 
@@ -83,6 +105,8 @@ public sealed class MonitoringHub : Hub<IMonitoringClient>
                 if (Capabilities.Has(user.Role, Capabilities.HandleFaults)
                     || Capabilities.Has(user.Role, Capabilities.ReportFaults))
                     await Groups.AddToGroupAsync(Context.ConnectionId, FaultGroup);
+                if (Capabilities.Has(user.Role, Capabilities.ViewBedDirectory))
+                    await Groups.AddToGroupAsync(Context.ConnectionId, DirectoryGroup);
             }
         }
 
