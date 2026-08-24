@@ -474,6 +474,40 @@ Console.WriteLine("\n== Firmware update state ==");
           ota.Get("other").InFlight, "InFlight=true");
 }
 
+Console.WriteLine("\n== OTA remainingSeconds decays by wall-clock time, not frozen ==");
+{
+    // A message with no remainingSeconds (common - zigbee2mqtt does not send
+    // a fresh estimate on every progress line) must not make the countdown
+    // look frozen: it should read a lower number than the last real estimate,
+    // by roughly how long has actually passed - not simply re-publish the old
+    // number verbatim (the bug this replaces).
+    var ota = new HisServer.Services.OtaStatusRegistry();
+    const string dev = "bedDecay";
+
+    ota.Update(dev, "updating", 50, 100, null, out _);
+    System.Threading.Thread.Sleep(2100); // real elapsed time, deliberately > 2s
+    var after = ota.Update(dev, "updating", 55, null, null, out _);
+
+    Check("remainingSeconds decayed by roughly the real elapsed time",
+          after.RemainingSeconds is >= 96 and <= 99,
+          $"RemainingSeconds={after.RemainingSeconds} (expected ~97-98, started at 100)");
+
+    // A state change invalidates the old estimate outright - it described a
+    // download that is no longer happening.
+    var failed = ota.Update(dev, "failed", null, null, "INVALID_IMAGE", out _);
+    Check("a state change does not carry the old estimate forward",
+          failed.RemainingSeconds is null, $"RemainingSeconds={failed.RemainingSeconds}");
+
+    // A fresh estimate from the gateway always wins, even if it is HIGHER
+    // than before - the transfer can slow down; this is an estimate, not a
+    // promise, so the registry must not clamp it to be non-increasing.
+    var dev2 = "bedDecaySlowdown";
+    ota.Update(dev2, "updating", 60, 40, null, out _);
+    var slower = ota.Update(dev2, "updating", 61, 55, null, out _);
+    Check("a fresh higher estimate is accepted, not clamped down",
+          slower.RemainingSeconds == 55, $"RemainingSeconds={slower.RemainingSeconds}");
+}
+
 Console.WriteLine(failures == 0
     ? "\nALL CHECKS PASSED  (0 failures)\n"
     : $"\nSOME CHECKS FAILED  ({failures} failures)\n");

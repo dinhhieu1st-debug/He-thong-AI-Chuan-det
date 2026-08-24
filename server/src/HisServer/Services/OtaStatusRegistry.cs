@@ -39,6 +39,7 @@ public sealed class OtaStatusRegistry
                             int? installedVersion = null, int? latestVersion = null)
     {
         var state = OtaStatus.ParseState(rawState);
+        var now = DateTime.UtcNow;
         previousState = statuses.TryGetValue(deviceId, out var existing)
             ? existing.State
             : OtaState.Unknown;
@@ -66,7 +67,7 @@ public sealed class OtaStatusRegistry
         return statuses.AddOrUpdate(
             deviceId,
             _ => new OtaStatus(deviceId, state, progress, remainingSeconds,
-                               message, DateTime.UtcNow),
+                               message, now),
             (_, previous) =>
             {
                 /* Keep the last known percentage when a message arrives without
@@ -79,12 +80,39 @@ public sealed class OtaStatusRegistry
                  * single most alarming thing a progress bar can do while
                  * someone is flashing a bedside monitor. */
                 var keptProgress = progress ?? (state == previous.State ? previous.Progress : null);
-                var keptRemaining = remainingSeconds ?? (state == previous.State ? previous.RemainingSeconds : null);
+
+                /* remainingSeconds needs the same treatment, but simply
+                 * re-publishing the old number verbatim (the previous
+                 * behaviour) makes it look frozen for however long the
+                 * gateway goes without a fresh estimate - and the frontend
+                 * re-anchors its own countdown on every message it receives,
+                 * so a stale number here would make the displayed countdown
+                 * visibly jump BACK UP each time one of those messages
+                 * arrives. Decay it by wall-clock time actually elapsed since
+                 * the previous estimate instead, so every message - fresh
+                 * estimate or not - carries a number that keeps counting
+                 * down. Only while still in the same state: a state change
+                 * (e.g. Updating -> Failed) means the old estimate no longer
+                 * describes anything real. */
+                int? keptRemaining;
+                if (remainingSeconds is not null)
+                {
+                    keptRemaining = Math.Max(0, remainingSeconds.Value);
+                }
+                else if (state == previous.State && previous.RemainingSeconds is not null)
+                {
+                    var elapsedSeconds = Math.Max(0, (int)(now - previous.UpdatedAt).TotalSeconds);
+                    keptRemaining = Math.Max(0, previous.RemainingSeconds.Value - elapsedSeconds);
+                }
+                else
+                {
+                    keptRemaining = null;
+                }
 
                 return new OtaStatus(
                     deviceId, state, keptProgress, keptRemaining,
                     string.IsNullOrWhiteSpace(message) ? previous.Message : message,
-                    DateTime.UtcNow);
+                    now);
             });
     }
 
