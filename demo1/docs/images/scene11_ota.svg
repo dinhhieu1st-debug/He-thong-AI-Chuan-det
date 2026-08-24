@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" font-family="IBM Plex Sans, Arial, sans-serif">
-  <rect width="480" height="300" fill="#eef7f5" stroke="#0f766e" stroke-width="2" stroke-dasharray="8 6" rx="14"/>
-  <g transform="translate(60,20)"><circle cx="60" cy="60" r="26" fill="none" stroke="#0f766e" stroke-width="4"/><circle cx="60" cy="60" r="10" fill="#0f766e"/><rect x="20" y="30" width="80" height="60" rx="10" fill="none" stroke="#0f766e" stroke-width="4"/><rect x="42" y="18" width="20" height="14" rx="3" fill="#0f766e"/></g>
-  <text x="240" y="60" text-anchor="middle" font-size="12" font-weight="700" letter-spacing="1.5" fill="#0f766e">PLACEHOLDER &#183; QUAY THẬT</text>
-  <text x="240" y="150" text-anchor="middle" font-size="19" font-weight="700" fill="#161b1a">Trang OTA (Devices)</text>
-  <foreignObject x="50" y="170" width="380" height="110">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'IBM Plex Sans',Arial,sans-serif;font-size:13px;color:#5b6564;text-align:center;line-height:1.5;">Khối FIRMWARE đang nạp, thanh tiến độ %.</div>
-  </foreignObject>
-</svg>
