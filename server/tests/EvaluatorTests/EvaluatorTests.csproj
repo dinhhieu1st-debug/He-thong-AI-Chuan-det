@@ -9,4 +9,7 @@
   <ItemGroup>
     <None Update="chip_sample.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HisServer/HisServer.csproj" />
+  </ItemGroup>
 </Project>
