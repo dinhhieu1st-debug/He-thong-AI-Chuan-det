@@ -255,6 +255,13 @@ const UiUtils = (() => {
   function buildAlertCauses(bed) {
     const causes = [];
 
+    // Alert levels are verdicts received from the device/server. The UI only
+    // explains those verdicts and never calculates or changes their severity.
+    const vitalsLevel = [1, 2, 3].includes(Number(bed.vitalsLevel)) ? Number(bed.vitalsLevel) : null;
+    const dripLevel = [1, 2, 3].includes(Number(bed.serverDropLevel)) ? Number(bed.serverDropLevel) : null;
+    const patientActive = bed.patientBranch || (vitalsLevel != null && vitalsLevel > 1);
+    const lineActive = bed.lineBranch || (dripLevel != null && dripLevel > 1);
+
     // Once a device reports alertLevel at all (v2 firmware), it has already
     // weighed LineBlocked against the load cell and made its own line
     // verdict - see VitalsStatusEvaluator's deviceJudgedTheLine. Re-reading
@@ -262,46 +269,53 @@ const UiUtils = (() => {
     // "bag running low = blocked line" alarm the load cell exists to remove.
     const deviceJudgedLine = bed.alertLevel != null;
 
-    if (bed.spo2Signal && bed.spo2 != null) {
-      if (bed.spo2 < VITALS_LIMITS.spo2Critical) {
-        causes.push({ type: "patient", severity: "critical", sensor: "MAX30102", channel: "SpO2",
-          reason: "SpO2 below safe threshold", value: `${bed.spo2}%`, threshold: `${VITALS_LIMITS.spo2Critical}%` });
-      } else if (bed.spo2 < VITALS_LIMITS.spo2Warning) {
-        causes.push({ type: "patient", severity: "warning", sensor: "MAX30102", channel: "SpO2",
-          reason: "SpO2 below normal range", value: `${bed.spo2}%`, threshold: `${VITALS_LIMITS.spo2Warning}%` });
-      }
+    if (patientActive && bed.spo2Low && bed.spo2Signal) {
+      causes.push({
+        type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "SpO2",
+        reason: "SpO2 lower than the accepted baseline",
+        value: bed.spo2 != null ? `${bed.spo2}%` : "--"
+      });
     }
 
-    if (bed.heartRateSignal && bed.heartRate != null) {
-      if (bed.heartRate < VITALS_LIMITS.heartRateLow) {
-        causes.push({ type: "patient", severity: "warning", sensor: "MAX30102", channel: "Heart rate",
-          reason: "Heart rate too low", value: `${bed.heartRate} bpm`, threshold: `${VITALS_LIMITS.heartRateLow} bpm` });
-      } else if (bed.heartRate > VITALS_LIMITS.heartRateHigh) {
-        causes.push({ type: "patient", severity: "warning", sensor: "MAX30102", channel: "Heart rate",
-          reason: "Heart rate too high", value: `${bed.heartRate} bpm`, threshold: `${VITALS_LIMITS.heartRateHigh} bpm` });
+    if (patientActive && bed.heartRateAbnormal && bed.heartRateSignal) {
+      let reason = "Heart rate differs from the learned baseline";
+      if (bed.heartRate != null && bed.hrBaselineBpm != null) {
+        if (bed.heartRate > bed.hrBaselineBpm) reason = "Heart rate higher than the learned baseline";
+        else if (bed.heartRate < bed.hrBaselineBpm) reason = "Heart rate lower than the learned baseline";
       }
+      causes.push({
+        type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "Heart rate", reason,
+        value: bed.heartRate != null ? `${bed.heartRate} bpm` : "--",
+        baseline: bed.hrBaselineBpm != null ? `${bed.hrBaselineBpm} bpm` : null
+      });
+    }
+
+    if (patientActive && !bed.spo2Low && !bed.heartRateAbnormal) {
+      causes.push({
+        type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "HR / SpO2",
+        reason: "Vitals differ from the learned baseline", value: "--"
+      });
     }
 
     // Infusion line / drop side. dropsPerMin vs targetDropsPerMin only WRITES
     // "too fast"/"too slow" - it is never what decides this branch fires.
-    if (bed.lineBranch || (bed.lineBlocked && !deviceJudgedLine)) {
+    if (lineActive || (bed.lineBlocked && !deviceJudgedLine)) {
       const measured = bed.dropsPerMin;
       const target = bed.targetDropsPerMin;
       let reason = "Infusion line needs checking";
       if (measured != null && target != null && target > 0 && measured !== target) {
         reason = measured > target ? "Drop rate too fast" : "Drop rate too slow";
       }
-      if (bed.lineState === 2) reason = "Possible line occlusion";
-      else if (bed.lineState === 3) reason = "Free flow — emptying too fast";
+      if (bed.lineState === 2) reason = "Occlusion / blocked tube";
+      else if (bed.lineState === 3) reason = "Free flow / drops dangerously fast";
       else if (bed.lineState === 5) reason = "IV bag empty";
-      else if (bed.lineState === 4) reason = "Drop sensor fault — weight not moving";
+      else if (bed.lineState === 4) reason = "Photodiode drop sensor fault";
       causes.push({
-        type: "line", severity: "warning",
-        sensor: bed.weightG != null ? "Drop sensor + HX711" : "Drop sensor",
+        type: "line", level: dripLevel,
+        sensor: "Photodiode drop sensor",
         channel: "Drop rate", reason,
         value: measured != null ? `${measured} dpm` : "--",
-        target: target != null ? `${target} dpm` : "--",
-        weight: bed.weightG != null ? `${bed.weightG} g` : null
+        target: target != null ? `${target} dpm` : "--"
       });
     }
 
@@ -348,9 +362,9 @@ const UiUtils = (() => {
     SPO2_LOW: { source: "Patient vitals", sensor: "MAX30102", channel: "SpO2" },
     HEART_RATE_ABNORMAL: { source: "Patient vitals", sensor: "MAX30102", channel: "Heart rate" },
     PATIENT_DETERIORATING: { source: "Patient vitals", sensor: "MAX30102", channel: "HR + SpO2" },
-    LINE_FAULT: { source: "Infusion line", sensor: "Drop sensor + HX711", channel: "Drop rate" },
-    LINE_BLOCKED: { source: "Infusion line", sensor: "Drop sensor", channel: "Drop rate" },
-    FLUID_OVERLOAD_SUSPECTED: { source: "Infusion line + Patient vitals", sensor: "Drop sensor + MAX30102", channel: "Combined" },
+    LINE_FAULT: { source: "Infusion line", sensor: "Photodiode drop sensor", channel: "Drop rate" },
+    LINE_BLOCKED: { source: "Infusion line", sensor: "Photodiode drop sensor", channel: "Drop rate" },
+    FLUID_OVERLOAD_SUSPECTED: { source: "Infusion line + Patient vitals", sensor: "Photodiode + MAX30102", channel: "Combined" },
     AE_ALARM: { source: "AI model", sensor: "AI (autoencoder)", channel: "HR + SpO2 combination" },
     DRIP_MODEL_ANOMALY: { source: "AI model", sensor: "AI (drip forecaster)", channel: "Drop rate" },
     VITALS_MODEL_ANOMALY: { source: "AI model", sensor: "AI (vitals forecaster)", channel: "HR/SpO2 trend" },

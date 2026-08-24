@@ -479,13 +479,14 @@ const BedsTab = (() => {
     let detail = "";
     if (cause.type === "line") {
       detail = ` — ${cause.value}${cause.target && cause.target !== "--" ? ` / target ${cause.target}` : ""}`;
-      if (cause.weight) detail += ` · bag ${cause.weight}`;
     } else if (cause.threshold) {
       detail = ` — ${cause.value} (limit ${cause.threshold})`;
     } else if (cause.value && cause.value !== "--") {
       detail = ` — ${cause.value}`;
     }
-    return `<li><b>${UiUtils.escapeHtml(cause.sensor)}</b> · ${UiUtils.escapeHtml(cause.channel)}: ${UiUtils.escapeHtml(cause.reason)}${detail}</li>`;
+    if (cause.baseline) detail += ` · baseline ${cause.baseline}`;
+    const level = cause.level != null ? `Level ${cause.level} · ` : "";
+    return `<li><b>${level}${UiUtils.escapeHtml(cause.sensor)}</b> · ${UiUtils.escapeHtml(cause.channel)}: ${UiUtils.escapeHtml(cause.reason)}${detail}</li>`;
   }
 
   function activeAlertCardHtml(bed, causes) {
