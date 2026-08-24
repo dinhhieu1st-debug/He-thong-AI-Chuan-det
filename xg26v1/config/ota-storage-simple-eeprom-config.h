@@ -31,7 +31,11 @@
 // <USE_SPECIFIC_SLOT=> Use specific slot
 // <i> Default: DO_NOT_USE_SLOTS
 // <i> This option dictates the method for saving OTA images to slots. This is only applicable if a Gecko storage bootloader is running on the chip. The Slot Manager plugin must be selected in order for slots to be used. If a Gecko storage bootloader is not present on the chip, the offsets entered below will be used. If "Do not use slots" is selected, then the offsets entered below will be used to determine where to save the image. This is not recommended, as using set offsets to addresses with a Gecko storage bootloader requires knowledge of storage slot addresses and boundaries. A mismatch in addresses will cause OTA to not work.
-#define SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_GECKO_BOOTLOADER_STORAGE_SUPPORT   DO_NOT_USE_SLOTS
+// The slot_manager component is now included in the project (see .slcp), so
+// GBL post-download verification (SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_POLICY_GBL_VERIFICATION
+// in ota-client-policy-config.h) actually calls sl_util_af_slot_manager_image_is_valid()
+// instead of unconditionally failing (see ota-client-policy.c slotManagerContinueImageValidation()).
+#define SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_GECKO_BOOTLOADER_STORAGE_SUPPORT   USE_FIRST_SLOT
 
 // <o SL_ZIGBEE_AF_PLUGIN_OTA_STORAGE_SIMPLE_EEPROM_SLOT_TO_USE> Storage Slot To Save Images To <0-255>
 // <i> Default: 0

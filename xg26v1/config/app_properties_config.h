@@ -32,6 +32,15 @@
 #define APP_PROPERTIES_CONFIG_H
 
 #include "sl_application_type.h"
+// Single source for the app version: the OTA client policy's firmware
+// version is what the ZCL OTA header and the running client actually use to
+// decide upgrades. Before this, SL_APPLICATION_VERSION stayed at its
+// generated default (1) in every build regardless of OTA fileVersion - not a
+// cause of the INVALID_IMAGE failure (bootloader GBL verification does not
+// read this field; see ota-client-policy.c slotManagerContinueImageValidation()),
+// but a real, avoidable inconsistency if this project ever adds GBL
+// application-version dependencies (commander gbl create --dep-app).
+#include "ota-client-policy-config.h"
 
 // <<< Use Configuration Wizard in Context Menu >>>
 
@@ -51,7 +60,7 @@
 // <o SL_APPLICATION_VERSION> Version number for this application
 // <0-4294967295:1>
 // <i> Default: 1 [0-4294967295]
-#define SL_APPLICATION_VERSION                 1
+#define SL_APPLICATION_VERSION                 SL_ZIGBEE_AF_PLUGIN_OTA_CLIENT_POLICY_FIRMWARE_VERSION
 
 // Capabilities of this application
 // Default: 0

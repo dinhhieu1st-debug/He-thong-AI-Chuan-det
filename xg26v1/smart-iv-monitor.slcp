@@ -169,6 +169,9 @@ autoselected_components:
   id: bootloader_interface_s2
 - package: simplicity_sdk
   vendor: silabs
+  id: slot_manager
+- package: simplicity_sdk
+  vendor: silabs
   id: brd2709a_config
 - package: simplicity_sdk
   vendor: silabs
