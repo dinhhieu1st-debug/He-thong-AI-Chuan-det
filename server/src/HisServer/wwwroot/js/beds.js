@@ -736,8 +736,8 @@ const BedsTab = (() => {
    * read as a patient with no pulse. */
   function vitalsTestHtml(bed) {
     const mode = bed.vitalsTestMode;
-    const label = mode === 2 ? "Fake HR L2"
-                : mode === 3 ? "Fake HR+O2 L3"
+    const label = mode === 2 ? "Test HR L2"
+                : mode === 3 ? "Test HR+O2 L3"
                 : mode === 0 ? "Real data"
                 : "unknown";
     const active = mode === 2 || mode === 3;
@@ -753,6 +753,18 @@ const BedsTab = (() => {
       </div>
       <div class="status-line status-line-muted">Real HR / SpO2: <b>${real}</b></div>
       <div class="status-line status-line-muted">AI test HR / SpO2: <b>${aiInput}</b></div>`;
+  }
+
+  function vitalsTestButtonClass(buttonMode, currentMode) {
+    if (buttonMode !== currentMode) return "btn";
+    return `btn vitals-test-selected vitals-test-level-${buttonMode === 0 ? 1 : buttonMode}`;
+  }
+
+  function updateVitalsTestButtonState(mode) {
+    document.querySelectorAll("[data-test-mode]").forEach((btn) => {
+      const buttonMode = Number(btn.getAttribute("data-test-mode"));
+      btn.className = vitalsTestButtonClass(buttonMode, mode);
+    });
   }
 
   function settingsSectionHtml(bed) {
@@ -782,9 +794,9 @@ const BedsTab = (() => {
           <label>Vitals test mode</label>
           <div id="vitalsTestState">${vitalsTestHtml(bed)}</div>
           <div class="inline-form" style="margin-top:8px;">
-            <button type="button" class="btn" data-test-mode="0">Real data</button>
-            <button type="button" class="btn" data-test-mode="2">Fake HR L2</button>
-            <button type="button" class="btn" data-test-mode="3">Fake HR+O2 L3</button>
+            <button type="button" class="${vitalsTestButtonClass(0, bed.vitalsTestMode)}" data-test-mode="0">Real data</button>
+            <button type="button" class="${vitalsTestButtonClass(2, bed.vitalsTestMode)}" data-test-mode="2">Test HR L2</button>
+            <button type="button" class="${vitalsTestButtonClass(3, bed.vitalsTestMode)}" data-test-mode="3">Test HR+O2 L3</button>
           </div>
         </div>
 
@@ -884,10 +896,13 @@ const BedsTab = (() => {
     document.querySelectorAll("[data-test-mode]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const mode = Number(btn.getAttribute("data-test-mode"));
+        updateVitalsTestButtonState(mode);
         try {
           await Api.setVitalsTestMode(bed.bedId, mode);
           UiUtils.toast(`${bed.bedId}: test mode requested - watch "AI test HR / SpO2" to confirm the chip applied it`);
         } catch (err) {
+          const latest = State.beds.get(bed.bedId) || bed;
+          updateVitalsTestButtonState(latest.vitalsTestMode);
           UiUtils.toast(`${bed.bedId}: could not change test mode (${err.message})`, true);
         }
       });
@@ -1440,6 +1455,7 @@ const BedsTab = (() => {
      * never repaints it would show the moment before the command every time. */
     const vitalsTest = document.getElementById("vitalsTestState");
     if (vitalsTest) vitalsTest.innerHTML = vitalsTestHtml(bed);
+    updateVitalsTestButtonState(bed.vitalsTestMode);
     const target = document.getElementById("targetDropsCurrent");
     if (target) target.textContent = UiUtils.formatMetric(bed.targetDropsPerMin, " dpm");
     const measured = document.getElementById("targetDropsMeasured");
