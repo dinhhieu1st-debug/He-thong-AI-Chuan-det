@@ -221,7 +221,7 @@ const UiUtils = (() => {
   }
 
   /* Clinical limits mirrored from the server's VitalsStatusEvaluator
-   * (server/src/HisServer/Domain/VitalsStatusEvaluator.cs). The server has
+   * (software/server/src/HisServer/Domain/VitalsStatusEvaluator.cs). The server has
    * already decided WARNING/CRITICAL by the time any of this runs - these
    * numbers are used only to WRITE the reason text for a cause the server
    * already flagged (via patientBranch/lineBranch/alertLevel/etc.), never to

@@ -3,7 +3,7 @@
 // Deliberately a plain console program rather than an xUnit project: it needs no
 // NuGet restore, so it runs on a machine with no network - including the Pi.
 //
-//   dotnet run --project server/tests/EvaluatorTests
+//   dotnet run --project software/server/tests/EvaluatorTests
 //
 // The cases below are the ones AI v2 changed. They exist because the difference
 // between "the line is blocked" and "the patient is deteriorating" is the whole
