@@ -195,12 +195,15 @@ const fzSmartIv = {
                 result.drops_forecast_trusted = (ts & TS_BIT_DROPS_TRUSTED) !== 0;
 
                 // TsFlags stores the physical LED enum (green/yellow/red =
-                // 0/1/2). HIS uses the same 1/2/3 level shown on the OLED.
+                // 0/1/2). Severity and fault branch are separate contracts:
+                // final_alert_level is 1/2/3, while alert_level is the branch
+                // bitmap expected by HIS (0 normal, 1 line, 2 patient, 3 both).
                 const physicalLevel = (ts >> TS_ALERT_LEVEL_SHIFT) & 0x3;
-                result.alert_level = physicalLevel;
                 result.final_alert_level = Math.min(physicalLevel + 1, 3);
                 result.line_branch = (ts & TS_BIT_LINE_BRANCH) !== 0;
                 result.patient_branch = (ts & TS_BIT_PATIENT_BRANCH) !== 0;
+                result.alert_level = (result.line_branch ? 1 : 0)
+                    | (result.patient_branch ? 2 : 0);
 
                 const lineState = (ts >> TS_LINE_STATE_SHIFT) & 0x7;
                 result.line_state = lineState === 0 ? null : lineState - 1;

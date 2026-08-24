@@ -108,7 +108,13 @@ void hx711_sensor_poll(void)
 
   if ((ms - last_report_ms) >= HX711_REPORT_PERIOD_MS) {
     int32_t delta = raw - tare_offset;
+    /* A load cell's electrical polarity depends on its mechanical mounting
+     * and A+/A- wiring. Mass has no sign: accepting only one polarity made a
+     * correctly hung bag read as zero on installations mounted the other way
+     * round. Tare remains the zero reference, so removing the bag still
+     * returns to zero. */
     weight_kg = (float)delta / HX711_CALIBRATION_FACTOR;
+    if (weight_kg < 0.0f) { weight_kg = -weight_kg; }
     if (weight_kg > -0.015f && weight_kg < 0.015f) { weight_kg = 0.0f; }
     last_report_ms = ms;
     printf("[HX711] sample=%lu raw=%ld delta=%ld DOUT=LOW\r\n",

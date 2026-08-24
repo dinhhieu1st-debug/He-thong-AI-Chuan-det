@@ -25,14 +25,22 @@ public sealed class DeviceRepository
 
     public async Task<DeviceRecord?> GetAsync(string deviceId, CancellationToken cancellationToken = default)
     {
+        var canonicalDeviceId = CanonicalDeviceId(deviceId);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync(
             "SELECT device_id, device_type, assigned_bed_id, room, status, battery_percent, rssi, eui64, last_seen_at, " +
             "link_quality, channels_lost, last_data_at " +
-            "FROM devices WHERE device_id = @deviceId",
-            new { deviceId });
+            "FROM devices WHERE LOWER(REPLACE(device_id, '0x', '')) = @canonicalDeviceId " +
+            "LIMIT 1",
+            new { canonicalDeviceId });
 
         return row is null ? null : MapRow(row);
+    }
+
+    private static string CanonicalDeviceId(string deviceId)
+    {
+        var value = deviceId.Trim().ToLowerInvariant();
+        return value.StartsWith("0x", StringComparison.Ordinal) ? value[2..] : value;
     }
 
     public async Task UpsertAsync(DeviceRecord device, CancellationToken cancellationToken = default)

@@ -157,6 +157,15 @@ static int16_t spo2_filter_history[VITALS_FILTER_WINDOW];
 static uint8_t heart_filter_count;
 static uint8_t spo2_filter_count;
 
+#define DROP_FORECAST_WINDOW 20U
+static float drop_rate_history[DROP_FORECAST_WINDOW];
+static uint32_t drop_time_history[DROP_FORECAST_WINDOW];
+static uint8_t drop_forecast_count;
+static uint8_t drop_forecast_head;
+static float drops_forecast_16s;
+static float drops_trend_dpm_per_min;
+static bool drops_forecast_trusted;
+
 #define ZB_REPORT_MAX_INTERVAL_S 60U
 
 typedef struct {
@@ -243,6 +252,13 @@ static void configure_zigbee_reporting(void)
     { ATTR_SPO2_FORECAST_16S,     5U,  1U },
     { ATTR_HR_TREND_BPM_PER_MIN,  5U,  5U },
     { ATTR_TS_ANOMALY_SCORE_X100, 5U, 50U },
+    { ATTR_DROPS_FORECAST_16S,    5U,  1U },
+    { ATTR_DROPS_TREND_DPM_MIN,   5U,  1U },
+    { ATTR_REMAINING_ML,         10U,  5U },
+    { ATTR_REMAINING_MIN,        10U,  1U },
+    { ATTR_DROP_INTERVAL_MS,      1U,  1U },
+    { ATTR_DROP_EVENT_COUNT,      1U,  1U },
+    { ATTR_SERVER_DROP_LEVEL,     1U,  1U },
   };
 
   for (uint8_t i = 0U; i < (uint8_t)(sizeof(configs) / sizeof(configs[0])); i++) {
@@ -287,6 +303,73 @@ static uint8_t evaluate_physical_drip_level(uint32_t target_ms, uint32_t actual_
   if (difference > 800U) { return 3U; }
   if (difference > 200U) { return 2U; }
   return 1U;
+}
+
+static void reset_drop_forecast(void)
+{
+  memset(drop_rate_history, 0, sizeof(drop_rate_history));
+  memset(drop_time_history, 0, sizeof(drop_time_history));
+  drop_forecast_count = 0U;
+  drop_forecast_head = 0U;
+  drops_forecast_16s = 0.0f;
+  drops_trend_dpm_per_min = 0.0f;
+  drops_forecast_trusted = false;
+}
+
+/* Lightweight on-chip time-series forecast over the same 20 physical drops
+ * used by drip training. Least-squares is intentionally bounded and only
+ * trusted after the complete window; isolated invalid pulses are already
+ * rejected by drop_sensor before reaching this function. */
+static void update_drop_forecast(uint32_t sample_ms, uint32_t interval_ms)
+{
+  if (interval_ms == 0U) { return; }
+  float rate = 60000.0f / (float)interval_ms;
+  drop_rate_history[drop_forecast_head] = rate;
+  drop_time_history[drop_forecast_head] = sample_ms;
+  drop_forecast_head = (uint8_t)((drop_forecast_head + 1U) % DROP_FORECAST_WINDOW);
+  if (drop_forecast_count < DROP_FORECAST_WINDOW) { drop_forecast_count++; }
+  if (drop_forecast_count < DROP_FORECAST_WINDOW) {
+    drops_forecast_trusted = false;
+    return;
+  }
+
+  uint8_t oldest = drop_forecast_head;
+  uint32_t origin = drop_time_history[oldest];
+  float sum_x = 0.0f, sum_y = 0.0f, sum_xx = 0.0f, sum_xy = 0.0f;
+  for (uint8_t i = 0U; i < DROP_FORECAST_WINDOW; i++) {
+    uint8_t index = (uint8_t)((oldest + i) % DROP_FORECAST_WINDOW);
+    float x = (float)(drop_time_history[index] - origin) / 1000.0f;
+    float y = drop_rate_history[index];
+    sum_x += x; sum_y += y; sum_xx += x * x; sum_xy += x * y;
+  }
+  const float n = (float)DROP_FORECAST_WINDOW;
+  float denominator = n * sum_xx - sum_x * sum_x;
+  float slope_per_second = absolute_float(denominator) > 0.001f
+                           ? (n * sum_xy - sum_x * sum_y) / denominator : 0.0f;
+  /* Reject implausible regression slopes caused by timestamp wrap/noise. */
+  if (slope_per_second > 2.0f) { slope_per_second = 2.0f; }
+  if (slope_per_second < -2.0f) { slope_per_second = -2.0f; }
+  float latest = drop_rate_history[(drop_forecast_head + DROP_FORECAST_WINDOW - 1U)
+                                   % DROP_FORECAST_WINDOW];
+  drops_trend_dpm_per_min = slope_per_second * 60.0f;
+  drops_forecast_16s = latest + slope_per_second * 16.0f;
+  if (drops_forecast_16s < 0.0f) { drops_forecast_16s = 0.0f; }
+  if (drops_forecast_16s > 240.0f) { drops_forecast_16s = 240.0f; }
+  drops_forecast_trusted = physical_drip_level == 1U;
+}
+
+/* Wire value is state+1 because zero is reserved for "not available". */
+static uint8_t encoded_line_state(float weight_kg, float drops_per_minute)
+{
+  if (!hx711_sensor_connected() || !hx711_sensor_tared()) { return 0U; }
+  float grams = weight_kg * 1000.0f;
+  if (grams <= 20.0f) { return 6U; } /* empty */
+  if (!drop_sensor_calibrated()) { return 5U; } /* drop sensor fault */
+  if (drop_timeout_sent) { return 3U; } /* occlusion / no new drop */
+  if (target_drops_per_min > 0U
+      && drops_per_minute > (float)target_drops_per_min * 1.5f) { return 4U; }
+  if (grams <= 100.0f) { return 2U; } /* running low */
+  return 1U; /* OK */
 }
 
 /* Feeds one freshly-measured drop interval into the firmware's own drip
@@ -434,6 +517,8 @@ static void publish_zigbee_attributes(int16_t current_hr,
                      ? clamp_i16((vitals_ai.hr_forecast_16s - (float)current_hr) * 3.75f)
                      : 0;
   uint16_t hr_trend_code = hr_trend > 1 ? 1U : (hr_trend < -1 ? 2U : 0U);
+  uint16_t drops_trend_code = drops_trend_dpm_per_min > 1.0f ? 1U
+                              : (drops_trend_dpm_per_min < -1.0f ? 2U : 0U);
   bool early_warning = current_vitals_valid && vitals_ai.history_ready
                        && (vitals_ai.hr_forecast_16s < 60.0f
                            || vitals_ai.hr_forecast_16s > 110.0f
@@ -442,7 +527,9 @@ static void publish_zigbee_attributes(int16_t current_hr,
   if (alerts_armed && vitals_ai.ai_anomaly) { ts_flags |= 0x0002U; }
   if (alerts_armed && early_warning) { ts_flags |= 0x0004U; }
   ts_flags |= (uint16_t)(hr_trend_code << 3);
+  ts_flags |= (uint16_t)(drops_trend_code << 5);
   if (current_vitals_valid && vitals_ai.history_ready) { ts_flags |= 0x0080U; }
+  if (drops_forecast_trusted) { ts_flags |= 0x0100U; }
   /* Keep the physical 0/1/2 enum on the existing wire bits. The converter
    * publishes a separate final_alert_level=1/2/3, so legacy consumers keep
    * working while the server receives the exact main-branch severity. */
@@ -451,11 +538,21 @@ static void publish_zigbee_attributes(int16_t current_hr,
     if (drip_level > 1U) { ts_flags |= 0x0800U; }
     if (vitals_ai.level > 1U) { ts_flags |= 0x1000U; }
   }
+  ts_flags |= (uint16_t)((uint16_t)encoded_line_state(current_weight_kg,
+                                                       current_drops_per_minute) << 13);
   uint16_t weight_g = current_weight_kg > 0.0f
                       ? clamp_u16(current_weight_kg * 1000.0f) : 0U;
   uint16_t drops_per_min = clamp_u16(current_drops_per_minute);
-  uint16_t unavailable = UINT16_MAX;
-  int16_t no_drop_trend = 0;
+  uint16_t drop_forecast = drops_forecast_trusted
+                           ? clamp_u16(drops_forecast_16s) : UINT16_MAX;
+  int16_t drop_trend = drop_forecast_count >= DROP_FORECAST_WINDOW
+                       ? clamp_i16(drops_trend_dpm_per_min) : 0;
+  bool weight_valid = hx711_sensor_connected() && hx711_sensor_tared();
+  uint16_t remaining_ml = weight_valid ? clamp_u16(current_weight_kg * 1000.0f)
+                                        : UINT16_MAX;
+  uint16_t remaining_min = weight_valid && target_flow_ml_h > 0U
+                           ? clamp_u16((float)remaining_ml * 60.0f
+                                       / (float)target_flow_ml_h) : UINT16_MAX;
 
   /* Publish the alarm gate before any clinical value. Zigbee reports may be
    * delivered one attribute at a time; consumers must learn that alarms are
@@ -504,11 +601,11 @@ static void publish_zigbee_attributes(int16_t current_hr,
   write_zcl_u16(ATTR_SPO2_FORECAST_16S, spo2_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
   write_zcl_i16(ATTR_HR_TREND_BPM_PER_MIN, hr_trend);
   write_zcl_u16(ATTR_TS_ANOMALY_SCORE_X100,
-                vitals_ai.ai_anomaly ? 100U : 0U, ZCL_INT16U_ATTRIBUTE_TYPE);
-  write_zcl_u16(ATTR_DROPS_FORECAST_16S, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
-  write_zcl_i16(ATTR_DROPS_TREND_DPM_MIN, no_drop_trend);
-  write_zcl_u16(ATTR_REMAINING_ML, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
-  write_zcl_u16(ATTR_REMAINING_MIN, unavailable, ZCL_INT16U_ATTRIBUTE_TYPE);
+                clamp_u16(vitals_ai.anomaly_score_x100), ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_DROPS_FORECAST_16S, drop_forecast, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_i16(ATTR_DROPS_TREND_DPM_MIN, drop_trend);
+  write_zcl_u16(ATTR_REMAINING_ML, remaining_ml, ZCL_INT16U_ATTRIBUTE_TYPE);
+  write_zcl_u16(ATTR_REMAINING_MIN, remaining_min, ZCL_INT16U_ATTRIBUTE_TYPE);
   tare_just_completed = false;
   hr_baseline_just_completed = false;
 }
@@ -637,6 +734,7 @@ static void reset_monitoring_training(void)
   previous_baseline_samples = 0U;
   drop_sensor_set_min_gap_ms(target_interval_ms / 3U);
   drop_sensor_reset_statistics();
+  reset_drop_forecast();
   last_sent_drop_count = 0U;
   drop_training_samples = 0U;
   alerts_armed = false;
@@ -653,6 +751,7 @@ static void reset_monitoring_training(void)
 static void reset_drop_training_for_target(void)
 {
   drop_sensor_reset_statistics();
+  reset_drop_forecast();
   last_sent_drop_count = 0U;
   drop_training_samples = 0U;
   drop_timeout_sent = false;
@@ -699,6 +798,7 @@ static void start_initial_tare(uint32_t now)
   fake_vitals_level = 0U;
   drop_sensor_set_min_gap_ms(200U);
   drop_sensor_reset_statistics();
+  reset_drop_forecast();
   hx711_sensor_tare();
   tare_just_completed = false;
   all_alerts_off();
@@ -936,9 +1036,16 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
   if (attribute_id == ATTR_SERVER_DROP_LEVEL) {
     uint8_t next = *value;
     if (system_state == SYSTEM_MONITORING && next >= 1U && next <= 3U) {
-      drip_level = next;
+      /* A server/AI verdict may escalate the physical safety verdict, never
+       * clear it. Otherwise a delayed level-1 write can turn the LED green
+       * while the local watchdog is still reporting a blocked line. */
+      ai_drip_level = next;
+      drip_level = physical_drip_level > ai_drip_level
+                   ? physical_drip_level : ai_drip_level;
       if (alerts_armed) { update_final_alert(); }
-      printf("[ZB] Server drip decision level=%u.\r\n", (unsigned)next);
+      printf("[ZB] Server drip decision=%u, physical=%u, effective=%u.\r\n",
+             (unsigned)next, (unsigned)physical_drip_level,
+             (unsigned)drip_level);
     }
     return;
   }
@@ -1080,6 +1187,7 @@ static void send_new_drop_to_ai(void)
   drop_training_samples = (uint8_t)(intervals < DROP_TRAINING_REQUIRED
                           ? intervals : DROP_TRAINING_REQUIRED);
   update_physical_drip_level(actual_ms);
+  update_drop_forecast(now_ms(), actual_ms);
   if (alerts_armed) { update_final_alert(); }
   printf("%lu,%lu,%lu,%lu\r\n", (unsigned long)now_ms(), (unsigned long)count,
          (unsigned long)target_interval_ms, (unsigned long)actual_ms);

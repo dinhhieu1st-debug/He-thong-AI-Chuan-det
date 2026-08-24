@@ -326,13 +326,15 @@ extern "C" void vitals_ai_step(int16_t heart_rate, int16_t spo2, bool valid,
   const bool relative_attention = s_baseline_count >= 60 && relative_vitals >= 0.15f;
   const bool relative_warning = s_baseline_count >= 60 && relative_vitals >= 0.20f;
   bool forecast_flag = false;
+  float forecast_score = 0.0f;
 
   if (result->history_ready && s_forecaster.ready) {
     if (s_prediction_valid) {
       const float hr_error = fabsf(s_next_prediction[0] - norm_hr(hr));
       const float spo2_error = fabsf(s_next_prediction[1] - norm_spo2(oxygen));
-      forecast_flag = (hr_error > spo2_error ? hr_error : spo2_error)
-                      > kVitalsResidualThreshold;
+      const float forecast_error = hr_error > spo2_error ? hr_error : spo2_error;
+      forecast_score = forecast_error / kVitalsResidualThreshold * 100.0f;
+      forecast_flag = forecast_error > kVitalsResidualThreshold;
     }
     float ordered[kWindow * 2];
     for (int t = 0; t < kWindow; ++t) {
@@ -357,11 +359,15 @@ extern "C" void vitals_ai_step(int16_t heart_rate, int16_t spo2, bool valid,
   const bool ae_flag = s_baseline_count >= 60 && s_autoencoder.ready
                        && run_autoencoder(ae_input, ae_error)
                        && ae_error > kAeThreshold;
+  const float ae_score = s_baseline_count >= 60 && s_autoencoder.ready
+                         ? ae_error / kAeThreshold * 100.0f : 0.0f;
   const bool ai_anomaly = persisted(s_forecast_persist, forecast_flag)
                           || persisted(s_ae_persist, ae_flag);
 
   result->hard_limit = hard_limit;
   result->ai_anomaly = ai_anomaly;
+  result->anomaly_score_x100 = forecast_score > ae_score
+                               ? forecast_score : ae_score;
   if (hard_limit || relative_warning) result->level = 3;
   else if (relative_attention || ai_anomaly) result->level = 2;
 }
