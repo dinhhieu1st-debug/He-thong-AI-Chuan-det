@@ -443,11 +443,11 @@ const BedsTab = (() => {
    * the chip) - the same counter the Monitoring block's "HR+SpO2: n/64" progress
    * bar already uses, so the two never disagree.
    *
-   * SpO2 is always shown as "--": the firmware reports a learned HR baseline
-   * over Zigbee (ATTR_HR_BASELINE_BPM) but has no equivalent attribute for the
-   * SpO2 baseline it computes internally (vitals_ai.spo2_baseline never leaves
-   * the chip). Showing anything else here - the current SpO2, or the 16s
-   * forecast - would be a fabricated baseline, which is worse than "--". */
+   * The current wire protocol has no dedicated SpO2-baseline attribute. After
+   * training is ready, show the filtered SpO2 sample actually supplied to the
+   * on-chip AI (aiInputSpo2). Older firmware does not report that field, so use
+   * the live value only while its sensor-valid flag is true. Never use the 16 s
+   * forecast: a prediction is not an observed SpO2 reference value. */
   function baselineTileHtml(value, unit, label, ready, note) {
     return `
       <div class="bd-vital${ready ? "" : " is-lost"}">
@@ -459,12 +459,18 @@ const BedsTab = (() => {
   function aiBaselineCardHtml(bed) {
     const samples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
     const ready = samples >= 64;
+    const aiSpo2 = bed.aiInputSpo2 != null
+      ? Number(bed.aiInputSpo2)
+      : (bed.spo2Signal && bed.spo2 != null ? Number(bed.spo2) : null);
+    const hasAiSpo2 = Number.isFinite(aiSpo2) && aiSpo2 > 0 && aiSpo2 <= 100;
 
     const hrTile = ready
       ? baselineTileHtml(bed.hrBaselineBpm != null ? String(bed.hrBaselineBpm) : "--", " bpm", "Heart rate", true)
       : baselineTileHtml("Learning…", "", "Heart rate", false);
     const spo2Tile = ready
-      ? baselineTileHtml("--", "", "SpO2", false, "not reported by firmware")
+      ? (hasAiSpo2
+          ? baselineTileHtml(String(Math.round(aiSpo2)), " %", "SpO2 AI input", true)
+          : baselineTileHtml("--", "", "SpO2", false, "no valid signal"))
       : baselineTileHtml("Learning…", "", "SpO2", false);
 
     return `
