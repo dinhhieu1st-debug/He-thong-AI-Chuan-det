@@ -102,6 +102,14 @@ G26 **không gửi JSON trực tiếp**. Firmware ghi dữ liệu vào ZCL Attri
 
 Converter tại `demo1/gateway/zigbee2mqtt_smart_iv_converter.js` đổi các attribute thành MQTT JSON. Gateway chuyển JSON này tới server và chuyển lệnh từ server về lại đúng attribute trên endpoint 2.
 
+Các trường forecast/remaining không còn là placeholder: firmware dùng cửa sổ
+20 khoảng giọt để tính xu hướng tuyến tính và dự báo tốc độ sau 16 giây.
+`RemainingMl` lấy khối lượng sau trừ bì, trừ 20 g bao bì rỗng và quy đổi gần
+đúng 1 g/mL; `RemainingMin` dùng tốc độ đo hiện tại quy đổi theo cặp mục tiêu
+dpm/ml-h. Đây là số hỗ trợ theo dõi, không thay thế kiểm tra trực tiếp của y tá.
+Mọi attribute telemetry, kể cả `0x0014..0x0017` và `0x001C..0x001E`, đều được
+cấu hình report tối đa mỗi 60 giây và report sớm khi giá trị thay đổi.
+
 ## 5. Trình tự hoạt động
 
 1. G26 khởi động và trừ bì loadcell trong 10 giây. Không treo bịch ở bước này.
@@ -473,5 +481,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
 dotnet build .\demo1\server\HisServer.sln
 dotnet run --project .\demo1\server\tests\EvaluatorTests\EvaluatorTests.csproj
 ```
+
+Khi server mới khởi động, `SmartIvTelemetrySchemaMigrator` tự bổ sung các cột
+forecast, trạng thái đường truyền, lượng dịch còn lại và mức cảnh báo vào bảng
+`vital_samples`. Tài khoản MySQL phải có quyền `ALTER` trong lần chạy đầu sau
+bản cập nhật; các lần chạy sau chỉ kiểm tra schema và không sửa lại dữ liệu cũ.
 
 Tài liệu sâu hơn nằm trong `firmware/PIN_MAP.md`, `gateway-pi/README.md`, `demo1/server/README.md`, `SYSTEM_INTEGRATION.md` và `host_ai/README.md`.

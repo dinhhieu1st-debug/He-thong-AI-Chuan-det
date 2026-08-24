@@ -39,11 +39,21 @@ public sealed class VitalSampleRepository
             INSERT INTO vital_samples
               (bed_id, device_id, spo2, heart_rate, drip_rate, flow_rate,
                weight_g, drops_per_min, target_flow_ml_h, target_drops_per_min,
-               line_blocked, ae_alarm, status, recorded_at)
+               line_blocked, ae_alarm, status, recorded_at,
+               hr_forecast_16s, spo2_forecast_16s, hr_trend_bpm_per_min,
+               ts_anomaly_score_x100, drops_forecast_16s, drops_trend_dpm_per_min,
+               drops_forecast_trusted, line_state, remaining_ml, remaining_min,
+               drop_interval_ms, drop_event_count, server_drop_level, vitals_level,
+               alert_level, vitals_test_mode, ai_input_heart_rate, ai_input_spo2)
             VALUES
               (@bedId, @deviceId, @spo2, @heartRate, @dripRate, @flowRate,
                @weightG, @dropsPerMin, @targetFlowMlH, @targetDropsPerMin,
-               @lineBlocked, @aeAlarm, @status, @recordedAt)
+               @lineBlocked, @aeAlarm, @status, @recordedAt,
+               @hrForecast16s, @spo2Forecast16s, @hrTrendBpmPerMin,
+               @tsAnomalyScoreX100, @dropsForecast16s, @dropsTrendDpmPerMin,
+               @dropsForecastTrusted, @lineState, @remainingMl, @remainingMin,
+               @dropIntervalMs, @dropEventCount, @serverDropLevel, @vitalsLevel,
+               @alertLevel, @vitalsTestMode, @aiInputHeartRate, @aiInputSpo2)
             """,
             new
             {
@@ -60,7 +70,25 @@ public sealed class VitalSampleRepository
                 lineBlocked = reading.LineBlocked,
                 aeAlarm = reading.AeAlarm,
                 status = status.ToString().ToUpperInvariant(),
-                recordedAt = reading.ReceivedAt
+                recordedAt = reading.ReceivedAt,
+                reading.HrForecast16s,
+                reading.Spo2Forecast16s,
+                reading.HrTrendBpmPerMin,
+                reading.TsAnomalyScoreX100,
+                reading.DropsForecast16s,
+                reading.DropsTrendDpmPerMin,
+                reading.DropsForecastTrusted,
+                reading.LineState,
+                reading.RemainingMl,
+                reading.RemainingMin,
+                reading.DropIntervalMs,
+                reading.DropEventCount,
+                reading.ServerDropLevel,
+                reading.VitalsLevel,
+                reading.AlertLevel,
+                reading.VitalsTestMode,
+                reading.AiInputHeartRate,
+                reading.AiInputSpo2
             });
     }
 
@@ -96,7 +124,25 @@ public sealed class VitalSampleRepository
               target_drops_per_min AS TargetDropsPerMin,
               line_blocked         AS LineBlocked,
               ae_alarm             AS AeAlarm,
-              status               AS Status
+              status               AS Status,
+              hr_forecast_16s      AS HrForecast16s,
+              spo2_forecast_16s    AS Spo2Forecast16s,
+              hr_trend_bpm_per_min AS HrTrendBpmPerMin,
+              ts_anomaly_score_x100 AS TsAnomalyScoreX100,
+              drops_forecast_16s   AS DropsForecast16s,
+              drops_trend_dpm_per_min AS DropsTrendDpmPerMin,
+              drops_forecast_trusted AS DropsForecastTrusted,
+              line_state           AS LineState,
+              remaining_ml         AS RemainingMl,
+              remaining_min        AS RemainingMin,
+              drop_interval_ms     AS DropIntervalMs,
+              drop_event_count     AS DropEventCount,
+              server_drop_level    AS ServerDropLevel,
+              vitals_level         AS VitalsLevel,
+              alert_level          AS AlertLevel,
+              vitals_test_mode     AS VitalsTestMode,
+              ai_input_heart_rate  AS AiInputHeartRate,
+              ai_input_spo2        AS AiInputSpo2
             FROM vital_samples
             WHERE bed_id = @bedId
               AND recorded_at >= @from

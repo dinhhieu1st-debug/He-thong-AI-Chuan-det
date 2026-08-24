@@ -296,6 +296,30 @@ Console.WriteLine("\n== A real line captured from the board parses end to end ==
     }
 }
 
+Console.WriteLine("\n== Complete Smart IV telemetry contract ==");
+{
+    var reading = BedDataParser.Parse("""
+        {"deviceId":"64028FFFFE641802","drops_forecast_16s":61,
+         "drops_trend_dpm_per_min":-2,"drops_forecast_trusted":true,
+         "line_state":1,"remaining_ml":438,"remaining_min":421,
+         "drop_interval_ms":1004,"drop_event_count":77,"server_drop_level":2,
+         "vitals_level":1,"final_alert_level":2,"ts_anomaly_score":347,
+         "ai_input_heart_rate":81,"ai_input_spo2":98}
+        """);
+    Check("EUI64 is canonical regardless of 0x/case",
+          reading.DeviceId == "0x64028ffffe641802", reading.DeviceId ?? "null");
+    Check("drop forecast and trust flag survive",
+          reading.DropsForecast16s == 61 && reading.DropsForecastTrusted,
+          $"{reading.DropsForecast16s}/{reading.DropsForecastTrusted}");
+    Check("remaining volume/time survive",
+          reading.RemainingMl == 438 && reading.RemainingMin == 421,
+          $"{reading.RemainingMl}mL/{reading.RemainingMin}min");
+    Check("line and branch levels survive",
+          reading.LineState == 1 && reading.ServerDropLevel == 2
+          && reading.VitalsLevel == 1 && reading.AlertLevel == 2,
+          $"line={reading.LineState} drop={reading.ServerDropLevel} vitals={reading.VitalsLevel} final={reading.AlertLevel}");
+}
+
 // ---------------------------------------------------------------- OTA ----
 Console.WriteLine("\n== Firmware update state ==");
 {

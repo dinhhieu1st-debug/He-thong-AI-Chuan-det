@@ -246,14 +246,15 @@ public static class DeviceEndpoints
 
     private static DeviceRecord ToRecord(UpsertDeviceRequest request) => new()
     {
-        DeviceId = request.DeviceId,
+        DeviceId = DeviceIdentity.Normalize(request.DeviceId),
         DeviceType = Enum.TryParse<DeviceType>(request.DeviceType, ignoreCase: true, out var type) ? type : DeviceType.Xg26,
         AssignedBedId = request.AssignedBedId,
         Room = request.Room,
         Status = Enum.TryParse<DeviceStatus>(request.Status, ignoreCase: true, out var status) ? status : DeviceStatus.Pending,
         BatteryPercent = request.BatteryPercent,
         Rssi = request.Rssi,
-        Eui64 = request.Eui64,
+        Eui64 = string.IsNullOrWhiteSpace(request.Eui64)
+            ? request.Eui64 : DeviceIdentity.Normalize(request.Eui64),
         LastSeenAt = request.LastSeenAt
     };
 }

@@ -478,7 +478,7 @@ const definition = {
         e.numeric('drops_per_min', ea.STATE).withUnit('dpm').withDescription('Raw drop sensor rate'),
         e.numeric('target_flow_ml_h', ea.ALL).withUnit('ml/h').withValueMin(0).withValueMax(1000)
             .withDescription('Doctor-set target infusion rate - settable from the HIS Server'),
-        e.numeric('target_drops_per_min', ea.ALL).withUnit('dpm').withValueMin(0).withValueMax(200)
+        e.numeric('target_drops_per_min', ea.ALL).withUnit('dpm').withValueMin(1).withValueMax(240)
             .withDescription('Doctor-set target drop rate - settable from the HIS Server'),
         e.numeric('hr_baseline_seconds_remaining', ea.STATE).withUnit('s')
             .withDescription('Seconds left in the 60s HR baseline capture window, 0 when idle/done'),

@@ -305,7 +305,7 @@ const BedsTab = (() => {
           <div class="fc-card">
             <span class="fc-label">Anomaly score</span>
             <b>${score}</b>
-            <span class="fc-sub">alarms above 5.61</span>
+            <span class="fc-sub">model residual ×100; alarm uses persistence</span>
           </div>
         </div>
         ${flags.length ? `<div class="fc-flags">${flags.join("")}</div>` : ""}

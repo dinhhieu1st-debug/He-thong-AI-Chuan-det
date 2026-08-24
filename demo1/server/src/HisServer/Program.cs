@@ -45,6 +45,7 @@ builder.Services.Configure<FirebaseOptions>(builder.Configuration.GetSection("Fi
 
 // Data access
 builder.Services.AddSingleton<DbConnectionFactory>();
+builder.Services.AddSingleton<SmartIvTelemetrySchemaMigrator>();
 builder.Services.AddSingleton<BedRepository>();
 builder.Services.AddSingleton<DeviceRepository>();
 builder.Services.AddSingleton<VitalSampleRepository>();
@@ -210,12 +211,14 @@ app.MapSettingsEndpoints();
 // briefly show an empty dashboard.
 using (var scope = app.Services.CreateScope())
 {
+    var telemetryMigrator = scope.ServiceProvider.GetRequiredService<SmartIvTelemetrySchemaMigrator>();
     var bedRepository = scope.ServiceProvider.GetRequiredService<BedRepository>();
     var bedStateStore = scope.ServiceProvider.GetRequiredService<BedStateStore>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
     try
     {
+        await telemetryMigrator.ApplyAsync();
         var beds = await bedRepository.LoadAllAsync();
         foreach (var bed in beds)
         {

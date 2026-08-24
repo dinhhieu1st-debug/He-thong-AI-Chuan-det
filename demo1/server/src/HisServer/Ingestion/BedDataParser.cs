@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using HisServer.Domain;
 using HisServer.Models;
 
 namespace HisServer.Ingestion;
@@ -78,13 +79,14 @@ public static class BedDataParser
         // Model chi hoc tren du lieu binh thuong, nen khi kenh dang bat thuong
         // keo dai thi con so no dua ra la "muc binh thuong dang le phai co",
         // KHONG phai du bao. Hai co nay cho giao dien biet de doi nhan.
-        var hrForecastTrusted = ReadBool(root, true, "hrForecastTrusted", "hr_forecast_trusted");
+        var hrForecastTrusted = ReadBool(root, false, "hrForecastTrusted", "hr_forecast_trusted");
         // -1 is the gateway's "not present in the MQTT payload" marker.
         var linkQuality = ReadNullableInt(root, "linkQuality", "linkquality", "link_quality");
         if (linkQuality is < 0) linkQuality = null;
         var deviceId = ReadString(root, "deviceId", "device_id");
         if (string.IsNullOrWhiteSpace(deviceId)) deviceId = null;
-        var dropsForecastTrusted = ReadBool(root, true, "dropsForecastTrusted", "drops_forecast_trusted");
+        else deviceId = DeviceIdentity.Normalize(deviceId);
+        var dropsForecastTrusted = ReadBool(root, false, "dropsForecastTrusted", "drops_forecast_trusted");
 
         // AI v2. AlertLevel stays null for a v1 device rather than defaulting
         // to 0 - "this device cannot tell us" and "this device says everything

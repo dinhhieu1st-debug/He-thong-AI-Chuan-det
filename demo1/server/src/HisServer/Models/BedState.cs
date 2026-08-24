@@ -31,7 +31,7 @@ public sealed class BedState
     /// <summary>
     /// Ket qua model du bao chuoi thoi gian chay TREN CHIP (xem ts_monitor.c).
     /// TsTrend: 0 = on dinh, 1 = nhip tim dang tang, 2 = dang giam.
-    /// TsAnomalyScoreX100 da nhan 100 (firmware gui so nguyen).
+    /// Continuous maximum model residual multiplied by 100 for ZCL transport.
     /// </summary>
     public bool TsReady { get; set; }
     public bool TsAnomaly { get; set; }

@@ -20,7 +20,25 @@ public sealed record VitalSampleDto(
     int? TargetDropsPerMin,
     bool LineBlocked,
     bool AeAlarm,
-    string Status);
+    string Status,
+    int? HrForecast16s,
+    int? Spo2Forecast16s,
+    int? HrTrendBpmPerMin,
+    int? TsAnomalyScoreX100,
+    int? DropsForecast16s,
+    int? DropsTrendDpmPerMin,
+    bool DropsForecastTrusted,
+    int? LineState,
+    int? RemainingMl,
+    int? RemainingMin,
+    int? DropIntervalMs,
+    int? DropEventCount,
+    int? ServerDropLevel,
+    int? VitalsLevel,
+    int? AlertLevel,
+    int? VitalsTestMode,
+    int? AiInputHeartRate,
+    int? AiInputSpo2);
 
 public sealed record BedDto(
     string BedId,

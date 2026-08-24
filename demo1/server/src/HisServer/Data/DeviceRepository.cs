@@ -1,4 +1,5 @@
 using Dapper;
+using HisServer.Domain;
 using HisServer.Models;
 
 namespace HisServer.Data;
@@ -25,12 +26,15 @@ public sealed class DeviceRepository
 
     public async Task<DeviceRecord?> GetAsync(string deviceId, CancellationToken cancellationToken = default)
     {
+        var normalized = DeviceIdentity.Normalize(deviceId);
+        var compact = DeviceIdentity.Compact(deviceId);
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync(
             "SELECT device_id, device_type, assigned_bed_id, room, status, battery_percent, rssi, eui64, last_seen_at, " +
             "link_quality, channels_lost, last_data_at " +
-            "FROM devices WHERE device_id = @deviceId",
-            new { deviceId });
+            "FROM devices WHERE LOWER(TRIM(device_id)) = @normalized " +
+            "OR LOWER(TRIM(device_id)) = @compact LIMIT 1",
+            new { normalized = normalized.ToLowerInvariant(), compact = compact.ToLowerInvariant() });
 
         return row is null ? null : MapRow(row);
     }
@@ -76,9 +80,12 @@ public sealed class DeviceRepository
 
     public async Task<bool> DeleteAsync(string deviceId, CancellationToken cancellationToken = default)
     {
+        var normalized = DeviceIdentity.Normalize(deviceId).ToLowerInvariant();
+        var compact = DeviceIdentity.Compact(deviceId).ToLowerInvariant();
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
         var affected = await connection.ExecuteAsync(
-            "DELETE FROM devices WHERE device_id = @deviceId", new { deviceId });
+            "DELETE FROM devices WHERE LOWER(TRIM(device_id)) = @normalized " +
+            "OR LOWER(TRIM(device_id)) = @compact", new { normalized, compact });
         return affected > 0;
     }
 

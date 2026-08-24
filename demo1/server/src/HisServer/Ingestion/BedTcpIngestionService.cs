@@ -363,6 +363,7 @@ public sealed class BedTcpIngestionService : BackgroundService
 
     private async Task AnnounceDeviceAsync(string deviceId, string? friendlyName)
     {
+        deviceId = DeviceIdentity.Normalize(deviceId);
         try
         {
             var existing = await deviceRepository.GetAsync(deviceId);
