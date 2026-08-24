@@ -13,7 +13,17 @@ public sealed record OtaImage(
     uint FileVersion,
     long SizeBytes,
     DateTime UploadedAt,
-    string HeaderText);
+    string HeaderText,
+    uint? MinFileVersion = null,
+    uint? MaxFileVersion = null,
+    bool IsProtected = false);
+
+/// <summary>
+/// Optional per-image selection rules understood by zigbee2mqtt.  They are
+/// stored next to an image as &lt;image-name&gt;.policy.json so a small bridge
+/// image and the full image can safely coexist in one OTA index.
+/// </summary>
+public sealed record OtaImagePolicy(uint? MinFileVersion, uint? MaxFileVersion);
 
 /// <summary>
 /// Holds the .ota images a technician has uploaded, and publishes the index
@@ -32,6 +42,11 @@ public sealed class OtaImageStore
      * named - and a technician picking the wrong file from a folder is the
      * likeliest way a bad image gets published. */
     private const uint OtaMagic = 0x0BEEF11E;
+    // v2 reserves 256 KiB, but the Silicon Labs simple-storage driver keeps
+    // 2 KiB for its byte mask and OTA header metadata.
+    private const long LegacyOtaMaxImageBytes = 262144 - 2048;
+    private const uint BridgeVersion = 3;
+    private const string BridgeFileName = "smart-iv-ota-bridge-v3.ota";
 
     private readonly string directory;
     private readonly ILogger<OtaImageStore> log;
@@ -41,6 +56,8 @@ public sealed class OtaImageStore
         this.log = log;
         directory = Path.Combine(env.ContentRootPath, "ota-images");
         Directory.CreateDirectory(directory);
+        EnsureSystemBridge(env.ContentRootPath);
+        PromotePendingImages();
     }
 
     public string DirectoryPath => directory;
@@ -81,6 +98,9 @@ public sealed class OtaImageStore
 
         var safeName = Path.GetFileName(originalName);
         if (string.IsNullOrWhiteSpace(safeName)) safeName = "firmware.ota";
+        if (IsProtected(safeName))
+            throw new InvalidDataException(
+                "The required v3 OTA bridge is managed by the server and cannot be overwritten.");
 
         var image = ReadHeader(safeName, bytes, DateTime.UtcNow)
             ?? throw new InvalidDataException(
@@ -111,7 +131,24 @@ public sealed class OtaImageStore
 
             var info = new FileInfo(path);
             var image = ReadHeader(info.Name, head, info.LastWriteTimeUtc);
-            if (image is not null) images.Add(image with { SizeBytes = info.Length });
+            if (image is not null)
+            {
+                var policy = ReadPolicy(path);
+                var protectedImage = IsProtected(info.Name);
+                images.Add(image with
+                {
+                    SizeBytes = info.Length,
+                    // A technician may upload a new full image without knowing
+                    // about sidecar policies.  Anything larger than the broken
+                    // v2 limit must never be offered until the bridge is installed.
+                    MinFileVersion = policy?.MinFileVersion
+                        ?? (!protectedImage && info.Length > LegacyOtaMaxImageBytes
+                            ? BridgeVersion : null),
+                    MaxFileVersion = policy?.MaxFileVersion
+                        ?? (protectedImage ? BridgeVersion - 1 : null),
+                    IsProtected = protectedImage,
+                });
+            }
         }
 
         return images.OrderByDescending(i => i.FileVersion).ToList();
@@ -124,12 +161,99 @@ public sealed class OtaImageStore
         return File.Exists(path) ? path : null;
     }
 
-    public bool Delete(string fileName)
+    /// <summary>
+    /// Deletes an image and its sidecar files. The protected v3 bridge only
+    /// comes out with <paramref name="force"/> set - a technician confirming a
+    /// specific warning in the UI, not an accidental click. Note this only
+    /// removes the LIVE copy in ota-images: if ota-system/smart-iv-ota-bridge-v3.ota
+    /// still exists, <see cref="EnsureSystemBridge"/> re-copies it back on the
+    /// next server start, by design (that is how an updated official bridge
+    /// gets deployed). Force-deleting here does not touch that source copy.
+    /// </summary>
+    public bool Delete(string fileName, bool force = false)
     {
+        if (IsProtected(fileName) && !force) return false;
         var path = PathFor(fileName);
         if (path is null) return false;
         File.Delete(path);
-        log.LogInformation("OTA image deleted: {File}", Path.GetFileName(path));
+        foreach (var sidecarSuffix in SidecarSuffixes)
+        {
+            var sidecarPath = path + sidecarSuffix;
+            if (File.Exists(sidecarPath)) File.Delete(sidecarPath);
+        }
+        log.LogInformation("OTA image deleted: {File}{Forced}",
+            Path.GetFileName(path), force ? " (forced)" : "");
         return true;
+    }
+
+    // .policy.json is real (see ReadPolicy). .state.json does not exist in this
+    // codebase - OTA transfer state lives in OtaStatusRegistry, in memory, not
+    // as a per-image file - but the suffix is listed here so deleting an image
+    // never leaves an orphaned sidecar if that ever changes.
+    private static readonly string[] SidecarSuffixes = [".policy.json", ".state.json"];
+
+    public bool IsProtected(string fileName) =>
+        string.Equals(Path.GetFileName(fileName), BridgeFileName,
+                      StringComparison.OrdinalIgnoreCase);
+
+    private OtaImagePolicy? ReadPolicy(string imagePath)
+    {
+        var policyPath = imagePath + ".policy.json";
+        if (!File.Exists(policyPath)) return null;
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<OtaImagePolicy>(
+                File.ReadAllText(policyPath),
+                new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                });
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
+        {
+            log.LogWarning(ex, "Ignoring invalid OTA policy {Policy}", policyPath);
+            return null;
+        }
+    }
+
+    private void PromotePendingImages()
+    {
+        /* A pending suffix lets a new server binary and a new image be copied
+         * while the old process is still serving beds.  The old binary ignores
+         * the file; this policy-aware binary promotes it during its next manual
+         * start, so there is no interval where v2 devices can see the full v7
+         * image without the bridge rule. */
+        foreach (var pendingPath in Directory.EnumerateFiles(directory, "*.ota.pending"))
+        {
+            var livePath = pendingPath[..^".pending".Length];
+            try
+            {
+                File.Move(pendingPath, livePath, overwrite: true);
+                log.LogInformation("Promoted pending OTA image: {File}", Path.GetFileName(livePath));
+            }
+            catch (IOException ex)
+            {
+                log.LogWarning(ex, "Could not promote pending OTA image {File}", pendingPath);
+            }
+        }
+    }
+
+    private void EnsureSystemBridge(string contentRoot)
+    {
+        var sourceDirectory = Path.Combine(contentRoot, "ota-system");
+        var sourceImage = Path.Combine(sourceDirectory, BridgeFileName);
+        var liveImage = Path.Combine(directory, BridgeFileName);
+
+        if (File.Exists(sourceImage))
+        {
+            File.Copy(sourceImage, liveImage, overwrite: true);
+            log.LogInformation("Synchronized protected OTA bridge: {File}", BridgeFileName);
+        }
+
+        var sourcePolicy = sourceImage + ".policy.json";
+        var livePolicy = liveImage + ".policy.json";
+        if (File.Exists(sourcePolicy))
+            File.Copy(sourcePolicy, livePolicy, overwrite: true);
     }
 }

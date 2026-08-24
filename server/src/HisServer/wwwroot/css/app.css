@@ -1085,8 +1085,11 @@ body.no-scroll { overflow: hidden; }
   height: 100%; background: var(--warning);
   /* Chuyển động mượt để phần trăm nhích lên trông liên tục thay vì giật cục.
      Nhưng KHÔNG có animation lặp: một thanh tiến độ tự chạy khi không có dữ
-     liệu mới sẽ khiến người ta tưởng vẫn đang nạp trong khi nó đã treo. */
-  transition: width .4s ease;
+     liệu mới sẽ khiến người ta tưởng vẫn đang nạp trong khi nó đã treo.
+     Chỉ animate khi width THẬT SỰ đổi trên cùng một node - devices.js phải
+     mutate style.width tại chỗ (không innerHTML lại .ota-bar-fill) khi còn
+     trong cùng một phiên OTA, nếu không transition này không có tác dụng. */
+  transition: width .8s linear;
 }
 
 .ota-warn {

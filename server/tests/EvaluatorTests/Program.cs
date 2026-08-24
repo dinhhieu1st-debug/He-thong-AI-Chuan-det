@@ -3,7 +3,7 @@
 // Deliberately a plain console program rather than an xUnit project: it needs no
 // NuGet restore, so it runs on a machine with no network - including the Pi.
 //
-//   dotnet run --project software/server/tests/EvaluatorTests
+//   dotnet run --project server/tests/EvaluatorTests
 //
 // The cases below are the ones AI v2 changed. They exist because the difference
 // between "the line is blocked" and "the patient is deteriorating" is the whole
@@ -13,6 +13,10 @@
 using HisServer.Domain;
 using HisServer.Ingestion;
 using HisServer.Models;
+using Microsoft.Extensions.Logging.Abstractions;
+
+HisServer.Services.OtaStatusRegistry NewOtaRegistry() =>
+    new(NullLogger<HisServer.Services.OtaStatusRegistry>.Instance);
 
 var failures = 0;
 
@@ -379,7 +383,7 @@ Console.WriteLine("\n== A real line captured from the board parses end to end ==
 // ---------------------------------------------------------------- OTA ----
 Console.WriteLine("\n== Firmware update state ==");
 {
-    var ota = new HisServer.Services.OtaStatusRegistry();
+    var ota = NewOtaRegistry();
     const string dev = "0x64028ffffe641802";
 
     Check("an unknown device is Unknown, not UpToDate",
@@ -472,6 +476,152 @@ Console.WriteLine("\n== Firmware update state ==");
     ota.Update("other", "starting", null, null, "Update requested", out _);
     Check("Starting counts as in flight, so the button hides immediately",
           ota.Get("other").InFlight, "InFlight=true");
+}
+
+Console.WriteLine("\n== OTA remainingSeconds decays by wall-clock time, not frozen ==");
+{
+    // A message with no remainingSeconds (common - zigbee2mqtt does not send
+    // a fresh estimate on every progress line) must not make the countdown
+    // look frozen: it should read a lower number than the last real estimate,
+    // by roughly how long has actually passed - not simply re-publish the old
+    // number verbatim (the bug this replaces).
+    var ota = NewOtaRegistry();
+    const string dev = "bedDecay";
+
+    ota.Update(dev, "updating", 50, 100, null, out _);
+    System.Threading.Thread.Sleep(2100); // real elapsed time, deliberately > 2s
+    var after = ota.Update(dev, "updating", 55, null, null, out _);
+
+    Check("remainingSeconds decayed by roughly the real elapsed time",
+          after.RemainingSeconds is >= 96 and <= 99,
+          $"RemainingSeconds={after.RemainingSeconds} (expected ~97-98, started at 100)");
+
+    // A state change invalidates the old estimate outright - it described a
+    // download that is no longer happening.
+    var failed = ota.Update(dev, "failed", null, null, "INVALID_IMAGE", out _);
+    Check("a state change does not carry the old estimate forward",
+          failed.RemainingSeconds is null, $"RemainingSeconds={failed.RemainingSeconds}");
+
+    // A fresh estimate from the gateway always wins, even if it is HIGHER
+    // than before - the transfer can slow down; this is an estimate, not a
+    // promise, so the registry must not clamp it to be non-increasing.
+    var dev2 = "bedDecaySlowdown";
+    ota.Update(dev2, "updating", 60, 40, null, out _);
+    var slower = ota.Update(dev2, "updating", 61, 55, null, out _);
+    Check("a fresh higher estimate is accepted, not clamped down",
+          slower.RemainingSeconds == 55, $"RemainingSeconds={slower.RemainingSeconds}");
+}
+
+Console.WriteLine("\n== Per-device OTA isolation: updating A must never touch B ==");
+{
+    var ota = NewOtaRegistry();
+    const string A = "0x64028ffffe641802";
+    const string B = "0x403802fffe373533";
+
+    ota.Update(A, "available", null, null, null, out _);
+    ota.Update(B, "uptodate", null, null, null, out _);
+    Check("initial: A Available, B UpToDate",
+          ota.Get(A).State == OtaState.Available && ota.Get(B).State == OtaState.UpToDate,
+          $"A={ota.Get(A).State} B={ota.Get(B).State}");
+
+    // POST /ota/update A: the endpoint calls MarkUpdateRequested then the
+    // gateway's own "starting" line arrives shortly after - reproduced here
+    // without the HTTP layer, which is what actually owns the routing fix
+    // (BroadcastCommandAsync -> TrySendCommandAsync, see DeviceEndpoints.cs).
+    ota.MarkUpdateRequested(A);
+    Check("A is pending immediately after the request, before any gateway echo",
+          ota.IsUpdateInFlightOrPending(A), "true");
+    Check("B is untouched by A's pending request",
+          !ota.IsUpdateInFlightOrPending(B) && ota.Get(B).State == OtaState.UpToDate,
+          $"pending={ota.IsUpdateInFlightOrPending(B)} state={ota.Get(B).State}");
+
+    ota.Update(A, "starting", null, null, null, out _);
+    Check("A -> Starting/InFlight", ota.Get(A).InFlight, ota.Get(A).State.ToString());
+    Check("B still UpToDate after A starts", ota.Get(B).State == OtaState.UpToDate, ota.Get(B).State.ToString());
+
+    ota.Update(A, "updating", 4, 600, null, out _);
+    Check("A progress = 4%", ota.Get(A).Progress == 4, $"{ota.Get(A).Progress}");
+    Check("B has no progress field at all (never touched)", ota.Get(B).Progress is null, $"{ota.Get(B).Progress}");
+
+    ota.Update(A, "updating", 56, 300, null, out _);
+    Check("A progress = 56%", ota.Get(A).Progress == 56, $"{ota.Get(A).Progress}");
+    Check("B still UpToDate at A=56%", ota.Get(B).State == OtaState.UpToDate, ota.Get(B).State.ToString());
+
+    var aDone = ota.Update(A, "done", 100, 0, null, out var aPreviousState);
+    Check("A -> Done (solicited: was Updating)", aDone.State == OtaState.Done, aDone.State.ToString());
+    Check("A's previousState reported as Updating, so history records FirmwareUpdated",
+          aPreviousState == OtaState.Updating, aPreviousState.ToString());
+    Check("B is STILL UpToDate after A's Done - not flipped to Done itself",
+          ota.Get(B).State == OtaState.UpToDate, ota.Get(B).State.ToString());
+}
+
+Console.WriteLine("\n== Stray Done for a device with no active update is refused ==");
+{
+    var ota = NewOtaRegistry();
+    const string A = "0x64028ffffe641802";
+    const string B = "0x403802fffe373533";
+
+    ota.Update(A, "available", null, null, null, out _);
+    ota.Update(B, "uptodate", null, null, null, out _);
+    ota.MarkUpdateRequested(A);
+    ota.Update(A, "updating", 30, null, null, out _); // A genuinely mid-update
+
+    // Simulates: {"type":"ota_status","deviceId":"B","state":"done","progress":100}
+    // arriving while B was never asked to update and never reported starting.
+    var strayDone = ota.Update(B, "done", 100, 0, null, out var bPreviousState);
+    Check("B's Done is refused - state does not become Done",
+          strayDone.State != OtaState.Done, strayDone.State.ToString());
+    Check("B stays exactly what it was (UpToDate), not silently reset to Unknown either",
+          strayDone.State == OtaState.UpToDate, strayDone.State.ToString());
+    Check("reported previousState equals current state (no transition, so no history row)",
+          bPreviousState == strayDone.State, $"previousState={bPreviousState} current={strayDone.State}");
+    Check("A's own in-progress update is unaffected by B's rejected message",
+          ota.Get(A).State == OtaState.Updating && ota.Get(A).Progress == 30,
+          $"A state={ota.Get(A).State} progress={ota.Get(A).Progress}");
+
+    // The very-first-message case: a device the registry has never seen
+    // before, whose first ever line is "done" - equally unsolicited.
+    var neverSeenDone = ota.Update("0xbrandnew", "done", 100, 0, null, out var neverSeenPrev);
+    Check("a device's first-ever message being Done is also refused",
+          neverSeenDone.State != OtaState.Done, neverSeenDone.State.ToString());
+    Check("...and previousState/current agree (Unknown), so no history fires",
+          neverSeenPrev == neverSeenDone.State, $"{neverSeenPrev} vs {neverSeenDone.State}");
+}
+
+Console.WriteLine("\n== Both devices already at the latest version: Check A must not touch B ==");
+{
+    var ota = NewOtaRegistry();
+    const string A = "0x64028ffffe641802";
+    const string B = "0x403802fffe373533";
+
+    ota.Update(A, "uptodate", null, null, null, out _, installedVersion: 7, latestVersion: 7);
+    ota.Update(B, "uptodate", null, null, null, out _, installedVersion: 7, latestVersion: 7);
+
+    // Re-checking A (another "uptodate" report) must not be observable on B.
+    ota.Update(A, "uptodate", null, null, null, out _, installedVersion: 7, latestVersion: 7);
+    Check("both show Latest version/UpToDate, but as two independent facts",
+          ota.Get(A).State == OtaState.UpToDate && ota.Get(B).State == OtaState.UpToDate,
+          $"A={ota.Get(A).State} B={ota.Get(B).State}");
+    Check("B's own version record is untouched by re-checking A",
+          ota.VersionsFor(B) == (7, 7), ota.VersionsFor(B).ToString());
+}
+
+Console.WriteLine("\n== Canonical device id: 0x-prefixed and bare hex are the SAME entry ==");
+{
+    var ota = NewOtaRegistry();
+    ota.Update("0x64028FFFFE641802", "available", null, null, null, out _);
+    Check("looked up without the 0x prefix and different case - same entry",
+          ota.Get("64028ffffe641802").State == OtaState.Available,
+          ota.Get("64028ffffe641802").State.ToString());
+    Check("registry-wide view has exactly one entry, not two for the same EUI64",
+          ota.All().Count(s => s.State != OtaState.Unknown) == 1,
+          $"count={ota.All().Count(s => s.State != OtaState.Unknown)}");
+
+    // Two GENUINELY different EUI64s must never collide into one entry.
+    ota.Update("0x403802fffe373533", "uptodate", null, null, null, out _);
+    Check("a different real device stays a separate entry",
+          ota.All().Count(s => s.State != OtaState.Unknown) == 2,
+          $"count={ota.All().Count(s => s.State != OtaState.Unknown)}");
 }
 
 Console.WriteLine(failures == 0

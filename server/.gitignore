@@ -20,3 +20,8 @@ Thumbs.db
 # Local runtime state and ad-hoc build/test output
 .runtime/
 .build*/
+
+# Runtime-generated OTA firmware uploads (not source)
+ota-images/
+ota-staging/
+ota-system/

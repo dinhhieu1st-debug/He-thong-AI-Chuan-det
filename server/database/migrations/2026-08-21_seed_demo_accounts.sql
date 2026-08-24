@@ -2,7 +2,7 @@
 --
 -- Run once against the DB used for filming:
 --   docker exec -i his-mysql mysql -uroot -pdemopass his_server \
---     < software/server/database/migrations/2026-08-21_seed_demo_accounts.sql
+--     < server/database/migrations/2026-08-21_seed_demo_accounts.sql
 --
 -- must_change_password is FALSE here (unlike the admin seed in
 -- 2026-08-17_users_roles_assignments.sql) so the login flow used on camera

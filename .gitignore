@@ -32,5 +32,10 @@ Thumbs.db
 bin/
 obj/
 
+# Runtime-generated OTA firmware uploads (not source) - see server/OTA.md
+server/src/HisServer/ota-images/
+server/src/HisServer/ota-staging/
+server/src/HisServer/ota-system/
+
 # Leftover files from a killed process still holding a deleted file open
 .fuse_hidden*

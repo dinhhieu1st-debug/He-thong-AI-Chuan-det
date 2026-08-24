@@ -58,9 +58,22 @@ public static class OtaImageEndpoints
         }).RequireAuthorization(Capabilities.ManageDevices)
           .DisableAntiforgery();
 
-        group.MapDelete("/images/{fileName}", (string fileName, OtaImageStore store) =>
-            store.Delete(fileName) ? Results.NoContent() : Results.NotFound())
-             .RequireAuthorization(Capabilities.ManageDevices);
+        /* Protected images (the v3 bridge) can still be deleted - a technician
+         * may genuinely need to replace it - but only with ?force=true, which
+         * only the confirmation dialog in the UI sends. Without it this stays a
+         * 409, same as before. */
+        group.MapDelete("/images/{fileName}", (string fileName, bool? force, OtaImageStore store) =>
+        {
+            var forced = force == true;
+            if (store.IsProtected(fileName) && !forced)
+                return Results.Conflict(new
+                {
+                    error = "The v3 OTA bridge is required by legacy devices. Pass ?force=true to delete it anyway.",
+                    requiresForce = true,
+                });
+
+            return store.Delete(fileName, forced) ? Results.NoContent() : Results.NotFound();
+        }).RequireAuthorization(Capabilities.ManageDevices);
 
         /* ---- what zigbee2mqtt reads ---------------------------------------
          *
@@ -73,13 +86,26 @@ public static class OtaImageEndpoints
         {
             var baseUrl = $"{request.Scheme}://{request.Host}";
 
-            return Results.Ok(store.List().Select(i => new
+            return Results.Ok(store.List().Select(i =>
             {
-                url = $"{baseUrl}/api/ota/images/{Uri.EscapeDataString(i.FileName)}/download",
-                manufacturerCode = i.ManufacturerCode,
-                imageType = i.ImageType,
-                fileVersion = i.FileVersion,
-                fileSize = i.SizeBytes,
+                var entry = new Dictionary<string, object>
+                {
+                    ["url"] = $"{baseUrl}/api/ota/images/{Uri.EscapeDataString(i.FileName)}/download",
+                    ["manufacturerCode"] = i.ManufacturerCode,
+                    ["imageType"] = i.ImageType,
+                    ["fileVersion"] = i.FileVersion,
+                    ["fileSize"] = i.SizeBytes,
+                };
+
+                // Missing means unrestricted to zigbee2mqtt.  Do not serialize
+                // null here: JavaScript compares null as zero, which would make
+                // an unrestricted image fail matching unexpectedly.
+                if (i.MinFileVersion is not null)
+                    entry["minFileVersion"] = i.MinFileVersion.Value;
+                if (i.MaxFileVersion is not null)
+                    entry["maxFileVersion"] = i.MaxFileVersion.Value;
+
+                return entry;
             }));
         }).AllowAnonymous();
 

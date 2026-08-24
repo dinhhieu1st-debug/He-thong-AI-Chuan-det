@@ -37,11 +37,9 @@ public sealed class DeviceRepository
         return row is null ? null : MapRow(row);
     }
 
-    private static string CanonicalDeviceId(string deviceId)
-    {
-        var value = deviceId.Trim().ToLowerInvariant();
-        return value.StartsWith("0x", StringComparison.Ordinal) ? value[2..] : value;
-    }
+    // Single shared definition - see DeviceIdentity for why.
+    private static string CanonicalDeviceId(string deviceId) =>
+        HisServer.Domain.DeviceIdentity.Canonicalize(deviceId);
 
     public async Task UpsertAsync(DeviceRecord device, CancellationToken cancellationToken = default)
     {

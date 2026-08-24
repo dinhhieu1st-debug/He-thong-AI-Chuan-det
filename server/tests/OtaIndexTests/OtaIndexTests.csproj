@@ -7,6 +7,6 @@
     <RootNamespace>HisServer.Tests</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <None Update="chip_sample.json" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="../../src/HisServer/HisServer.csproj" />
   </ItemGroup>
 </Project>

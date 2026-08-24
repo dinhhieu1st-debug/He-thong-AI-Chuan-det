@@ -358,6 +358,24 @@ public sealed class BedTcpIngestionService : BackgroundService
             return;
         }
 
+        /* Belt-and-braces: OtaStatusRegistry.Update() already refuses to let a
+         * device transition INTO Done without a solicited update in progress
+         * (previousState Starting/Updating, or a just-requested update still
+         * in its confirmation window) - a stray Done for a device nobody
+         * asked to update comes back as an unchanged status, so this method
+         * would already be called with previousState == OtaState.Done and
+         * never reach here with detail non-null for that case. This check
+         * documents that invariant and survives if the registry's guard is
+         * ever weakened later. */
+        if (type == DeviceEventType.FirmwareUpdated
+            && previousState is not (OtaState.Starting or OtaState.Updating))
+        {
+            logger.LogWarning(
+                "Refusing to record FirmwareUpdated for {DeviceId}: previous state was {PreviousState}, not an active update.",
+                deviceId, previousState);
+            return;
+        }
+
         try
         {
             var record = await deviceRepository.GetAsync(deviceId);

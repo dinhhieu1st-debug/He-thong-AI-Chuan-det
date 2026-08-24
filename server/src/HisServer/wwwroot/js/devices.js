@@ -46,20 +46,206 @@ const DevicesTab = (() => {
    * bản ghi thiết bị thì gần như không đổi. */
   const otaByDevice = new Map();
 
+  /* --- smooth OTA progress/ETA, patched in place -----------------------
+   *
+   * ota.progress from the gateway is authoritative and jumps in ~4% steps.
+   * This layer only interpolates the DISPLAYED number/bar toward that real
+   * value over OTA_ANIM_DURATION_MS - it never predicts beyond it, and a
+   * full page render() never runs per progress tick (see applyOtaStatus).
+   */
+  const OTA_ANIM_DURATION_MS = 800;
+  const otaAnim = new Map(); // deviceId -> anim state, see applyOtaStatus
+  let otaClockTimer = null;
+
+  function otaSessionActive(state) {
+    return state === "Starting" || state === "Updating";
+  }
+
+  function otaEnsureClock() {
+    if (otaClockTimer) return;
+    // One shared 1Hz timer for the whole tab - never a per-device timer -
+    // and it only ever touches the countdown text of devices with a tracked
+    // anchor, never calls render().
+    otaClockTimer = setInterval(() => {
+      otaAnim.forEach((anim, deviceId) => {
+        if (anim.remainAnchorSec == null) return;
+        const displaySec = Math.max(0, anim.remainAnchorSec
+          - Math.floor((performance.now() - anim.remainAnchorAt) / 1000));
+        if (displaySec !== anim.lastShownSec) {
+          anim.lastShownSec = displaySec;
+          updateOtaTextNode(deviceId);
+        }
+      });
+    }, 1000);
+  }
+
+  function otaStopClockIfIdle() {
+    if (otaAnim.size === 0 && otaClockTimer) {
+      clearInterval(otaClockTimer);
+      otaClockTimer = null;
+    }
+  }
+
+  function formatEta(totalSeconds) {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const hh = Math.floor(s / 3600);
+    const mm = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    const mmss = `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    return (hh > 0 ? `${hh}:${mmss}` : mmss) + " left";
+  }
+
+  /* Text for the OTA sub-line, given a device's live anim state (if any) and
+   * its raw status. Used both for the very first paint (deviceCardHtml) and
+   * every subsequent in-place update (updateOtaTextNode). */
+  function otaProgressText(deviceId, status) {
+    if (!status) return "preparing…";
+    const anim = otaAnim.get(deviceId);
+    const shown = anim ? Math.round(anim.displayed) : (status.progress ?? null);
+    if (shown == null) return "preparing…";
+    // Reached 100% but the backend has not reported Done/Failed yet: the
+    // device is verifying the image, not finished - never say "done" here.
+    if (shown >= 100 && status.inFlight) return "100% · verifying…";
+    let text = `${shown}%`;
+    if (anim && anim.remainAnchorSec != null) {
+      const displaySec = Math.max(0, anim.remainAnchorSec
+        - Math.floor((performance.now() - anim.remainAnchorAt) / 1000));
+      text += " · " + formatEta(displaySec);
+    }
+    return text;
+  }
+
+  function updateOtaTextNode(deviceId) {
+    const el = document.querySelector(`[data-ota-progress-text="${CSS.escape(deviceId)}"]`);
+    if (!el) return;
+    const text = otaProgressText(deviceId, otaByDevice.get(deviceId));
+    if (el.textContent !== text) el.textContent = text;
+  }
+
+  function animateOtaNumber(deviceId, fromVal, toVal) {
+    const anim = otaAnim.get(deviceId);
+    if (!anim) return;
+    if (anim.numberRafId) cancelAnimationFrame(anim.numberRafId);
+    const start = performance.now();
+    const step = (now) => {
+      const current = otaAnim.get(deviceId);
+      if (!current) return; // session ended mid-animation
+      const t = Math.min(1, (now - start) / OTA_ANIM_DURATION_MS);
+      current.displayed = fromVal + (toVal - fromVal) * t;
+      updateOtaTextNode(deviceId);
+      if (t < 1) {
+        current.numberRafId = requestAnimationFrame(step);
+      } else {
+        current.displayed = toVal;
+        current.numberRafId = null;
+        updateOtaTextNode(deviceId);
+      }
+    };
+    anim.numberRafId = requestAnimationFrame(step);
+  }
+
+  /* Rebuilds ONLY this device's .ota-block (state label, bar, buttons) in
+   * place - used for session start/end and non-progress field changes.
+   * Returns false when the card is not currently in the DOM (filtered out,
+   * or no full render has happened yet), so the caller can fall back to a
+   * normal render() instead of silently doing nothing. */
+  function patchOtaBlock(deviceId) {
+    const card = document.querySelector(`.device-card[data-device-id="${CSS.escape(deviceId)}"]`);
+    const device = State.devices.get(deviceId);
+    const otaBlock = card && card.querySelector(".ota-block");
+    if (!card || !device || !otaBlock) return false;
+    otaBlock.outerHTML = otaSectionHtml(device);
+    bindOtaButtons(card);
+    return true;
+  }
+
+  /* Applies one OTA status message: authoritative-progress clamping (never
+   * regresses within a session, resets cleanly on a new one), ETA
+   * re-anchoring, and an in-place DOM patch - never a full render() just
+   * because progress ticked. */
+  function applyOtaStatus(status) {
+    const deviceId = status.deviceId;
+    const prevStatus = otaByDevice.get(deviceId);
+    otaByDevice.set(deviceId, status);
+
+    const wasActive = prevStatus && otaSessionActive(prevStatus.state);
+    const isActive = otaSessionActive(status.state);
+
+    if (!isActive) {
+      const anim = otaAnim.get(deviceId);
+      if (anim) {
+        if (anim.numberRafId) cancelAnimationFrame(anim.numberRafId);
+        otaAnim.delete(deviceId);
+        otaStopClockIfIdle();
+      }
+      if (!patchOtaBlock(deviceId)) render();
+      return;
+    }
+
+    let anim = otaAnim.get(deviceId);
+    if (!anim || !wasActive) {
+      // A brand new session: progress starts clean, never clamped against
+      // whatever a previous Update/Done/Failed cycle last showed.
+      anim = {
+        displayed: 0, target: 0, effectiveProgress: 0,
+        remainAnchorSec: null, remainAnchorAt: 0, lastShownSec: null,
+        numberRafId: null,
+      };
+      otaAnim.set(deviceId, anim);
+      otaEnsureClock();
+      if (!patchOtaBlock(deviceId)) { render(); return; }
+    }
+
+    if (status.progress != null) {
+      const clamped = Math.min(100, Math.max(0, status.progress));
+      anim.effectiveProgress = Math.max(anim.effectiveProgress, clamped); // PHẦN G: never regress
+    }
+    const newTarget = anim.effectiveProgress;
+
+    if (status.remainingSeconds != null) {
+      // A fresh estimate from the gateway is always the new anchor, whether
+      // it went down (normal) or up (the transfer slowed) - it is an
+      // estimate, not a promise.
+      anim.remainAnchorSec = Math.max(0, status.remainingSeconds);
+      anim.remainAnchorAt = performance.now();
+      anim.lastShownSec = null; // force the 1Hz tick to repaint immediately
+    }
+
+    const fillEl = document.querySelector(`[data-ota-progress-fill="${CSS.escape(deviceId)}"]`);
+    if (!fillEl) { patchOtaBlock(deviceId); return; }
+
+    if (newTarget !== anim.target) {
+      const from = anim.displayed;
+      anim.target = newTarget;
+      fillEl.style.width = newTarget + "%"; // CSS transition (app.css) animates this
+      animateOtaNumber(deviceId, from, newTarget);
+    } else {
+      updateOtaTextNode(deviceId);
+    }
+  }
+
   State.on("ota-status", (status) => {
     if (!status || !status.deviceId) return;
-    otaByDevice.set(status.deviceId, status);
-    render();
+    applyOtaStatus(status);
   });
 
+  /* UpToDate and Done are NOT the same fact and must not read the same:
+   * UpToDate means "this device's firmware happens to already be the newest
+   * offered" - true for a device that has never been touched. Done means "an
+   * update THIS device just ran finished successfully". Two cards both
+   * showing a short green word here is exactly how a demo reads "both devices
+   * were just updated" when only one actually was - see OtaStatusRegistry for
+   * the server-side half of this (Done is refused without a solicited update
+   * in progress, so this label is never wrong even under a stray gateway
+   * message). */
   const OTA_LABEL = {
-    Unknown:  { text: "Not checked yet",   cls: "ota-idle" },
-    UpToDate: { text: "Up to date",        cls: "ota-ok" },
-    Available:{ text: "Update available",  cls: "ota-avail" },
-    Starting: { text: "Starting…",         cls: "ota-busy" },
-    Updating: { text: "Installing",        cls: "ota-busy" },
-    Done:     { text: "Updated",           cls: "ota-ok" },
-    Failed:   { text: "Update failed",     cls: "ota-fail" },
+    Unknown:  { text: "Not checked yet",     cls: "ota-idle" },
+    UpToDate: { text: "Latest version",      cls: "ota-ok" },
+    Available:{ text: "Update available",    cls: "ota-avail" },
+    Starting: { text: "Starting…",           cls: "ota-busy" },
+    Updating: { text: "Installing",          cls: "ota-busy" },
+    Done:     { text: "Update successful",   cls: "ota-ok" },
+    Failed:   { text: "Update failed",       cls: "ota-fail" },
   };
 
   function otaSectionHtml(device) {
@@ -67,6 +253,9 @@ const DevicesTab = (() => {
     const state = ota?.state || "Unknown";
     const spec = OTA_LABEL[state] || OTA_LABEL.Unknown;
     const id = UiUtils.escapeHtml(device.deviceId);
+    const otaMessage = ota?.message || "";
+    const needsBootloaderRescue = ota?.installedVersion <= 2
+      && /(?:ABORT|0x95)/i.test(otaMessage);
 
     /* Trong lúc nạp thì KHÔNG hiện nút Cập nhật.
      *
@@ -76,13 +265,19 @@ const DevicesTab = (() => {
      * mời người ta bấm ngay từ đầu. */
     const busy = ota?.inFlight === true;
 
+    /* The bar/number/countdown below are the DOM this OTA session animates
+     * in place (see otaAnim/applyOtaStatus) - width and text are mutated
+     * directly on these exact nodes on every progress tick, never rebuilt,
+     * so the CSS transition on .ota-bar-fill actually gets to run. Initial
+     * width/text come from otaAnim if a session is already tracked (so a
+     * full render mid-session does not reset the animation), else from the
+     * raw status. */
+    const anim = otaAnim.get(device.deviceId);
+    const initialWidth = anim ? anim.target : (ota?.progress ?? 0);
+    const initialText = otaProgressText(device.deviceId, ota);
     const bar = busy
-      ? `<div class="ota-bar"><div class="ota-bar-fill" style="width:${
-           ota.progress != null ? ota.progress : 0}%;"></div></div>
-         <div class="ota-sub">${
-           ota.progress != null ? ota.progress + "%" : "preparing…"}${
-           ota.remainingSeconds != null && ota.remainingSeconds > 0
-             ? " · about " + Math.round(ota.remainingSeconds / 60) + " min left" : ""}</div>
+      ? `<div class="ota-bar" data-ota-progress-device="${id}"><div class="ota-bar-fill" data-ota-progress-fill="${id}" style="width:${initialWidth}%;"></div></div>
+         <div class="ota-sub" data-ota-progress-text="${id}">${initialText}</div>
          <div class="ota-warn">Installing firmware — do not disconnect power.</div>`
       : "";
 
@@ -100,7 +295,10 @@ const DevicesTab = (() => {
           <span class="ota-label">Firmware</span>
           <span class="ota-state ${spec.cls}">${spec.text}</span>
         </div>
-        ${ota?.message ? `<div class="ota-sub">${UiUtils.escapeHtml(ota.message)}</div>` : ""}
+        ${otaMessage ? `<div class="ota-sub">${UiUtils.escapeHtml(otaMessage)}</div>` : ""}
+        ${needsBootloaderRescue
+          ? `<div class="ota-warn">This v2 device has no working storage bootloader. Flash the one-time SmartIV v3 bootloader rescue image over J-Link, then future updates can use OTA.</div>`
+          : ""}
         ${bar}
         ${buttons}
       </div>`;
@@ -475,21 +673,73 @@ const DevicesTab = (() => {
                   : `<span class="ota-fail">unknown code: ${i.manufacturerCode}</span>`}</td>
             <td>v${i.fileVersion}</td>
             <td class="muted">${Math.round(i.sizeBytes / 1024)} KB</td>
-            <td><button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}">Delete</button></td>
+            <td>${i.isProtected ? `<span class="muted">Required bridge</span> ` : ""}<button class="btn" data-ota-del="${UiUtils.escapeHtml(i.fileName)}" data-ota-protected="${i.isProtected ? "1" : "0"}">Delete</button></td>
           </tr>`).join("")}
       </table>`;
 
     host.querySelectorAll("[data-ota-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const name = btn.getAttribute("data-ota-del");
-        if (!(await UiUtils.confirm(`Remove ${name} from the firmware library?\n\n`
+        const protectedImage = btn.getAttribute("data-ota-protected") === "1";
+
+        if (protectedImage) {
+          if (!(await UiUtils.confirm(
+                     "This image is required by an active OTA policy.\n"
+                     + "Deleting it may break OTA upgrades for legacy firmware.\n"
+                     + "Delete anyway?",
+                     { title: "Delete required bridge image?", confirmLabel: "Delete", danger: true }))) return;
+        } else if (!(await UiUtils.confirm(`Remove ${name} from the firmware library?\n\n`
                    + `Devices already running this image are unaffected — it just `
                    + `stops being offered to anything from now on.`,
                    { title: "Remove firmware image?", confirmLabel: "Remove", danger: true }))) return;
+
         try {
-          await Api.otaDeleteImage(name);
+          await Api.otaDeleteImage(name, protectedImage);
           renderOtaLibrary();
         } catch (err) { UiUtils.toast(err.message, true); }
+      });
+    });
+  }
+
+  /* Binds the "Check for update" / "Update" buttons within `scope` - the
+   * whole grid after a full render(), or just one card after patchOtaBlock()
+   * rebuilt a single .ota-block. */
+  function bindOtaButtons(scope) {
+    scope.querySelectorAll("[data-ota-check]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-ota-check");
+        btn.disabled = true;
+        try {
+          await Api.otaCheck(id);
+          UiUtils.toast(`${id}: checking for a newer firmware`);
+        } catch (err) {
+          UiUtils.toast(`Could not check: ${err.message}`);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    scope.querySelectorAll("[data-ota-update]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-ota-update");
+        /* Nạp firmware mất vài phút và không huỷ giữa chừng được, nên hỏi lại
+         * một lần. Đây là thao tác duy nhất ở trang này có thể làm một giường
+         * ngừng theo dõi. */
+        if (!(await UiUtils.confirm(
+              `Update the firmware on ${id}?\n\n` +
+              `This takes several minutes and cannot be stopped once started. ` +
+              `Do not disconnect the device's power while it runs.`,
+              { title: "Update firmware?", confirmLabel: "Update", danger: true }))) {
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await Api.otaUpdate(id);
+          UiUtils.toast(`${id}: update started`);
+        } catch (err) {
+          UiUtils.toast(`Could not start: ${err.message}`);
+          btn.disabled = false;
+        }
       });
     });
   }
@@ -513,43 +763,7 @@ const DevicesTab = (() => {
     const countEl = document.getElementById("devicesCount");
     if (countEl) countEl.textContent = devices.length === total ? `${total} devices` : `Showing ${devices.length} of ${total}`;
 
-    document.querySelectorAll("[data-ota-check]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = btn.getAttribute("data-ota-check");
-        btn.disabled = true;
-        try {
-          await Api.otaCheck(id);
-          UiUtils.toast(`${id}: checking for a newer firmware`);
-        } catch (err) {
-          UiUtils.toast(`Could not check: ${err.message}`);
-          btn.disabled = false;
-        }
-      });
-    });
-
-    document.querySelectorAll("[data-ota-update]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = btn.getAttribute("data-ota-update");
-        /* Nạp firmware mất vài phút và không huỷ giữa chừng được, nên hỏi lại
-         * một lần. Đây là thao tác duy nhất ở trang này có thể làm một giường
-         * ngừng theo dõi. */
-        if (!(await UiUtils.confirm(
-              `Update the firmware on ${id}?\n\n` +
-              `This takes several minutes and cannot be stopped once started. ` +
-              `Do not disconnect the device's power while it runs.`,
-              { title: "Update firmware?", confirmLabel: "Update", danger: true }))) {
-          return;
-        }
-        btn.disabled = true;
-        try {
-          await Api.otaUpdate(id);
-          UiUtils.toast(`${id}: update started`);
-        } catch (err) {
-          UiUtils.toast(`Could not start: ${err.message}`);
-          btn.disabled = false;
-        }
-      });
-    });
+    bindOtaButtons(grid);
 
     document.querySelectorAll("[data-assign-device]").forEach((btn) => {
       btn.addEventListener("click", () => assignDevice(btn.getAttribute("data-assign-device")));

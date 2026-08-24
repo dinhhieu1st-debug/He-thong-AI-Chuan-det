@@ -102,39 +102,41 @@ public static class DeviceEndpoints
          * down to the gateways; progress comes back the other way as
          * ota_status lines and reaches the browser over SignalR. */
         group.MapPost("/{deviceId}/ota/check", async (
-            string deviceId, BedConnectionRegistry connections) =>
+            string deviceId, DeviceRepository repository, BedConnectionRegistry connections) =>
         {
-            var delivered = await connections.BroadcastCommandAsync(
-                $"{{\"cmd\":\"ota_check\",\"deviceId\":\"{deviceId}\"}}");
+            var (device, error) = await ResolveOtaTargetAsync(deviceId, repository);
+            if (error is not null) return error;
 
-            /* A successful HTTP response used to mean only that the button's
-             * request reached this process. With no live gateway the browser
-             * then said "checking" forever while the card stayed Unknown.
-             * Match the update endpoint: success now means at least one
-             * gateway actually accepted the command. */
-            if (delivered == 0)
+            var sent = await connections.TrySendCommandAsync(device!.AssignedBedId!,
+                $"{{\"cmd\":\"ota_check\",\"deviceId\":\"{device.DeviceId}\"}}");
+
+            if (!sent)
             {
                 return Results.Problem(
-                    "No gateway is connected, so the firmware check could not be started.",
+                    "The gateway serving this device is not connected.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
-            return Results.Ok(new { deviceId, gatewaysNotified = delivered });
+            return Results.Ok(new { deviceId = device.DeviceId, bedId = device.AssignedBedId });
         }).RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapPost("/{deviceId}/ota/update", async (
             string deviceId,
+            DeviceRepository repository,
             BedConnectionRegistry connections,
-            OtaStatusRegistry ota) =>
+            OtaStatusRegistry ota,
+            ILogger<Program> logger) =>
         {
-            /* Refuse a second update while one is running. Pressing Update
-             * twice would start a second image transfer on top of the first,
-             * and that is the one way this feature could leave a bedside
-             * device holding half a firmware. The UI hides the button too, but
-             * the UI is not the place to enforce it. */
-            var current = ota.Get(deviceId);
-            if (current.InFlight)
+            /* Refuse a second update while one is running - or already
+             * requested but not yet confirmed by the gateway (see
+             * IsUpdateInFlightOrPending). Pressing Update twice would start a
+             * second image transfer on top of the first, and that is the one
+             * way this feature could leave a bedside device holding half a
+             * firmware. The UI hides the button too, but the UI is not the
+             * place to enforce it. */
+            if (ota.IsUpdateInFlightOrPending(deviceId))
             {
+                var current = ota.Get(deviceId);
                 return Results.Conflict(new
                 {
                     deviceId,
@@ -144,18 +146,34 @@ public static class DeviceEndpoints
                 });
             }
 
-            var delivered = await connections.BroadcastCommandAsync(
-                $"{{\"cmd\":\"ota_update\",\"deviceId\":\"{deviceId}\"}}");
+            var (device, error) = await ResolveOtaTargetAsync(deviceId, repository);
+            if (error is not null) return error;
 
-            if (delivered == 0)
+            /* Targeted at exactly the gateway connection that owns this
+             * device's bed - never a broadcast. A broadcast command for a
+             * single-device operation reaches every connected gateway,
+             * including ones that do not serve this device at all; there is
+             * no reason for any of them to see it. */
+            var sent = await connections.TrySendCommandAsync(device!.AssignedBedId!,
+                $"{{\"cmd\":\"ota_update\",\"deviceId\":\"{device.DeviceId}\"}}");
+
+            if (!sent)
             {
                 return Results.Problem(
-                    "No gateway is connected, so the update could not be started.",
+                    "The gateway serving this device is not connected.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
+            /* Marked as requested only NOW - after the gateway accepted the
+             * write - so a send failure above leaves no pending operation
+             * behind to explain away later. */
+            ota.MarkUpdateRequested(device.DeviceId);
+            logger.LogInformation(
+                "OTA command requested: device={DeviceId} bed={BedId} command=update",
+                device.DeviceId, device.AssignedBedId);
+
             return Results.Accepted($"/api/devices/{deviceId}/ota",
-                                    new { deviceId, gatewaysNotified = delivered });
+                                    new { deviceId = device.DeviceId, bedId = device.AssignedBedId });
         }).RequireAuthorization(Capabilities.ManageDevices);
 
         group.MapGet("/{deviceId}/ota", (string deviceId, OtaStatusRegistry ota) =>
@@ -247,6 +265,30 @@ public static class DeviceEndpoints
          * and administrators/technicians are not in WardGroup, so the
          * BedUpdated calls above never reach the page they are looking at. */
         await hub.Clients.Group(MonitoringHub.DirectoryGroup).BedDirectoryChanged();
+    }
+
+    /// <summary>
+    /// Looks up the one gateway connection a targeted OTA command must go to -
+    /// the device's assigned bed. Returns an error result (never null when
+    /// Device is null) for the two ways this can fail, so both /ota/check and
+    /// /ota/update report the same clear reason instead of silently
+    /// broadcasting to every connected gateway as a fallback.
+    /// </summary>
+    private static async Task<(DeviceRecord? Device, IResult? Error)> ResolveOtaTargetAsync(
+        string deviceId, DeviceRepository repository)
+    {
+        var device = await repository.GetAsync(deviceId);
+        if (device is null)
+        {
+            return (null, Results.NotFound(new { error = $"Unknown device '{deviceId}'." }));
+        }
+
+        if (string.IsNullOrWhiteSpace(device.AssignedBedId))
+        {
+            return (null, Results.Conflict(new { error = "Device must be assigned to a bed before OTA." }));
+        }
+
+        return (device, null);
     }
 
     private static DeviceRecord ToRecord(UpsertDeviceRequest request) => new()
