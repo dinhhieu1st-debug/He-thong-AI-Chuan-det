@@ -1431,9 +1431,54 @@ void app_init(void)
          vitals_models_ok ? "OK" : "NO");
 }
 
+/* --- OTA progress on OLED --------------------------------------------------
+ *
+ * Called from real Zigbee OTA client code (see the SDK edits in
+ * ota-client.c / ota-client-policy.c - not a timer simulation of progress).
+ * These only set OLED state; oled_display_ota_step() below, called every
+ * app_process_action() tick like the rest of this app, owns the actual I2C
+ * writes so nothing here can block the OTA client's own event loop.
+ */
+void smart_iv_ota_progress_cb(uint8_t percent)
+{
+  oled_display_set_ota_progress(true, percent);
+}
+
+/* Mirrors sl_zigbee_af_ota_download_result_t (af-types.h) - kept as plain
+ * uint8_t at the call site so ota-client-policy.c does not need this app's
+ * headers, just a forward declaration. */
+static const char *ota_failure_reason_text(uint8_t resultCode)
+{
+  switch (resultCode) {
+    case 1U: return "TIMEOUT";        /* SL_ZIGBEE_AF_OTA_DOWNLOAD_TIME_OUT */
+    case 2U: return "INVALID IMAGE";  /* SL_ZIGBEE_AF_OTA_VERIFY_FAILED */
+    case 3U: return "SERVER ABORTED"; /* SL_ZIGBEE_AF_OTA_SERVER_ABORTED */
+    case 4U: return "CLIENT ABORTED"; /* SL_ZIGBEE_AF_OTA_CLIENT_ABORTED */
+    case 5U: return "ERASE FAILED";   /* SL_ZIGBEE_AF_OTA_ERASE_FAILED */
+    default: return "UPDATE ERROR";
+  }
+}
+
+void smart_iv_ota_failed_cb(uint8_t resultCode)
+{
+  oled_display_set_ota_result(false, ota_failure_reason_text(resultCode));
+}
+
+void smart_iv_ota_success_cb(void)
+{
+  /* This fires exactly once, immediately before the OTA client reboots into
+   * the new image - control never returns to app_process_action()'s next
+   * tick, so this is the one place an immediate render (not a delay, just
+   * the existing bounded I2C write oled_display_ota_step() already does) is
+   * required for "UPDATE DONE / REBOOT" to ever reach the screen at all. */
+  oled_display_set_ota_result(true, NULL);
+  oled_display_ota_step(now_ms());
+}
+
 void app_process_action(void)
 {
   uint32_t now = now_ms();
+  oled_display_ota_step(now);
   drop_sensor_poll();
   hx711_sensor_poll();
   bool pressed = GPIO_PinInGet(TARE_PORT, TARE_PIN) == 0;

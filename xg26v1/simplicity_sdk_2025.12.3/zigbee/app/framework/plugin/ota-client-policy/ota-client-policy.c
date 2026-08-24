@@ -27,6 +27,14 @@
 #endif
 #include "ota-client-policy.h"
 
+/* Project-specific OLED hooks (firmware/app.c), not part of the stock SDK.
+ * download_complete_cb below is the one place with the real
+ * sl_zigbee_af_ota_download_result_t failure reason; bootload_cb below is the
+ * one place that fires only on confirmed success, immediately before the
+ * device resets into the new image. */
+extern void smart_iv_ota_failed_cb(uint8_t resultCode);
+extern void smart_iv_ota_success_cb(void);
+
 #ifdef SL_COMPONENT_CATALOG_PRESENT
 #include "sl_component_catalog.h"
 #endif
@@ -159,6 +167,7 @@ bool sl_zigbee_af_ota_client_download_complete_cb(sl_zigbee_af_ota_download_resu
 
   if (result != SL_ZIGBEE_AF_OTA_DOWNLOAD_AND_VERIFY_SUCCESS) {
     sl_zigbee_af_ota_bootload_cluster_println("Download failed.");
+    smart_iv_ota_failed_cb((uint8_t)result);
 
 #if defined(DELETE_FAILED_DOWNLOADS)
     if (result != SL_ZIGBEE_AF_OTA_ERASE_FAILED) {
@@ -211,6 +220,11 @@ void sl_zigbee_af_ota_client_bootload_cb(const sl_zigbee_af_ota_image_id_t* id)
 
   // If we're using slots, we'll need to use a different set of APIs
   slot = sli_zigbee_af_ota_storage_get_slot();
+
+  /* Last chance to update the OLED: everything below this point either does
+   * not return (successful bootload) or the device is already committed to
+   * rebooting into the new image. */
+  smart_iv_ota_success_cb();
 
   // These routines will NOT return unless we failed to launch the bootloader.
   if (INVALID_SLOT != slot) {

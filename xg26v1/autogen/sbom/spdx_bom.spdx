@@ -13,7 +13,7 @@ DocumentNamespace: https://silabs.com
 
 ## Creation Information
 Creator: Organization: Silicon Laboratories, Inc.
-Created: 2026-08-23T07:16:10Z
+Created: 2026-08-24T19:33:15Z
 ## Relationships
 Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-silabs.aiml-2.2.2
 Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-silabs.simplicity_sdk-2025.12.3
@@ -27,11 +27,11 @@ PackageDownloadLocation: NOASSERTION
 PackageSupplier: Organization: Silicon Laboratories Inc.
 ## Relationships
 Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tflite-micro
+Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tensorflow_debug_log_iostream
 Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tensorflow_dependency_flatbuffers
 Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tensorflow_dependency_gemmlowp
 Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tensorflow_dependency_ruy
 Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tensorflow_lite_micro_accelerated_kernels
-Relationship: SPDXRef-silabs.aiml-2.2.2 CONTAINS SPDXRef-silabs.aiml-2.2.2-tensorflow_debug_log_iostream
 
 ## Package Information
 PackageName: TensorFlow Lite Micro
@@ -58,6 +58,17 @@ ExternalRef: PACKAGE-MANAGER purl pkg:github/tensorflow/tflite-micro@ea8db00ab35
 PackageComment: <text>Tensorflow Lite for Microcontrollers library as it was on GitHub, at commit hash ea8db00ab35</text>
 ## Relationships
 Relationship: SPDXRef-tflite-micro-ea8db00ab35 DESCENDANT_OF SPDXRef-silabs.aiml-2.2.2-tflite-micro
+
+## Package Information
+PackageName: Debug Logging using IO Stream
+SPDXID: SPDXRef-silabs.aiml-2.2.2-tensorflow_debug_log_iostream
+PackageVersion: 2.2.2
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.aiml-2.2.2-tensorflow_debug_log_iostream CONTAINED_BY SPDXRef-silabs.aiml-2.2.2
 
 ## Package Information
 PackageName: Flatbuffers
@@ -149,17 +160,6 @@ PackageLicenseConcluded: MSLA
 Relationship: SPDXRef-silabs.aiml-2.2.2-tensorflow_lite_micro_accelerated_kernels CONTAINED_BY SPDXRef-silabs.aiml-2.2.2
 
 ## Package Information
-PackageName: Debug Logging using IO Stream
-SPDXID: SPDXRef-silabs.aiml-2.2.2-tensorflow_debug_log_iostream
-PackageVersion: 2.2.2
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.aiml-2.2.2-tensorflow_debug_log_iostream CONTAINED_BY SPDXRef-silabs.aiml-2.2.2
-
-## Package Information
 PackageName: Simplicity SDK Suite
 SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3
 PackageVersion: 2025.12.3
@@ -203,13 +203,16 @@ Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.si
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-clock_manager_runtime
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-clock_manager_runtime_hal_s2
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_core
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-code_classification
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-common_token_manager
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-common_token_manager_core
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-common_token_manager_dynamic
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-common_token_manager_static
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-component_catalog
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-compute_util
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-configuration_over_swo
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-cpp_support
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-debug_swo
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-device_clock
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-device_clock_hal
@@ -223,6 +226,8 @@ Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.si
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-device_peripheral_hal
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-dmadrv
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-dmadrv_core
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp_hal_efr32
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-ecode
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-emlib_burtc
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-emlib_chip
@@ -262,13 +267,19 @@ Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.si
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-legacy_hal
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-legacy_hal_soc
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-legacy_hal_wdog
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-math
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-math_mvp
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-math_types
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-mbedtls_config
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-mbedtls_slcrypto
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-mbedtls_slcrypto_driver
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_cpp
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_pool
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_region
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_retention_control
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_retention_control_hal
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_mvp
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_util
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nvm3_default
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nvm3_default_config
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nvm3_default_flash_backend
@@ -316,9 +327,13 @@ Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.si
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_rail_util_pti
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_rail_util_sequencer
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_string
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_syscalls
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-sli_psec_osal
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-slist
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-status
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc_standard
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_variant_arm
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-trustzone_unaware
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-udelay
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-util_eeprom
@@ -343,21 +358,6 @@ Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.si
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-zigbee_system_common_app_framework
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-zigbee_update_tc_link_key
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-zigbee_zcl_framework_core
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-compute_util
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_mvp
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc_standard
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_util
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-math
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_cpp
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-cpp_support
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_syscalls
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-math_mvp
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp_hal_efr32
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_variant_arm
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3 CONTAINS SPDXRef-silabs.simplicity_sdk-2025.12.3-math_types
 
 ## Package Information
 PackageName: EFR32MG26B510F3200IM48
@@ -771,6 +771,32 @@ PackageComment: <text>The CMSIS is a set of tools, APIs, frameworks, and work fl
 Relationship: SPDXRef-cmsis_core-5.8.0 DESCENDANT_OF SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_core
 
 ## Package Information
+PackageName: CMSIS-NN
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Apache-2.0
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn ANCESTOR_OF SPDXRef-cmsis_nn-3f773cbf8f5
+
+## Package Information
+PackageName: CMSIS-NN
+SPDXID: SPDXRef-cmsis_nn-3f773cbf8f5
+PackageVersion: 3f773cbf8f5
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: ARM-software
+PackageOriginator: Organization: NOASSERTION
+PackageHomePage: https://github.com/ARM-software/CMSIS-NN
+ExternalRef: PACKAGE-MANAGER purl pkg:github/ARM-software/CMSIS-NN@3f773cbf8f5
+PackageComment: <text>CMSIS NN Library as packaged and released by ARM-software, version 4.1.0, tag 23.08, commit hash 3f773cbf8f5</text>
+## Relationships
+Relationship: SPDXRef-cmsis_nn-3f773cbf8f5 DESCENDANT_OF SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn
+
+## Package Information
 PackageName: Code Classification
 SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-code_classification
 PackageVersion: 2025.12.3
@@ -837,6 +863,17 @@ PackageLicenseConcluded: Zlib
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-component_catalog CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
+PackageName: Compute utilities
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-compute_util
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-compute_util CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
 PackageName: Configuration Over SWO
 SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-configuration_over_swo
 PackageVersion: 2025.12.3
@@ -846,6 +883,17 @@ PackageSupplier: Organization: Silicon Laboratories, Inc.
 PackageLicenseConcluded: Zlib
 ## Relationships
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-configuration_over_swo CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: Toolchain: C++ Support
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-cpp_support
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-cpp_support CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
 PackageName: SWO Debug
@@ -989,6 +1037,28 @@ PackageSupplier: Organization: Silicon Laboratories, Inc.
 PackageLicenseConcluded: Zlib
 ## Relationships
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-dmadrv_core CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: MVP Driver
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: MVP HAL Driver for EFR32 parts
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp_hal_efr32
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp_hal_efr32 CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
 PackageName: EMDRV Common Headers
@@ -1420,6 +1490,39 @@ PackageLicenseConcluded: MSLA
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-legacy_hal_wdog CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
+PackageName: Math
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-math
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-math CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: MVP Math
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_mvp
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_mvp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: Math Types
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_types
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_types CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
 PackageName: Configuration
 SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-mbedtls_config
 PackageVersion: 2025.12.3
@@ -1451,6 +1554,17 @@ PackageSupplier: Organization: Silicon Laboratories, Inc.
 PackageLicenseConcluded: Zlib
 ## Relationships
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-mbedtls_slcrypto_driver CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: Memory Manager C++ Support
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_cpp
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_cpp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
 PackageName: Memory Manager Memory Pool
@@ -1495,6 +1609,28 @@ PackageSupplier: Organization: Silicon Laboratories, Inc.
 PackageLicenseConcluded: Zlib
 ## Relationships
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_retention_control_hal CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: MVP NN
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_mvp
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib and MSLA
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_mvp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: NN Utilities
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_util
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_util CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
 PackageName: NVM3 Default Instance
@@ -2014,6 +2150,17 @@ PackageLicenseConcluded: Zlib
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_string CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
+PackageName: SystemCall Functions
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_syscalls
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_syscalls CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
 PackageName: OS Abstraction Layer
 SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-sli_psec_osal
 PackageVersion: 2025.12.3
@@ -2045,6 +2192,39 @@ PackageSupplier: Organization: Silicon Laboratories, Inc.
 PackageLicenseConcluded: Zlib
 ## Relationships
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-status CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: GCC Toolchain
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: GCC Toolchain Standard Linker
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc_standard
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc_standard CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
+
+## Package Information
+PackageName: Toolchain for ARM
+SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_variant_arm
+PackageVersion: 2025.12.3
+PrimaryPackagePurpose: LIBRARY
+PackageDownloadLocation: NOASSERTION
+PackageSupplier: Organization: Silicon Laboratories, Inc.
+PackageLicenseConcluded: Zlib
+## Relationships
+Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_variant_arm CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
 
 ## Package Information
 PackageName: TrustZone Unaware
@@ -2309,183 +2489,3 @@ PackageSupplier: Organization: Silicon Laboratories, Inc.
 PackageLicenseConcluded: MSLA
 ## Relationships
 Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-zigbee_zcl_framework_core CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: Compute utilities
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-compute_util
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-compute_util CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: MVP NN
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_mvp
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib and MSLA
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_mvp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: CMSIS-NN
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Apache-2.0
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn ANCESTOR_OF SPDXRef-cmsis_nn-3f773cbf8f5
-
-## Package Information
-PackageName: CMSIS-NN
-SPDXID: SPDXRef-cmsis_nn-3f773cbf8f5
-PackageVersion: 3f773cbf8f5
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: ARM-software
-PackageOriginator: Organization: NOASSERTION
-PackageHomePage: https://github.com/ARM-software/CMSIS-NN
-ExternalRef: PACKAGE-MANAGER purl pkg:github/ARM-software/CMSIS-NN@3f773cbf8f5
-PackageComment: <text>CMSIS NN Library as packaged and released by ARM-software, version 4.1.0, tag 23.08, commit hash 3f773cbf8f5</text>
-## Relationships
-Relationship: SPDXRef-cmsis_nn-3f773cbf8f5 DESCENDANT_OF SPDXRef-silabs.simplicity_sdk-2025.12.3-cmsis_nn
-
-## Package Information
-PackageName: MVP Driver
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: GCC Toolchain Standard Linker
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc_standard
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc_standard CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: NN Utilities
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_util
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-nn_util CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: Math
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-math
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-math CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: Memory Manager C++ Support
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_cpp
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-memory_manager_cpp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: Toolchain: C++ Support
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-cpp_support
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-cpp_support CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: SystemCall Functions
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_syscalls
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-sl_syscalls CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: MVP Math
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_mvp
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_mvp CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: GCC Toolchain
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_gcc CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: MVP HAL Driver for EFR32 parts
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp_hal_efr32
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-driver_mvp_hal_efr32 CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: Toolchain for ARM
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_variant_arm
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-toolchain_variant_arm CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3
-
-## Package Information
-PackageName: Math Types
-SPDXID: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_types
-PackageVersion: 2025.12.3
-PrimaryPackagePurpose: LIBRARY
-PackageDownloadLocation: NOASSERTION
-PackageSupplier: Organization: Silicon Laboratories, Inc.
-PackageLicenseConcluded: Zlib
-## Relationships
-Relationship: SPDXRef-silabs.simplicity_sdk-2025.12.3-math_types CONTAINED_BY SPDXRef-silabs.simplicity_sdk-2025.12.3

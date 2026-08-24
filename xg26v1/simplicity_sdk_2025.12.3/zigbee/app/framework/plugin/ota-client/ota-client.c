@@ -42,6 +42,16 @@
   #include "test-harness-config.h"
 #endif //SL_CATALOG_ZIGBEE_TEST_HARNESS_PRESENT
 
+/* Project-specific OLED progress hook (firmware/app.c). Not part of the
+ * stock Silicon Labs SDK: this SDK build exposes no app-facing OTA download
+ * progress callback (sli_zigbee_af_print_percentage_update/_calculate_percentage
+ * are internal, `sli_`-prefixed, and compiled out entirely unless
+ * SL_ZIGBEE_AF_CORE_PRINT_ENABLED is defined - not the case in this project).
+ * This mirrors the exact percent formula those internal functions use
+ * (currentOffset * 100 / imageSize, clamped to 100), computed independently
+ * so OLED progress does not depend on that unrelated debug-print flag. */
+extern void smart_iv_ota_progress_cb(uint8_t percent);
+
 #if defined(EZSP_HOST)
 // For sl_zigbee_ieee_address_request()
   #include "app/util/zigbee-framework/zigbee-device-host.h"
@@ -1324,6 +1334,7 @@ static void startDownload(uint32_t newVersion)
   otaPrintln("Starting download, Version 0x%08X",
              newVersion);
   sli_zigbee_af_print_percentage_set_start_and_end(0, totalImageSize);
+  smart_iv_ota_progress_cb(0U);
   updateDownloadFileVersion(newVersion);
   updateCurrentOffset(0);
   updateMinBlockRequestPeriodAttribute(0);
@@ -2034,6 +2045,16 @@ static sl_zigbee_af_status_t imageBlockResponseParse(uint8_t* buffer, uint8_t in
                                         DOWNLOAD_PERCENTAGE_UPDATE_RATE,
                                         offset);
 #endif
+
+  {
+    /* Same formula as sli_zigbee_af_calculate_percentage(): offset and
+     * totalImageSize are both well under 2^24 for any realistic OTA image,
+     * so offset * 100 cannot overflow uint32_t. */
+    uint8_t percent = (totalImageSize == 0U) ? 0U
+      : (offset >= totalImageSize) ? 100U
+      : (uint8_t)((offset * 100U) / totalImageSize);
+    smart_iv_ota_progress_cb(percent);
+  }
 
   if (offset >= totalImageSize) {
     sl_zigbee_af_ota_storage_finish_download_cb(offset);

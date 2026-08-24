@@ -3,7 +3,7 @@
   "specVersion" : "1.6",
   "version" : 1,
   "metadata" : {
-    "timestamp" : "2026-08-23T07:16:10Z",
+    "timestamp" : "2026-08-24T19:33:15Z",
     "authors" : [ {
       "name" : "Silicon Laboratories, Inc."
     } ],
@@ -53,6 +53,18 @@
           }
         } ]
       }
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.aiml:2.2.2:tensorflow_debug_log_iostream",
+      "name" : "Debug Logging using IO Stream",
+      "version" : "2.2.2",
+      "supplier" : {
+        "name" : "Silicon Laboratories Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
     }, {
       "scope" : "required",
       "type" : "library",
@@ -160,18 +172,6 @@
       },
       "licenses" : [ {
         "expression" : "MSLA"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.aiml:2.2.2:tensorflow_debug_log_iostream",
-      "name" : "Debug Logging using IO Stream",
-      "version" : "2.2.2",
-      "supplier" : {
-        "name" : "Silicon Laboratories Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
       } ]
     } ]
   }, {
@@ -638,6 +638,38 @@
     }, {
       "scope" : "required",
       "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:cmsis_nn",
+      "name" : "CMSIS-NN",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Apache-2.0"
+      } ],
+      "pedigree" : {
+        "ancestors" : [ {
+          "scope" : "required",
+          "type" : "library",
+          "bom-ref" : "cmsis_nn:3f773cbf8f5",
+          "name" : "CMSIS-NN",
+          "version" : "3f773cbf8f5",
+          "supplier" : {
+            "name" : "ARM-software"
+          },
+          "externalReferences" : [ {
+            "type" : "website",
+            "url" : "https://github.com/ARM-software/CMSIS-NN"
+          } ],
+          "purl" : "pkg:github/ARM-software/CMSIS-NN@3f773cbf8f5",
+          "pedigree" : {
+            "notes" : "CMSIS NN Library as packaged and released by ARM-software, version 4.1.0, tag 23.08, commit hash 3f773cbf8f5"
+          }
+        } ]
+      }
+    }, {
+      "scope" : "required",
+      "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:code_classification",
       "name" : "Code Classification",
       "version" : "2025.12.3",
@@ -710,8 +742,32 @@
     }, {
       "scope" : "required",
       "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:compute_util",
+      "name" : "Compute utilities",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:configuration_over_swo",
       "name" : "Configuration Over SWO",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:cpp_support",
+      "name" : "Toolchain: C++ Support",
       "version" : "2025.12.3",
       "supplier" : {
         "name" : "Silicon Laboratories, Inc."
@@ -868,6 +924,30 @@
       "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:dmadrv_core",
       "name" : "DMADRV Core",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:driver_mvp",
+      "name" : "MVP Driver",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:driver_mvp_hal_efr32",
+      "name" : "MVP HAL Driver for EFR32 parts",
       "version" : "2025.12.3",
       "supplier" : {
         "name" : "Silicon Laboratories, Inc."
@@ -1346,6 +1426,42 @@
     }, {
       "scope" : "required",
       "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:math",
+      "name" : "Math",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:math_mvp",
+      "name" : "MVP Math",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:math_types",
+      "name" : "Math Types",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:mbedtls_config",
       "name" : "Configuration",
       "version" : "2025.12.3",
@@ -1372,6 +1488,18 @@
       "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:mbedtls_slcrypto_driver",
       "name" : "Drivers for Silicon Labs Crypto Acceleration",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:memory_manager_cpp",
+      "name" : "Memory Manager C++ Support",
       "version" : "2025.12.3",
       "supplier" : {
         "name" : "Silicon Laboratories, Inc."
@@ -1420,6 +1548,30 @@
       "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:memory_manager_retention_control_hal",
       "name" : "Memory Manager Retention Control HAL",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:nn_mvp",
+      "name" : "MVP NN",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib and MSLA"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:nn_util",
+      "name" : "NN Utilities",
       "version" : "2025.12.3",
       "supplier" : {
         "name" : "Silicon Laboratories, Inc."
@@ -1994,6 +2146,18 @@
     }, {
       "scope" : "required",
       "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:sl_syscalls",
+      "name" : "SystemCall Functions",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:sli_psec_osal",
       "name" : "OS Abstraction Layer",
       "version" : "2025.12.3",
@@ -2020,6 +2184,42 @@
       "type" : "library",
       "bom-ref" : "silabs.simplicity_sdk:2025.12.3:status",
       "name" : "Status Codes Definitions",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:toolchain_gcc",
+      "name" : "GCC Toolchain",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:toolchain_gcc_standard",
+      "name" : "GCC Toolchain Standard Linker",
+      "version" : "2025.12.3",
+      "supplier" : {
+        "name" : "Silicon Laboratories, Inc."
+      },
+      "licenses" : [ {
+        "expression" : "Zlib"
+      } ]
+    }, {
+      "scope" : "required",
+      "type" : "library",
+      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:toolchain_variant_arm",
+      "name" : "Toolchain for ARM",
       "version" : "2025.12.3",
       "supplier" : {
         "name" : "Silicon Laboratories, Inc."
@@ -2314,206 +2514,6 @@
       },
       "licenses" : [ {
         "expression" : "MSLA"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:compute_util",
-      "name" : "Compute utilities",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:nn_mvp",
-      "name" : "MVP NN",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib and MSLA"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:cmsis_nn",
-      "name" : "CMSIS-NN",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Apache-2.0"
-      } ],
-      "pedigree" : {
-        "ancestors" : [ {
-          "scope" : "required",
-          "type" : "library",
-          "bom-ref" : "cmsis_nn:3f773cbf8f5",
-          "name" : "CMSIS-NN",
-          "version" : "3f773cbf8f5",
-          "supplier" : {
-            "name" : "ARM-software"
-          },
-          "externalReferences" : [ {
-            "type" : "website",
-            "url" : "https://github.com/ARM-software/CMSIS-NN"
-          } ],
-          "purl" : "pkg:github/ARM-software/CMSIS-NN@3f773cbf8f5",
-          "pedigree" : {
-            "notes" : "CMSIS NN Library as packaged and released by ARM-software, version 4.1.0, tag 23.08, commit hash 3f773cbf8f5"
-          }
-        } ]
-      }
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:driver_mvp",
-      "name" : "MVP Driver",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:toolchain_gcc_standard",
-      "name" : "GCC Toolchain Standard Linker",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:nn_util",
-      "name" : "NN Utilities",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:math",
-      "name" : "Math",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:memory_manager_cpp",
-      "name" : "Memory Manager C++ Support",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:cpp_support",
-      "name" : "Toolchain: C++ Support",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:sl_syscalls",
-      "name" : "SystemCall Functions",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:math_mvp",
-      "name" : "MVP Math",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:toolchain_gcc",
-      "name" : "GCC Toolchain",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:driver_mvp_hal_efr32",
-      "name" : "MVP HAL Driver for EFR32 parts",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:toolchain_variant_arm",
-      "name" : "Toolchain for ARM",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
-      } ]
-    }, {
-      "scope" : "required",
-      "type" : "library",
-      "bom-ref" : "silabs.simplicity_sdk:2025.12.3:math_types",
-      "name" : "Math Types",
-      "version" : "2025.12.3",
-      "supplier" : {
-        "name" : "Silicon Laboratories, Inc."
-      },
-      "licenses" : [ {
-        "expression" : "Zlib"
       } ]
     } ]
   } ]
