@@ -247,10 +247,17 @@ const BedsTab = (() => {
     }
 
     const spec = LINE_STATE[bed.lineState] || LINE_STATE[0];
+    // The load-cell telemetry uses one extra decimal digit for the remaining
+    // volume. Convert only the displayed mL value; keep the original weight
+    // and server payload untouched (e.g. 7897 -> 789 mL).
+    const rawRemainingMl = Number(bed.remainingMl);
+    const displayRemainingMl = bed.remainingMl != null && Number.isFinite(rawRemainingMl)
+      ? Math.floor(rawRemainingMl / 10)
+      : null;
     const remaining = (bed.remainingMl != null || bed.remainingMin != null)
       ? `<div class="ls-remaining">
            <span class="fc-label">Remaining</span>
-           <b>${bed.remainingMl != null ? UiUtils.escapeHtml(String(bed.remainingMl)) + " mL" : "--"}</b>
+           <b>${displayRemainingMl != null ? UiUtils.escapeHtml(String(displayRemainingMl)) + " mL" : "--"}</b>
            <span class="fc-sub">${bed.remainingMin != null
              ? "about " + UiUtils.escapeHtml(String(bed.remainingMin)) + " min at the current rate"
              : "rate too low to estimate"}</span>
