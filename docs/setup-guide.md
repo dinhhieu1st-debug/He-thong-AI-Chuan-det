@@ -1,10 +1,13 @@
-# Hướng dẫn cài đặt toàn bộ trên một hệ thống mới
+# Full setup guide for a new machine
 
-Phần này được nhóm viết theo đúng thứ tự đã chạy thực tế. Người mới nên làm lần lượt, bước trước thành công mới chuyển sang bước sau.
+This section is written in the exact order the team followed in practice.
+Newcomers should follow it step by step, moving to the next step only after
+the previous one succeeds.
 
-## Bước 1 – Chuẩn bị máy Windows
+## Step 1 – Prepare the Windows machine
 
-Cài Git, .NET 8 SDK, MySQL Community Server 8.x, Silicon Labs Tools/Simplicity Studio 6 và PuTTY.
+Install Git, the .NET 8 SDK, MySQL Community Server 8.x, Silicon Labs
+Tools/Simplicity Studio 6, and PuTTY.
 
 ```powershell
 git --version
@@ -12,7 +15,7 @@ dotnet --list-sdks
 plink -V
 ```
 
-Clone đúng nhánh:
+Clone the correct branch:
 
 ```powershell
 cd C:\Users\<USER>\Documents
@@ -21,49 +24,51 @@ git clone --branch smart-iv-end-to-end-2026-08-24 --single-branch `
 cd .\He-thong-AI-Chuan-det
 ```
 
-## Bước 2 – Build và nạp firmware G26
+## Step 2 – Build and flash the G26 firmware
 
-Cắm BRD2709A vào USB rồi chạy tại thư mục gốc repository:
+Plug in the BRD2709A over USB, then run from the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\flash_firmware.ps1
 ```
 
-Firmware nằm tại `cmake_gcc/build/base/smart-iv-monitor.hex`.
+The firmware image ends up at `cmake_gcc/build/base/smart-iv-monitor.hex`.
 
-Nếu bo chưa có bootloader hoặc đã erase toàn chip:
+If the board has no bootloader yet, or the whole chip was just erased:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\build_bootloader.ps1
 powershell -ExecutionPolicy Bypass -File .\tools\flash_bootloader_and_app.ps1
 ```
 
-Nếu cắm nhiều kit:
+If multiple kits are plugged in:
 
 ```powershell
 .\tools\flash_firmware.ps1 -SerialNo <DEBUG_ADAPTER_SERIAL>
 ```
 
-## Bước 3 – Tạo MySQL database
+## Step 3 – Create the MySQL database
 
-Khởi động MySQL bằng PowerShell Administrator:
+Start MySQL from an administrator PowerShell:
 
 ```powershell
 Get-Service MySQL*
 Start-Service MySQL84
 ```
 
-Tên service có thể khác `MySQL84`; dùng tên mà `Get-Service` trả về.
+The service name may differ from `MySQL84`; use whatever `Get-Service` returns.
 
-Nạp schema:
+Load the schema:
 
 ```powershell
 Get-Content -Raw .\software\server\database\schema.sql |
   & "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -p
 ```
 
-Sau đó chạy **toàn bộ** file trong `software/server/database/migrations` theo thứ tự tên. Đoạn PowerShell dưới đây gộp chúng lại để MySQL chỉ hỏi mật khẩu một lần:
+Then run **every** file under `software/server/database/migrations` in name
+order. The PowerShell snippet below concatenates them so MySQL only asks for
+the password once:
 
 ```powershell
 $migrationSql = Get-ChildItem .\software\server\database\migrations\*.sql |
@@ -72,33 +77,34 @@ $migrationSql |
   & "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -p his_server
 ```
 
-| Vai trò demo | Username | Password |
+| Demo role | Username | Password |
 |---|---|---|
-| Y tá | `yta` | `YTaDemo@2026` |
-| Kỹ thuật | `kythuat` | `KyThuat@2026` |
+| Nurse | `yta` | `YTaDemo@2026` |
+| Technician | `kythuat` | `KyThuat@2026` |
 
-Chỉ dùng các tài khoản này để demo và phải đổi khi triển khai thật.
+These accounts are for demo purposes only and must be changed before any
+real deployment.
 
-## Bước 4 – Cấu hình và chạy HIS Server
+## Step 4 – Configure and run the HIS Server
 
-Không ghi mật khẩu MySQL vào Git. Dùng .NET user-secrets:
+Never commit MySQL credentials to Git. Use .NET user-secrets instead:
 
 ```powershell
 cd .\software\server\src\HisServer
 dotnet user-secrets set "ConnectionStrings:MySql" `
-  "Server=127.0.0.1;Port=3306;Database=his_server;Uid=root;Pwd=<MAT_KHAU_MYSQL>;SslMode=None;AllowPublicKeyRetrieval=True;"
+  "Server=127.0.0.1;Port=3306;Database=his_server;Uid=root;Pwd=<MYSQL_PASSWORD>;SslMode=None;AllowPublicKeyRetrieval=True;"
 dotnet restore
 dotnet build
 ```
 
-Chạy server và giữ terminal mở:
+Run the server and keep the terminal open:
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det\software\server\src\HisServer
 dotnet run --launch-profile http
 ```
 
-Kết quả đúng:
+Expected output:
 
 ```text
 Restored ... bed(s) from the database.
@@ -106,11 +112,15 @@ Bed vitals TCP ingestion listening on port 5000.
 Now listening on: http://0.0.0.0:5194
 ```
 
-Mở `http://localhost:5194` và thử đăng nhập trước khi nối Pi.
+Open `http://localhost:5194` and try logging in before connecting the Pi.
 
-## Bước 5 – Chuẩn bị Raspberry Pi
+## Step 5 – Prepare the Raspberry Pi
 
-Pi cần Linux ARM64, SSH và quyền truy cập USB coordinator. Repository chứa source gateway và converter, nhưng các binary Node/Mosquitto/Zigbee2MQTT ARM64 khá lớn nên không lưu toàn bộ trong Git. Cần có gói runtime `pi-aarch64` từ bản phát hành hoặc chép từ Pi mẫu.
+The Pi needs Linux ARM64, SSH, and USB access to the coordinator. The
+repository holds the gateway and converter source, but the ARM64
+Node/Mosquitto/Zigbee2MQTT binaries are large enough that they are not kept
+in Git in full. You need the `pi-aarch64` runtime bundle from a release, or
+copied from a reference Pi.
 
 ```text
 /home/iotchallenge/pi-aarch64/
@@ -124,7 +134,7 @@ Pi cần Linux ARM64, SSH và quyền truy cập USB coordinator. Repository ch�
 └── zigbee2mqtt/
 ```
 
-Cập nhật source gateway, converter và launcher từ Windows:
+Update the gateway source, converter, and launcher from Windows:
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
@@ -135,22 +145,23 @@ scp .\software\gateway-pi\zigbee2mqtt_smart_iv_converter.js `
 scp .\tools\run-stack.pi.sh iotchallenge@<PI_IP>:/home/iotchallenge/pi-aarch64/run.sh
 ```
 
-> File `zigbee2mqtt_smart_iv_converter.js` hiện chưa có trong repo — xem ghi chú
-> ở [`docs/system-integration.md`](system-integration.md#deploy-the-converter-to-raspberry-pi).
+> `zigbee2mqtt_smart_iv_converter.js` is not currently in the repo — see the
+> note in [`docs/system-integration.md`](system-integration.md#deploy-the-converter-to-raspberry-pi).
 
-Trên Pi:
+On the Pi:
 
 ```bash
 sudo usermod -aG dialout iotchallenge
 ```
 
-Đăng xuất/đăng nhập lại sau khi thêm group. Launcher tự dò `/dev/serial/by-id/*`, `/dev/ttyACM*`, `/dev/ttyUSB*`.
+Log out and back in after adding the group. The launcher auto-discovers
+`/dev/serial/by-id/*`, `/dev/ttyACM*`, and `/dev/ttyUSB*`.
 
-## Bước 6 – Chọn một cách kết nối Pi với Server
+## Step 6 – Choose how the Pi connects to the server
 
-### Cách A: kết nối trực tiếp cùng mạng LAN
+### Option A: direct connection on the same LAN
 
-Trên Windows, chạy PowerShell Administrator:
+On Windows, run an administrator PowerShell:
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
@@ -158,46 +169,49 @@ powershell -ExecutionPolicy Bypass -File .\tools\configure_pi_firewall.ps1
 ipconfig
 ```
 
-Trên Pi:
+On the Pi:
 
 ```bash
 nc -vz <WINDOWS_IP> 5000
 cd ~/pi-aarch64 && bash run.sh <WINDOWS_IP>
 ```
 
-### Cách B: SSH reverse tunnel – cách nhóm đang dùng ổn định
+### Option B: SSH reverse tunnel — the team's stable setup
 
-Trên Windows, mở một PowerShell riêng và giữ chạy:
+On Windows, open a dedicated PowerShell window and keep it running:
 
 ```powershell
 plink -ssh -N -R 5000:127.0.0.1:5000 iotchallenge@<PI_IP>
 ```
 
-Lần đầu `plink` hỏi host key thì phải đối chiếu fingerprint rồi mới xác nhận. Không ghi mật khẩu SSH vào script hoặc Git.
+The first time `plink` runs it will ask you to verify the host key
+fingerprint before confirming. Never write the SSH password into a script or
+commit it to Git.
 
-SSH vào Pi:
+SSH into the Pi:
 
 ```powershell
 ssh iotchallenge@<PI_IP>
 ```
 
-Trong terminal Pi:
+In the Pi terminal:
 
 ```bash
 cd ~/pi-aarch64 && bash run.sh 127.0.0.1
 ```
 
-Không chạy đồng thời cả kết nối trực tiếp và reverse tunnel cho cùng một gateway vì server có thể nhận bản tin trùng.
+Do not run a direct connection and a reverse tunnel for the same gateway at
+the same time — the server could receive duplicate messages.
 
-## Bước 7 – Cho stack Pi tự chạy khi khởi động
+## Step 7 – Make the Pi stack start on boot
 
-Chép service mẫu:
+Copy the sample service file:
 
 ```powershell
 scp .\tools\smart-iv-stack.service iotchallenge@<PI_IP>:/tmp/
 ```
 
-Trên Pi:
+On the Pi:
 
 ```bash
 sudo cp /tmp/smart-iv-stack.service /etc/systemd/system/
@@ -207,25 +221,27 @@ sudo systemctl status smart-iv-stack.service
 journalctl -u smart-iv-stack.service -f
 ```
 
-Service mẫu dùng `run.sh 127.0.0.1`, phù hợp với reverse tunnel. Không vừa chạy service vừa chạy thủ công `bash run.sh` vì hai tiến trình sẽ tranh coordinator.
+The sample service uses `run.sh 127.0.0.1`, matching the reverse-tunnel
+setup. Do not run the service and a manual `bash run.sh` at the same
+time — the two processes will fight over the coordinator.
 
-## Bước 8 – Thứ tự khởi động mỗi lần sử dụng
+## Step 8 – Startup order for every session
 
-Theo cách reverse tunnel đã kiểm thử:
+Following the tested reverse-tunnel setup:
 
-1. Cấp nguồn G26, cảm biến và Zigbee coordinator.
-2. Khởi động MySQL trên Windows.
-3. Chạy HIS Server bằng `dotnet run --launch-profile http`.
-4. Mở `plink -R 5000:127.0.0.1:5000` từ Windows tới Pi.
-5. Chạy `bash run.sh 127.0.0.1` trên Pi hoặc kiểm tra service `smart-iv-stack`.
-6. Mở `http://<PI_IP>:8080` và kiểm tra `SmartIV-Sensor` online.
-7. Mở `http://localhost:5194`.
-8. Chờ G26 trừ bì xong, treo bịch và đặt tốc độ giọt trên web.
-9. Chờ đủ 20 mẫu giọt và 64 mẫu sinh hiệu trước khi đánh giá cảnh báo AI.
+1. Power up G26, the sensors, and the Zigbee coordinator.
+2. Start MySQL on Windows.
+3. Run the HIS Server with `dotnet run --launch-profile http`.
+4. Open `plink -R 5000:127.0.0.1:5000` from Windows to the Pi.
+5. Run `bash run.sh 127.0.0.1` on the Pi, or check the `smart-iv-stack` service.
+6. Open `http://<PI_IP>:8080` and confirm `SmartIV-Sensor` is online.
+7. Open `http://localhost:5194`.
+8. Wait for G26 to finish taring, hang the bag, and set the target drip rate on the web UI.
+9. Wait for a full 20 drop samples and 64 vitals samples before judging the AI alerts.
 
-## Bước 9 – Kiểm tra kết nối
+## Step 9 – Verify connectivity
 
-Trên Windows:
+On Windows:
 
 ```powershell
 Get-NetTCPConnection -State Listen -LocalPort 3306,5000,5194
@@ -233,7 +249,7 @@ Get-NetTCPConnection -State Established -LocalPort 5000
 Get-Process mysqld,HisServer,plink
 ```
 
-Trên Pi:
+On the Pi:
 
 ```bash
 ss -tn | grep ':5000'
@@ -241,9 +257,11 @@ tail -n 50 ~/pi-aarch64/logs/gateway.log
 tail -n 50 ~/pi-aarch64/logs/zigbee2mqtt.log
 ```
 
-Hệ thống nối đúng khi MySQL nghe 3306, HIS nghe 5000/5194, TCP 5000 là `ESTABLISHED`, Zigbee2MQTT nhận payload mới và BED-01 không còn `OFFLINE`.
+The system is wired up correctly when MySQL is listening on 3306, HIS is
+listening on 5000/5194, TCP 5000 shows `ESTABLISHED`, Zigbee2MQTT is
+receiving fresh payloads, and BED-01 is no longer `OFFLINE`.
 
-## Build kiểm tra trước khi nộp
+## Pre-submission build check
 
 ```powershell
 cd C:\Users\<USER>\Documents\He-thong-AI-Chuan-det
@@ -252,4 +270,5 @@ dotnet build .\software\server\HisServer.sln
 dotnet run --project .\software\server\tests\EvaluatorTests\EvaluatorTests.csproj
 ```
 
-Nếu gặp lỗi trong lúc cài đặt, xem [`docs/troubleshooting.md`](troubleshooting.md).
+If you hit an error during setup, see
+[`docs/troubleshooting.md`](troubleshooting.md).

@@ -1,6 +1,6 @@
-# Lỗi thường gặp
+# Troubleshooting
 
-### `SocketException (10048)` hoặc file HisServer bị khóa
+### `SocketException (10048)` or the HisServer file is locked
 
 ```powershell
 Get-NetTCPConnection -State Listen -LocalPort 5000,5194 |
@@ -8,44 +8,49 @@ Get-NetTCPConnection -State Listen -LocalPort 5000,5194 |
 Stop-Process -Id <PID>
 ```
 
-### Đăng nhập báo `Sign-in failed`
+### Sign-in fails with `Sign-in failed`
 
-- Kiểm tra MySQL đang chạy.
-- Kiểm tra schema và migration tài khoản đã được nạp.
-- Chạy `dotnet user-secrets list` trong đúng thư mục `HisServer` (`software/server/src/HisServer`).
-- Khởi động lại HIS Server sau khi MySQL sẵn sàng.
+- Check that MySQL is running.
+- Check that the schema and account migrations have been loaded.
+- Run `dotnet user-secrets list` from the correct `HisServer` directory (`software/server/src/HisServer`).
+- Restart the HIS Server after MySQL is ready.
 
-### BED-01 báo `OFFLINE`
+### BED-01 shows `OFFLINE`
 
-- Kiểm tra G26 có nguồn và đã join Zigbee.
-- Kiểm tra Zigbee2MQTT có payload mới.
-- Kiểm tra gateway và TCP 5000 `ESTABLISHED`.
-- Nếu dùng tunnel, kiểm tra `plink` còn chạy.
+- Check that G26 has power and has joined the Zigbee network.
+- Check that Zigbee2MQTT is receiving fresh payloads.
+- Check the gateway and that TCP 5000 is `ESTABLISHED`.
+- If using a tunnel, check that `plink` is still running.
 
-### Zigbee2MQTT báo `Failed to init port`
+### Zigbee2MQTT reports `Failed to init port`
 
-Cổng coordinator đang bị tiến trình khác khóa:
+Another process is holding the coordinator's port:
 
 ```bash
 sudo systemctl stop zigbee2mqtt.service gateway.service 2>/dev/null || true
 sudo systemctl restart smart-iv-stack.service
 ```
 
-### HR/SpO2 hiện `--` hoặc đồ thị có khoảng trống
+### HR/SpO2 shows `--` or the chart has gaps
 
-- Đặt ngón tay ổn định, không ép quá mạnh và tránh ánh sáng ngoài.
-- Kiểm tra 3.3 V, GND, SDA PC07, SCL PC05 và điện trở kéo lên.
-- Không để dây buzzer sát dây I2C.
-- Bỏ tay thì dữ liệu về không có tín hiệu là đúng.
-- Đặt tay lại cần khoảng hai giây để cửa sổ lọc đủ mẫu.
+- Keep the finger steady, avoid pressing too hard, and avoid ambient light.
+- Check 3.3 V, GND, SDA on PC07, SCL on PC05, and the pull-up resistors.
+- Keep the buzzer wire away from the I2C wires.
+- Lifting the finger correctly reports "no signal" — this is expected.
+- Placing the finger back needs about two seconds for the filter window to fill with samples.
 
-### Nút đặt tốc độ hoặc fake không tác động tới G26
+### The rate-setting or fake-data buttons don't reach G26
 
-Đây là lệnh hai chiều Server → gateway → Zigbee. Kiểm tra gateway TCP, MQTT, thiết bị Zigbee online và converter đúng phiên bản. Toast `enabled` chỉ xác nhận server đã nhận yêu cầu; trường `AI test HR/SpO2` thay đổi mới xác nhận lệnh đã tới G26.
+This is a two-way command: Server → gateway → Zigbee. Check the gateway
+TCP connection, MQTT, that the Zigbee device is online, and that the
+converter is the right version. The `enabled` toast only confirms the
+server received the request; a change in the `AI test HR/SpO2` field is
+what confirms the command actually reached G26.
 
-### Có một thư mục lạ (ví dụ `demo1/`) xuất hiện ở gốc repo, `git status` báo untracked
+### An unexpected folder (e.g. `demo1/`) appears at the repo root and `git status` reports it as untracked
 
-Đây thường là tàn dư của việc chạy `dotnet run` bằng một đường dẫn cũ (trước khi
-`server/` được đổi thành `software/server/`). Kiểm tra không còn tiến trình
-`dotnet`/`HisServer` nào chạy từ thư mục đó (`ps aux | grep dotnet`), dừng nó,
-rồi xoá thư mục và tiếp tục làm việc từ `software/server/`.
+This is usually leftover from running `dotnet run` with an old path
+(from before `server/` was renamed to `software/server/`). Check that no
+`dotnet`/`HisServer` process is still running from that folder
+(`ps aux | grep dotnet`), stop it, delete the folder, and keep working from
+`software/server/`.

@@ -1,49 +1,53 @@
-# Kiến trúc hệ thống
+# System architecture
 
-## Luồng dữ liệu
+## Data flow
 
 ```text
 MAX30102 + photodiode + HX711
               |
               v
-       EFR32xG26 (firmware + AI + OLED + cảnh báo)
+       EFR32xG26 (firmware + AI + OLED + alerts)
               |
               | Zigbee ZCL Attribute
               v
-    Zigbee coordinator + Zigbee2MQTT trên Raspberry Pi
+    Zigbee coordinator + Zigbee2MQTT on Raspberry Pi
               |
-              | MQTT JSON nội bộ
+              | internal MQTT JSON
               v
-        Gateway TCP trên Raspberry Pi
+        TCP gateway on Raspberry Pi
               |
-              | TCP 5000 (trực tiếp hoặc SSH reverse tunnel)
+              | TCP 5000 (direct LAN or SSH reverse tunnel)
               v
-      HIS Server .NET 8 + MySQL + giao diện web 5194
+      HIS Server .NET 8 + MySQL + web UI on 5194
 ```
 
-## Phần cứng và sơ đồ chân G26
+## Hardware and G26 pinout
 
-Bo mạch đang sử dụng là EFR32xG26/BRD2709A. Chi tiết đầy đủ nằm ở
-[`firmware/PIN_MAP.md`](../firmware/PIN_MAP.md); tóm tắt:
+The board in use is the EFR32xG26/BRD2709A. The full reference lives in
+[`firmware/PIN_MAP.md`](../firmware/PIN_MAP.md); summary below:
 
-| Khối | Tín hiệu | Chân G26 |
+| Block | Signal | G26 pin |
 |---|---|---|
-| Cảm biến giọt | Digital OUT | PD02 |
+| Drop sensor | Digital OUT | PD02 |
 | HX711 | DOUT | PC01 |
 | HX711 | SCK | PC03 |
-| MAX30102 và OLED | SCL | PC05 |
-| MAX30102 và OLED | SDA | PC07 |
-| LED xanh | OUT | PA07 |
-| LED vàng | OUT | PA04 |
-| LED đỏ | OUT | PA05 |
-| Buzzer active-low | OUT | PC06 |
-| Nút trừ bì | INPUT | PB00 |
+| MAX30102 and OLED | SCL | PC05 |
+| MAX30102 and OLED | SDA | PC07 |
+| Green LED | OUT | PA07 |
+| Yellow LED | OUT | PA04 |
+| Red LED | OUT | PA05 |
+| Active-low buzzer | OUT | PC06 |
+| Tare button | INPUT | PB00 |
 
-Các module dùng mức logic 3.3 V và phải nối chung GND. Với bus I2C dùng chung OLED và MAX30102, nhóm khuyên dùng điện trở kéo lên khoảng `4.7 kΩ`, dây ngắn và tách dây I2C khỏi buzzer.
+All modules use 3.3 V logic and share a common GND. Since the OLED and
+MAX30102 share the same I2C bus, the team recommends roughly `4.7 kΩ`
+pull-up resistors, short wiring, and keeping the I2C lines away from the
+buzzer.
 
-## Giao thức Zigbee của G26
+## G26 Zigbee protocol
 
-G26 **không gửi JSON trực tiếp**. Firmware ghi dữ liệu vào ZCL Attribute và report qua Zigbee:
+G26 **does not send JSON directly**. The firmware writes data into ZCL
+Attributes and reports them over Zigbee:
 
 - Endpoint: `2`
 - Cluster ID: `0xFC01`
@@ -51,7 +55,7 @@ G26 **không gửi JSON trực tiếp**. Firmware ghi dữ liệu vào ZCL Attri
 - Model: `SmartIV-Sensor`
 - Cluster name: `Smart IV Vitals`
 
-| Attribute | Tên | Kiểu | Đơn vị |
+| Attribute | Name | Type | Unit |
 |---:|---|---|---|
 | `0x0000` | HeartRate | int16s | bpm |
 | `0x0001` | Spo2 | int16u | % |
@@ -59,98 +63,108 @@ G26 **không gửi JSON trực tiếp**. Firmware ghi dữ liệu vào ZCL Attri
 | `0x0003` | DropRatio | int16s | % |
 | `0x0004` | AlarmBitmap | bitmap16 | bit |
 | `0x0005` | WeightG | int16u | gram |
-| `0x0006` | DropsPerMin | int16u | giọt/phút |
+| `0x0006` | DropsPerMin | int16u | drops/min |
 | `0x0007` | TargetFlowMlH | int16u | ml/h |
-| `0x0008` | TargetDropsPerMin | int16u | giọt/phút |
+| `0x0008` | TargetDropsPerMin | int16u | drops/min |
 | `0x000F` | TsFlags | bitmap16 | bit |
 | `0x0010` | HrForecast16s | int16u | bpm |
 | `0x0011` | Spo2Forecast16s | int16u | % |
-| `0x0012` | HrTrendBpmPerMin | int16s | bpm/phút |
-| `0x0013` | TsAnomalyScoreX100 | int16u | điểm ×100 |
-| `0x0014` | DropsForecast16s | int16u | giọt/phút |
-| `0x0015` | DropsTrendDpmPerMin | int16s | dpm/phút |
+| `0x0012` | HrTrendBpmPerMin | int16s | bpm/min |
+| `0x0013` | TsAnomalyScoreX100 | int16u | score ×100 |
+| `0x0014` | DropsForecast16s | int16u | drops/min |
+| `0x0015` | DropsTrendDpmPerMin | int16s | dpm/min |
 | `0x0016` | RemainingMl | int16u | ml |
-| `0x0017` | RemainingMin | int16u | phút |
+| `0x0017` | RemainingMin | int16u | min |
 | `0x0018` | MonitoringActive | int8u | 0/1 |
 
-Converter Zigbee2MQTT đổi các attribute thành MQTT JSON (xem
-[`docs/system-integration.md`](system-integration.md) về vị trí file converter
-hiện đang thiếu trong repo). Gateway chuyển JSON này tới server và chuyển lệnh
-từ server về lại đúng attribute trên endpoint 2.
+The Zigbee2MQTT converter turns these attributes into MQTT JSON (see
+[`docs/system-integration.md`](system-integration.md) for where the
+converter file currently lives, since it is missing from the repo). The
+gateway forwards that JSON to the server and relays commands from the
+server back to the correct attribute on endpoint 2.
 
-## Trình tự hoạt động
+## Operating sequence
 
-1. G26 khởi động và trừ bì loadcell trong 10 giây. Không treo bịch ở bước này.
-2. OLED yêu cầu mở HIS web để đặt tốc độ giọt.
-3. Cảm biến vẫn được đọc và gửi lên web để người dùng kiểm tra kết nối.
-4. Treo bịch, nhập tốc độ mục tiêu trên web và xác nhận.
-5. Lệnh đi theo chiều Server → TCP gateway → MQTT → Zigbee2MQTT → ZCL → G26.
-6. G26 bắt đầu lấy 20 mẫu nhỏ giọt và 64 mẫu sinh hiệu.
-7. Khi đủ dữ liệu, AI và cảnh báo được kích hoạt.
-8. Mức cảnh báo cuối được gửi ngược lên server kèm nguyên nhân.
+1. G26 boots and tares the loadcell for 10 seconds. Do not hang the bag yet.
+2. The OLED prompts the user to open the HIS web UI to set the target drip rate.
+3. Sensors are still read and streamed to the web so the connection can be checked.
+4. Hang the bag, enter the target rate on the web UI, and confirm.
+5. The command travels Server → TCP gateway → MQTT → Zigbee2MQTT → ZCL → G26.
+6. G26 starts collecting 20 drip-interval samples and 64 vitals samples.
+7. Once enough data is collected, AI and alerting are activated.
+8. The final alert level is reported back to the server together with its cause.
 
-## Xử lý HR và SpO2
+## HR and SpO2 processing
 
-Cảm biến được đọc mỗi `250 ms`. Bốn lần đọc tạo thành một nhịp cập nhật, nên AI nhận đúng `1 mẫu/giây` và 64 mẫu tương ứng khoảng 64 giây.
+The sensor is read every `250 ms`. Four reads make up one update cycle, so
+the AI receives exactly `1 sample/second`, and 64 samples correspond to
+roughly 64 seconds.
 
-Để hạn chế HR nhảy loạn, firmware hiện dùng:
+To keep HR from jumping around, the firmware currently uses:
 
-- Cửa sổ trượt 12 lần đọc, cần ít nhất 8 lần hợp lệ.
-- Median để loại xung bất thường.
-- HR lệch lớn hơn 20 BPM phải lặp lại ba lần mới được chấp nhận.
-- HR đã lọc thay đổi tối đa 4 BPM mỗi giây.
-- SpO2 cũng có cửa sổ lọc, xác nhận biến động và giới hạn bước thay đổi.
-- Mất tín hiệu quá 3 giây sẽ trả về trạng thái không có dữ liệu và xóa cửa sổ cũ.
-- Dữ liệu giữ tạm để hiển thị không được tính thành mẫu AI mới.
-- Chế độ fake chỉ đi vào nhánh kiểm thử AI; số cảm biến thật vẫn được giữ riêng để đối chiếu.
+- A 12-reading sliding window, requiring at least 8 valid reads.
+- A median filter to reject outlier pulses.
+- An HR deviation greater than 20 BPM must repeat three times before it is accepted.
+- The filtered HR changes by at most 4 BPM per second.
+- SpO2 has its own filter window, deviation confirmation, and step-size limit.
+- Losing signal for more than 3 seconds returns a "no data" state and clears the old window.
+- Values held for display purposes are not counted as new AI samples.
+- Fake mode only feeds the AI test branch; the real sensor values are kept separate for comparison.
 
-Không tăng tốc 64 mẫu bằng cách lặp lại cùng một giá trị, vì làm như vậy model sẽ hiểu sai khoảng thời gian của history, trend và forecast 16 giây.
+Do not speed up the 64-sample warm-up by repeating the same value, since that
+would make the model misread the timing of its history, trend, and 16-second
+forecast.
 
-## Logic cảnh báo
+## Alert logic
 
-### Nhỏ giọt
+### Drip rate
 
-Firmware theo dõi mốc động để chấp nhận việc chai dịch chậm dần một cách tự nhiên. Mốc chỉ bám theo những thay đổi nhỏ còn nằm trong vùng an toàn; xung nhiễu, mất giọt và sai lệch lớn không được học theo.
+The firmware tracks a dynamic baseline so that a bag naturally slowing down
+over time is tolerated. The baseline only follows small changes that stay
+within the safe zone; noise spikes, missed drops, and large deviations are
+not learned into it.
 
-- Sai lệch `±200 ms`: mức 1 – bình thường.
-- Sai lệch trên `200 ms` đến `800 ms`: mức 2 – chú ý.
-- Sai lệch trên `800 ms`: mức 3 – cảnh báo.
-- Watchdog phát hiện quá lâu không có giọt và đưa nhánh nhỏ giọt lên mức 3.
-- MLP và LSTM dùng cửa sổ 20 giọt để phân tích xu hướng; dải vật lý vẫn là lớp bảo vệ chính.
+- Deviation within `±200 ms`: level 1 – normal.
+- Deviation over `200 ms` up to `800 ms`: level 2 – attention.
+- Deviation over `800 ms`: level 3 – alarm.
+- A watchdog detects an excessively long gap with no drop and raises the drip branch to level 3.
+- The MLP and LSTM use a 20-drop window to analyze trend; the physical range check remains the primary safeguard.
 
-### Sinh hiệu
+### Vitals
 
-- 60 mẫu đầu tạo baseline HR/SpO2.
-- Tiếp tục đủ history 64 mẫu cho AI sinh hiệu.
-- Lệch dưới 15% so với baseline: mức 1.
-- Lệch từ 15% đến dưới 20%: mức 2.
-- Lệch từ 20% trở lên: mức 3.
-- Ngưỡng cứng HR dưới 45, HR trên 150 hoặc SpO2 dưới 90 tạo mức 3.
+- The first 60 samples build the HR/SpO2 baseline.
+- Collection continues to a full 64-sample history for the vitals AI.
+- Deviation under 15% from baseline: level 1.
+- Deviation from 15% to under 20%: level 2.
+- Deviation of 20% or more: level 3.
+- Hard thresholds — HR below 45, HR above 150, or SpO2 below 90 — force level 3.
 
-### Ghép cảnh báo cuối
+### Final alert fusion
 
-| Sinh hiệu | Nhỏ giọt | Mức cuối |
+| Vitals | Drip | Final level |
 |---:|---:|---:|
 | 1 | 1 | 1 |
 | 3 | 3 | 3 |
-| Mọi tổ hợp còn lại | | 2 |
+| Any other combination | | 2 |
 
-Xem thêm quy ước severity giữa firmware và HIS ở
+See the severity mapping shared between firmware and HIS in
 [`docs/system-integration.md`](system-integration.md#alert-contract).
 
-### LED và buzzer
+### LED and buzzer
 
-- Mức 1: LED xanh, buzzer tắt.
-- Mức 2: LED vàng; buzzer kêu 0.5 giây, nghỉ 3 giây.
-- Mức 3: LED đỏ nhấp nháy; buzzer bật/tắt mỗi 0.25 giây.
-- Buzzer active-low: PC06 LOW là kêu, HIGH là tắt.
+- Level 1: green LED, buzzer off.
+- Level 2: yellow LED; buzzer beeps for 0.5 s, then rests for 3 s.
+- Level 3: red LED blinking; buzzer toggles every 0.25 s.
+- Active-low buzzer: PC06 LOW sounds, HIGH is silent.
 
-## Kiểm thử trên giao diện web
+## Testing from the web UI
 
-Web có ba nút kiểm thử sinh hiệu:
+The web UI has three vitals test buttons:
 
-- `Real data`: dùng cảm biến thật.
-- `Fake HR L2`: tạo HR lệch khoảng 17% so với baseline.
-- `Fake HR+O2 L3`: tạo HR và SpO2 lệch khoảng 25%.
+- `Real data`: uses the actual sensor.
+- `Fake HR L2`: generates an HR deviation of about 17% from baseline.
+- `Fake HR+O2 L3`: generates HR and SpO2 deviations of about 25%.
 
-`Real HR/SpO2` là dữ liệu thật. `AI test HR/SpO2` là dữ liệu được đưa vào nhánh AI khi test. Khi quay về `Real data`, firmware phục hồi history thật nên không phải học lại từ đầu.
+`Real HR/SpO2` is the actual sensor data. `AI test HR/SpO2` is the data fed
+into the AI branch during a test. Switching back to `Real data` restores the
+real history in the firmware, so it does not need to relearn from scratch.

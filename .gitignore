@@ -39,3 +39,6 @@ server/src/HisServer/ota-system/
 
 # Leftover files from a killed process still holding a deleted file open
 .fuse_hidden*
+
+# Offline Raspberry Pi deployment bundle (vendored runtime + node_modules)
+pi-aarch64/
