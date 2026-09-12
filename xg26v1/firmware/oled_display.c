@@ -375,8 +375,13 @@ void oled_display_monitor(int16_t heart_rate,
 
   frame_text(4U, 1U, "BG");
   frame_text(4U, 66U, "ST");
-  if (weight_valid) { (void)snprintf(text, sizeof(text), "%.1F", (double)weight_kg); }
-  else { (void)snprintf(text, sizeof(text), "--"); }
+  if (weight_valid) {
+    if (weight_kg >= 10.0f) {
+      (void)snprintf(text, sizeof(text), "%.1f", (double)weight_kg);
+    } else {
+      (void)snprintf(text, sizeof(text), "%.2f", (double)weight_kg);
+    }
+  } else { (void)snprintf(text, sizeof(text), "--"); }
   frame_large_value(4U, 15U, 63U, text);
   if (learned_interval_s > 0.0f) {
     (void)snprintf(text, sizeof(text), "%.0F", (double)(60.0f / learned_interval_s));

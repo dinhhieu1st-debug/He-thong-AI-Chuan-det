@@ -738,7 +738,7 @@ static void start_runtime_tare(uint32_t now)
 static void update_runtime_tare(uint32_t now)
 {
   if (!runtime_tare_in_progress) { return; }
-  if ((now - runtime_tare_start_ms) >= TARE_TIME_MS && hx711_sensor_tared()) {
+  if ((now - runtime_tare_start_ms) >= 1500U && hx711_sensor_tared()) {
     runtime_tare_in_progress = false;
     tare_event_count++;
     tare_just_completed = true;
@@ -1177,6 +1177,7 @@ static void publish_display(void)
     last_vitals_good_ms = 0U;
   }
   if (weight_count > 0U) { weight_kg = average_float(weight_samples, weight_count); }
+  else if (hx711_sensor_connected() && hx711_sensor_tared()) { weight_kg = hx711_sensor_weight_kg(); }
   if (system_state == SYSTEM_MONITORING) {
     int16_t ai_heart_rate = heart_rate;
     int16_t ai_spo2 = spo2;

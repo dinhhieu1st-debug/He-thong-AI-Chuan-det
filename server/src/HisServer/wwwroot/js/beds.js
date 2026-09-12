@@ -251,7 +251,7 @@ const BedsTab = (() => {
     // and server payload untouched (e.g. 7897 -> 789 mL).
     const rawRemainingMl = Number(bed.remainingMl);
     const displayRemainingMl = bed.remainingMl != null && Number.isFinite(rawRemainingMl)
-      ? Math.floor(rawRemainingMl / 10)
+      ? (rawRemainingMl > 2000 ? Math.floor(rawRemainingMl / 10) : Math.round(rawRemainingMl))
       : null;
     const remaining = (bed.remainingMl != null || bed.remainingMin != null)
       ? `<div class="ls-remaining">
