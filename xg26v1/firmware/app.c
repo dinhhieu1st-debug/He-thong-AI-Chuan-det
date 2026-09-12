@@ -609,16 +609,16 @@ static void publish_zigbee_attributes(int16_t current_hr,
   hr_baseline_just_completed = false;
 }
 
-/* Fusion contract:
- * - No vitals signal (!vitals_valid) -> Level 3 (Emergency)
- * - Either branch is level 3 -> Level 3
- * - Either branch is level 2 -> Level 2
- * - Both level 1 -> Level 1 */
+/* Fusion contract (Table: Final alert fusion):
+ * - No vitals signal (!vitals_valid) -> Level 3 (Critical)
+ * - Vitals = 1 && Drip = 1           -> Level 1 (Normal)
+ * - Vitals = 3 && Drip = 3           -> Level 3 (Critical)
+ * - Any other combination            -> Level 2 (Attention) */
 static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 {
-  if (vitals_level == 3U || drops_level == 3U) { return 3U; }
-  if (vitals_level == 2U || drops_level == 2U) { return 2U; }
-  return 1U;
+  if (vitals_level == 1U && drops_level == 1U) { return 1U; }
+  if (vitals_level == 3U && drops_level == 3U) { return 3U; }
+  return 2U;
 }
 
 static void update_final_alert(void)
