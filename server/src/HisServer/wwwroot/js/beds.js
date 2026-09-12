@@ -118,7 +118,7 @@ const BedsTab = (() => {
       const key = `${bed.bedId}:hr:${bed.lastUpdated}`;
       if (!shownEventKeys.has(key)) {
         shownEventKeys.add(key);
-        UiUtils.toast(`${bed.bedId}: HR 60s baseline sample complete`);
+        UiUtils.toast(`${bed.bedId}: HR 20s baseline sample complete`);
       }
     }
   }
@@ -706,7 +706,7 @@ const BedsTab = (() => {
         <div class="muted" style="margin-top:6px;font-size:12px;">
           ${on
             ? `Pauses AI and alarms for this bed only. Not for taking a reading —
-               use "Reset scale (tare)" or "Recalibrate 60s baseline" below for
+               use "Reset scale (tare)" or "Recalibrate 20s baseline" below for
                that; neither one needs monitoring paused first.`
             : `Hang the bag, attach the sensors and tare the scale first —
                readings taken while setting up would otherwise be the AI's
@@ -778,7 +778,7 @@ const BedsTab = (() => {
           <label>Heart rate</label>
           <div id="hrStatusState">${hrStatusHtml(bed)}</div>
           <div class="inline-form" style="margin-top:8px;">
-            <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 60s baseline</button>
+            <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 20s baseline</button>
           </div>
         </div>
 
@@ -876,7 +876,7 @@ const BedsTab = (() => {
     document.getElementById("recalibrateHrBtn").addEventListener("click", async () => {
       try {
         await Api.recalibrateHr(bed.bedId);
-        UiUtils.toast(`${bed.bedId}: HR recalibration started - measuring for 60s`);
+        UiUtils.toast(`${bed.bedId}: HR recalibration started - measuring for 20s`);
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not start HR recalibration (${err.message})`, true);
       }
@@ -1166,6 +1166,7 @@ const BedsTab = (() => {
       // both - metricChart() lets yRange win when present.
       minSpan: metric.minSpan,
       yRange: metric.yRange,
+      zeroMeansNoSignal: metric.zeroMeansNoSignal,
       severity: severityOf(metric, samples),
       points: samples.map((s) => ({
         t: new Date(s.recordedAt),

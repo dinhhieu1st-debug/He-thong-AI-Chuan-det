@@ -116,6 +116,17 @@ static uint16_t target_drops_per_min = 20U;
 static uint16_t target_flow_ml_h = 100U;
 static bool drop_timeout_sent;
 static bool buzzer_on;
+
+static inline void buzzer_set(bool on)
+{
+  buzzer_on = on;
+  /* Active HIGH: PC06 HIGH sounds buzzer, PC06 LOW is silent */
+  if (on) {
+    GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN);
+  } else {
+    GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN);
+  }
+}
 static bool previous_button;
 static bool monitoring_requested;
 static bool alerts_armed;
@@ -457,9 +468,9 @@ static void reset_hr_baseline(void)
 {
   vitals_ai_begin_baseline_recalibration();
   if (vitals_ai_baseline_recalibrating()) {
-    printf("[HR] Collecting 60 candidate baseline samples; old baseline remains active.\r\n");
+    printf("[HR] Collecting 20 candidate baseline samples; old baseline remains active.\r\n");
   } else {
-    printf("[HR] Recalibration ignored until the first 60-sample baseline is ready.\r\n");
+    printf("[HR] Recalibration ignored until the first 20-sample baseline is ready.\r\n");
   }
 }
 
@@ -524,7 +535,7 @@ static void publish_zigbee_attributes(int16_t current_hr,
   if (alerts_armed) {
     ts_flags |= (uint16_t)((uint16_t)alert_level << 9);
     if (drip_level > 1U) { ts_flags |= 0x0800U; }
-    if (vitals_ai.level > 1U) { ts_flags |= 0x1000U; }
+    if (vitals_ai.level > 1U || !current_vitals_valid) { ts_flags |= 0x1000U; }
   }
   ts_flags |= (uint16_t)((uint16_t)encoded_line_state(current_weight_kg,
                                                        current_drops_per_minute) << 13);
@@ -562,7 +573,7 @@ static void publish_zigbee_attributes(int16_t current_hr,
   write_zcl_u16(ATTR_AI_INPUT_SPO2,
                 current_vitals_valid ? (uint16_t)ai_input_spo2 : UINT16_MAX,
                 ZCL_INT16U_ATTRIBUTE_TYPE);
-  write_zcl_u8(ATTR_VITALS_LEVEL, vitals_ai.level);
+  write_zcl_u8(ATTR_VITALS_LEVEL, current_vitals_valid ? vitals_ai.level : 3U);
   write_zcl_i16(ATTR_HEART_RATE,
                 current_vitals_valid ? current_hr : (int16_t)0x8000);
   write_zcl_u16(ATTR_SPO2,
@@ -598,21 +609,31 @@ static void publish_zigbee_attributes(int16_t current_hr,
   hr_baseline_just_completed = false;
 }
 
-/* Exact two-branch fusion contract:
- * 1+1 -> 1, 3+3 -> 3, every other combination -> 2. */
+/* Fusion contract:
+ * - No vitals signal (!vitals_valid) -> Level 3 (Emergency)
+ * - Either branch is level 3 -> Level 3
+ * - Either branch is level 2 -> Level 2
+ * - Both level 1 -> Level 1 */
 static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 {
-  if (vitals_level == 1U && drops_level == 1U) { return 1U; }
-  if (vitals_level == 3U && drops_level == 3U) { return 3U; }
-  return 2U;
+  if (vitals_level == 3U || drops_level == 3U) { return 3U; }
+  if (vitals_level == 2U || drops_level == 2U) { return 2U; }
+  return 1U;
 }
 
 static void update_final_alert(void)
 {
-  uint8_t final_level = fuse_alert_levels(vitals_ai.level, drip_level);
+  uint8_t final_level;
+  if (!vitals_valid) {
+    /* Mất tín hiệu nhịp tim / SpO2 (nosignal) khi đang theo dõi:
+     * Cảnh báo Mức 3 (CRITICAL / ĐỎ / Còi cấp cứu) ngay lập tức */
+    final_level = 3U;
+  } else {
+    final_level = fuse_alert_levels(vitals_ai.level, drip_level);
+  }
   alert_level = (alert_level_t)(final_level - 1U);
-  printf("[ALERT] vitals=%u drop=%u final=%u\r\n",
-         (unsigned)vitals_ai.level, (unsigned)drip_level, (unsigned)final_level);
+  printf("[ALERT] vitals_valid=%d vitals=%u drop=%u final=%u\r\n",
+         vitals_valid ? 1 : 0, (unsigned)vitals_ai.level, (unsigned)drip_level, (unsigned)final_level);
 }
 
 static float average_float(const float *values, uint8_t count)
@@ -628,8 +649,7 @@ static void all_alerts_off(void)
   GPIO_PinOutClear(GREEN_LED_PORT, GREEN_LED_PIN);
   GPIO_PinOutClear(YELLOW_LED_PORT, YELLOW_LED_PIN);
   GPIO_PinOutClear(RED_LED_PORT, RED_LED_PIN);
-  GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN);
-  buzzer_on = false;
+  buzzer_set(false);
 }
 
 static void reset_monitoring_training(void)
@@ -1020,8 +1040,7 @@ static void update_alert_outputs(uint32_t now)
     GPIO_PinOutSet(GREEN_LED_PORT, GREEN_LED_PIN);
     GPIO_PinOutClear(YELLOW_LED_PORT, YELLOW_LED_PIN);
     GPIO_PinOutClear(RED_LED_PORT, RED_LED_PIN);
-    GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN);
-    buzzer_on = false;
+    buzzer_set(false);
     previous_level = ALERT_GREEN;
     return;
   }
@@ -1029,8 +1048,7 @@ static void update_alert_outputs(uint32_t now)
   if (alert_level != previous_level) {
     previous_level = alert_level;
     last_buzzer_toggle_ms = now;
-    buzzer_on = true;
-    GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN);
+    buzzer_set(true);
     if (alert_level == ALERT_RED) {
       GPIO_PinOutClear(YELLOW_LED_PORT, YELLOW_LED_PIN);
       GPIO_PinOutSet(RED_LED_PORT, RED_LED_PIN);
@@ -1054,9 +1072,7 @@ static void update_alert_outputs(uint32_t now)
   else { phase = 250U; }
   if ((now - last_buzzer_toggle_ms) >= phase) {
     last_buzzer_toggle_ms = now;
-    buzzer_on = !buzzer_on;
-    if (buzzer_on) { GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN); }
-    else { GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN); }
+    buzzer_set(!buzzer_on);
     if (alert_level == ALERT_RED) {
       if (buzzer_on) { GPIO_PinOutSet(RED_LED_PORT, RED_LED_PIN); }
       else { GPIO_PinOutClear(RED_LED_PORT, RED_LED_PIN); }
@@ -1299,9 +1315,27 @@ void app_init(void)
   GPIO_PinModeSet(GREEN_LED_PORT, GREEN_LED_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(YELLOW_LED_PORT, YELLOW_LED_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(RED_LED_PORT, RED_LED_PIN, gpioModePushPull, 0);
-  GPIO_PinModeSet(BUZZER_PORT, BUZZER_PIN, gpioModePushPull, 1);
+  GPIO_PinModeSet(BUZZER_PORT, BUZZER_PIN, gpioModePushPull, 0);
+  buzzer_set(false);
   GPIO_PinModeSet(TARE_PORT, TARE_PIN, gpioModeInputPullFilter, 1);
   software_i2c_init();
+  sl_sleeptimer_delay_millisecond(100U);
+  printf("[I2C_SCAN] Bus pins: SCL=PC05 (level=%d), SDA=PC07 (level=%d)\r\n",
+         GPIO_PinInGet(gpioPortC, 5U), GPIO_PinInGet(gpioPortC, 7U));
+  printf("[I2C_SCAN] Probing 0x3C: %s\r\n", software_i2c_probe(0x3CU) ? "ACK" : "NACK");
+  printf("[I2C_SCAN] Probing 0x3D: %s\r\n", software_i2c_probe(0x3DU) ? "ACK" : "NACK");
+  printf("[I2C_SCAN] Probing 0x57: %s\r\n", software_i2c_probe(0x57U) ? "ACK" : "NACK");
+  printf("[I2C_SCAN] Scanning bus (0x08 to 0x77)...\r\n");
+  uint8_t i2c_found = 0U;
+  for (uint8_t addr = 0x08U; addr <= 0x77U; addr++) {
+    if (software_i2c_probe(addr)) {
+      printf("[I2C_SCAN] Found device at 0x%02X\r\n", (unsigned int)addr);
+      i2c_found++;
+    }
+  }
+  if (i2c_found == 0U) {
+    printf("[I2C_SCAN] No devices responded on I2C bus!\r\n");
+  }
   bool oled_ok = oled_display_init();
   bool max_ok = blood_oxygen_init();
   bool vitals_models_ok = vitals_ai_init();
@@ -1367,6 +1401,7 @@ void app_process_action(void)
 {
   uint32_t now = now_ms();
   oled_display_ota_step(now);
+  oled_display_poll(now);
   blood_oxygen_poll();
   drop_sensor_poll();
   hx711_sensor_poll();

@@ -19,4 +19,4 @@ at a time.
 All external modules use 3.3 V logic and share GND with the board.
 
 The integrated application uses all peripherals above. The buzzer driver is
-active-low: PC06 HIGH is silent and PC06 LOW sounds the buzzer.
+active-high: PC06 HIGH sounds the buzzer and PC06 LOW is silent.

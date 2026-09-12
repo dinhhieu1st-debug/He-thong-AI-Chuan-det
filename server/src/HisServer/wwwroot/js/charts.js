@@ -63,28 +63,44 @@ const Charts = (() => {
     return { lo, hi };
   }
 
-  /* Builds the path data, breaking it into separate sub-paths wherever the
-   * series has a null.
-   *
-   * This is the whole reason nulls are preserved end-to-end from the DB: a
-   * detached sensor must show as a GAP. Interpolating across it would draw a
-   * confident straight line through a period where nothing was measured, and
-   * plotting it as 0 would look like a flatlining patient. */
-  function buildPath(points, xOf, yOf) {
-    let d = "";
-    let penDown = false;
+  /* Builds path data separated into solid lines (normal signal) and dashed lines (no signal).
+   * When there is no signal, the line continues horizontally as a dashed line. */
+  function buildPaths(points, xOf, yOf) {
+    if (points.length < 2) {
+      return { solid: "", dashed: "" };
+    }
 
-    points.forEach((p, i) => {
-      if (p.v == null || !Number.isFinite(p.v)) {
-        penDown = false;
-        return;
+    let solidD = "";
+    let dashedD = "";
+    let solidPenDown = false;
+    let dashedPenDown = false;
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const x0 = xOf(prev, i - 1).toFixed(1);
+      const y0 = yOf(prev.v).toFixed(1);
+      const x1 = xOf(curr, i).toFixed(1);
+      const y1 = yOf(curr.v).toFixed(1);
+
+      if (curr.isNoSignal) {
+        if (!dashedPenDown) {
+          dashedD += `M${x0},${y0} `;
+          dashedPenDown = true;
+        }
+        dashedD += `L${x1},${y1} `;
+        solidPenDown = false;
+      } else {
+        if (!solidPenDown) {
+          solidD += `M${x0},${y0} `;
+          solidPenDown = true;
+        }
+        solidD += `L${x1},${y1} `;
+        dashedPenDown = false;
       }
-      const cmd = penDown ? "L" : "M";
-      d += `${cmd}${xOf(i).toFixed(1)},${yOf(p.v).toFixed(1)} `;
-      penDown = true;
-    });
+    }
 
-    return d.trim();
+    return { solid: solidD.trim(), dashed: dashedD.trim() };
   }
 
   /* Marks stretches where an alarm flag was set, so the doctor can see at a
@@ -104,10 +120,8 @@ const Charts = (() => {
     if (start !== null) bands.push([start, points.length - 1]);
 
     return bands.map(([a, b]) => {
-      const x = xOf(a);
-      // A single-sample alarm would be a zero-width rect and invisible, so
-      // give every band a minimum width.
-      const w = Math.max(xOf(b) - x, 2);
+      const x = xOf(points[a], a);
+      const w = Math.max(xOf(points[b], b) - x, 2);
       return `<rect x="${x.toFixed(1)}" y="${PAD_T}" width="${w.toFixed(1)}" height="${PLOT_H}" class="chart-alarm-band"/>`;
     }).join("");
   }
@@ -122,28 +136,22 @@ const Charts = (() => {
    * @param {string}   opts.color    stroke colour
    * @param {number}   opts.minSpan  smallest y-range to show (see niceRange)
    * @param {number}   opts.decimals digits in the readouts
-   * @param {number[]} opts.yRange   optional fixed [lo, hi] y-axis; disables
-   *                                 autoscaling so the scale never moves
-   * @param {string}   opts.severity "ok" | "warning" | "critical" — when the
-   *                                 latest value breaches this metric's
-   *                                 clinical limits the trace, the readout and
-   *                                 the card all switch to the alarm colour,
-   *                                 so a bed in trouble is obvious from across
-   *                                 the room rather than only on close reading
+   * @param {number[]} opts.yRange   optional fixed [lo, hi] y-axis
+   * @param {string}   opts.severity "ok" | "warning" | "critical"
+   * @param {boolean}  opts.zeroMeansNoSignal whether 0 represents lost signal
    */
   function metricChart(opts) {
     const { points, label, unit = "", color = "#2470c8", minSpan = 5, decimals = 0,
-            yRange = null, severity = "ok" } = opts;
+            yRange = null, severity = "ok", zeroMeansNoSignal = false } = opts;
 
-    // Severity wins over the metric's own colour: a red trace must mean
-    // "this reading is dangerous", never "this happens to be the heart-rate
-    // chart", otherwise the colour carries no information.
+    const isVital = zeroMeansNoSignal || label.includes("Heart") || label.includes("SpO2");
+    const isNoSig = (v) => v == null || !Number.isFinite(v) || (isVital && v <= 0);
+
     const SEVERITY_COLOR = { warning: "#e69119", critical: "#dc3c3c" };
     const strokeColor = SEVERITY_COLOR[severity] || color;
-
     const sevClass = severity === "ok" ? "" : ` sev-${severity}`;
 
-    const withData = points.filter((p) => p.v != null && Number.isFinite(p.v));
+    const withData = points.filter((p) => !isNoSig(p.v));
     if (points.length === 0 || withData.length === 0) {
       return `
         <div class="chart-card${sevClass}">
@@ -152,34 +160,38 @@ const Charts = (() => {
         </div>`;
     }
 
-    // A fixed yRange wins over autoscaling: for a vital sign a scale that never
-    // moves is easier to read at a glance across beds and across time, and it
-    // stops a clinically meaningless 1-2 unit wobble from being magnified to
-    // fill the whole plot height.
+    // Forward-fill and backfill no-signal points so the line stays as a continuous straight line
+    let currentVal = withData[0].v;
+    const processedPoints = points.map((p) => {
+      if (!isNoSig(p.v)) {
+        currentVal = p.v;
+        return { ...p, v: p.v, isNoSignal: false };
+      }
+      return { ...p, v: currentVal, isNoSignal: true };
+    });
+
     const range = yRange
       ? { lo: yRange[0], hi: yRange[1] }
-      : niceRange(points.map((p) => p.v), minSpan);
+      : niceRange(withData.map((p) => p.v), minSpan);
 
-    const xOf = (i) => PAD_L + (points.length === 1 ? PLOT_W / 2 : (i / (points.length - 1)) * PLOT_W);
-    // Clamp into the plot box: with a FIXED range a reading can legitimately
-    // fall outside it (e.g. HR 160 on a 1-150 axis), and an unclamped y would
-    // draw the line outside the chart and over the neighbouring text.
+    // Distribute points uniformly from left to right so that live variations
+    // and waveforms are clearly readable and not squashed/crammed into one edge.
+    const xOf = (p, i) => PAD_L + (processedPoints.length <= 1 ? PLOT_W / 2 : (i / (processedPoints.length - 1)) * PLOT_W);
+
     const yOf = (v) => {
-      const y = PAD_T + PLOT_H - ((v - range.lo) / (range.hi - range.lo)) * PLOT_H;
+      const y = PAD_T + PLOT_H - ((v - range.lo) / (range.hi - range.lo || 1)) * PLOT_H;
       return Math.min(PAD_T + PLOT_H, Math.max(PAD_T, y));
     };
 
-    const path = buildPath(points, xOf, yOf);
-    const bands = alarmBandsSvg(points, xOf);
+    const paths = buildPaths(processedPoints, xOf, yOf);
+    const bands = alarmBandsSvg(processedPoints, xOf);
 
-    const latest = withData[withData.length - 1];
+    const latest = processedPoints[processedPoints.length - 1];
     const values = withData.map((p) => p.v);
     const vMin = Math.min(...values);
     const vMax = Math.max(...values);
     const vAvg = values.reduce((a, b) => a + b, 0) / values.length;
 
-    // Gridlines at the range ends plus the midpoint - enough to read the
-    // scale without turning a 160px-tall chart into graph paper.
     const ticks = [range.hi, (range.hi + range.lo) / 2, range.lo];
     const grid = ticks.map((t) => {
       const y = yOf(t);
@@ -189,11 +201,6 @@ const Charts = (() => {
 
     const tStart = formatClock(points[0].t);
     const tEnd = formatClock(points[points.length - 1].t);
-
-    const gapCount = points.length - withData.length;
-    const gapNote = gapCount > 0
-      ? `<span class="chart-gap-note" title="Samples with no trustworthy reading - sensor detached or not installed. Shown as gaps rather than zeros.">${gapCount} gap${gapCount === 1 ? "" : "s"}</span>`
-      : "";
 
     return `
       <div class="chart-card${sevClass}">
@@ -206,9 +213,13 @@ const Charts = (() => {
           <rect class="chart-plot-bg" x="${PAD_L}" y="${PAD_T}" width="${PLOT_W}" height="${PLOT_H}"/>
           ${bands}
           ${grid}
-          <path d="${path}" fill="none" stroke="${strokeColor}" stroke-width="2"
-                stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
-          <circle cx="${xOf(points.indexOf(latest)).toFixed(1)}" cy="${yOf(latest.v).toFixed(1)}" r="3" fill="${strokeColor}"/>
+          ${paths.solid ? `<path d="${paths.solid}" fill="none" stroke="${strokeColor}" stroke-width="2"
+                stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` : ""}
+          ${paths.dashed ? `<path d="${paths.dashed}" fill="none" stroke="${strokeColor}" stroke-width="2"
+                stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round"
+                vector-effect="non-scaling-stroke" opacity="0.8"/>` : ""}
+          <circle cx="${xOf(latest, processedPoints.length - 1).toFixed(1)}" cy="${yOf(latest.v).toFixed(1)}" r="3"
+                  fill="${latest.isNoSignal ? '#ffffff' : strokeColor}" stroke="${strokeColor}" stroke-width="2"/>
           <text x="${PAD_L}" y="${VB_H - 5}" class="chart-axis">${escapeXml(tStart)}</text>
           <text x="${VB_W - PAD_R}" y="${VB_H - 5}" class="chart-axis" text-anchor="end">${escapeXml(tEnd)}</text>
         </svg>
@@ -216,8 +227,7 @@ const Charts = (() => {
           <span>min <b>${vMin.toFixed(decimals)}</b></span>
           <span>avg <b>${vAvg.toFixed(decimals)}</b></span>
           <span>max <b>${vMax.toFixed(decimals)}</b></span>
-          <span>${withData.length} pts</span>
-          ${gapNote}
+          <span>${processedPoints.length} pts</span>
         </div>
       </div>`;
   }

@@ -306,6 +306,10 @@ public static class VitalsStatusEvaluator
     {
         var causes = new List<(string Type, string Text)>();
 
+        if (HasLostSignal(reading))
+        {
+            causes.Add(("SENSOR_DISCONNECTED", $"No signal from: {DescribeLostChannels(reading)} (heart rate / SpO2 lost)"));
+        }
         if (reading.PatientBranch)
         {
             causes.Add(("PATIENT_DETERIORATING", "Patient vitals branch is abnormal"));
@@ -322,10 +326,6 @@ public static class VitalsStatusEvaluator
         if (reading.DripAnomaly)
         {
             causes.Add(("DRIP_MODEL_ANOMALY", "AI detected abnormal infusion timing"));
-        }
-        if (HasLostSignal(reading))
-        {
-            causes.Add(("SENSOR_DISCONNECTED", $"No signal from: {DescribeLostChannels(reading)}"));
         }
 
         if (causes.Count == 0)

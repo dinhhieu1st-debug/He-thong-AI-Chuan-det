@@ -10,9 +10,7 @@
 #include "zigbee-secure-key-storage-upgrade.h"
 #include "btl_interface.h"
 #include "sl_board_control.h"
-#include "sl_tflite_micro_init.h"
 #include "sl_debug_swo.h"
-#include "sl_mvp.h"
 #include "sl_gpio.h"
 #include "sl_iostream_init_eusart_instances.h"
 #include "sl_iostream_stdlib_config.h"
@@ -61,7 +59,6 @@ void sli_internal_init_early(void)
 void sl_driver_init(void)
 {
   sl_debug_swo_init();
-  sli_mvp_init();
   sl_gpio_init();
   sl_util_af_eeprom_init();
   sl_cos_send_config();
@@ -95,7 +92,6 @@ void sl_stack_init(void)
 
 void sl_internal_app_init(void)
 {
-  sl_tflite_micro_init();
 }
 
 void sli_platform_process_action(void)

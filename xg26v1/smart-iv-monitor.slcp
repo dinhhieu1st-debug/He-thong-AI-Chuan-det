@@ -156,9 +156,6 @@ autoselected_components:
   id: cmsis_core
 - package: simplicity_sdk
   vendor: silabs
-  id: cmsis_nn
-- package: simplicity_sdk
-  vendor: silabs
   id: code_classification
 - package: simplicity_sdk
   vendor: silabs
@@ -177,13 +174,7 @@ autoselected_components:
   id: component_catalog
 - package: simplicity_sdk
   vendor: silabs
-  id: compute_util
-- package: simplicity_sdk
-  vendor: silabs
   id: configuration_over_swo
-- package: simplicity_sdk
-  vendor: silabs
-  id: cpp_support
 - package: simplicity_sdk
   vendor: silabs
   id: debug_swo
@@ -223,12 +214,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: dmadrv_core
-- package: simplicity_sdk
-  vendor: silabs
-  id: driver_mvp
-- package: simplicity_sdk
-  vendor: silabs
-  id: driver_mvp_hal_efr32
 - package: simplicity_sdk
   vendor: silabs
   id: ecode
@@ -350,15 +335,6 @@ autoselected_components:
   id: legacy_hal_wdog
 - package: simplicity_sdk
   vendor: silabs
-  id: math
-- package: simplicity_sdk
-  vendor: silabs
-  id: math_mvp
-- package: simplicity_sdk
-  vendor: silabs
-  id: math_types
-- package: simplicity_sdk
-  vendor: silabs
   id: mbedtls_config
 - package: simplicity_sdk
   vendor: silabs
@@ -378,9 +354,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: mbedtls_source
-- package: simplicity_sdk
-  vendor: silabs
-  id: memory_manager_cpp
 - package: simplicity_sdk
   vendor: silabs
   id: memory_manager_pool
@@ -557,9 +530,6 @@ autoselected_components:
   id: sl_string
 - package: simplicity_sdk
   vendor: silabs
-  id: sl_syscalls
-- package: simplicity_sdk
-  vendor: silabs
   id: sli_psec_osal
 - package: simplicity_sdk
   vendor: silabs
@@ -567,15 +537,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: status
-- package: simplicity_sdk
-  vendor: silabs
-  id: toolchain_gcc
-- package: simplicity_sdk
-  vendor: silabs
-  id: toolchain_gcc_standard
-- package: simplicity_sdk
-  vendor: silabs
-  id: toolchain_variant_arm
 - package: simplicity_sdk
   vendor: silabs
   id: trustzone_unaware

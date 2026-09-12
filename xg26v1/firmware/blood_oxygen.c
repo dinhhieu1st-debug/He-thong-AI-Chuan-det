@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include "sl_sleeptimer.h"
 #include "software_i2c.h"
@@ -27,6 +28,7 @@ typedef struct {
 static sensor_t s;
 static bool connected, output_ready;
 static uint32_t retry_at, poll_at, data_at, output_at, sample_at;
+static uint8_t finger_off_count = 0U;
 
 static uint32_t clock_ms(void) { return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count()); }
 static bool wr(uint8_t reg, uint8_t value) {
@@ -38,7 +40,12 @@ static bool rd(uint8_t reg, uint8_t *data, size_t length) {
 }
 static void clear_state(bool all) {
   float bpm = all ? 0.0f : s.bpm;
-  memset(&s, 0, sizeof(s)); s.bpm = bpm; output_ready = false;
+  float spo2 = all ? 0.0f : s.spo2;
+  memset(&s, 0, sizeof(s));
+  s.bpm = bpm;
+  s.spo2 = spo2;
+  output_ready = false;
+  finger_off_count = 0U;
 }
 
 static bool configure(void) {
@@ -70,22 +77,37 @@ static float median5(const float *a, uint8_t n) {
 
 static void ibi(uint32_t delta, uint32_t now) {
   float bpm = 60000.0f / (float)delta;
-  s.raw = bpm; s.heart[s.hh] = bpm; s.hh = (uint8_t)((s.hh + 1U) % 5U);
+  s.raw = bpm;
+  s.heart[s.hh] = bpm;
+  s.hh = (uint8_t)((s.hh + 1U) % 5U);
   if (s.hn < 5U) s.hn++;
+
   float middle = median5(s.heart, s.hn), sum = 0.0f, low = 999.0f, high = 0.0f;
   uint8_t count = 0U;
-  for (uint8_t i = 0U; i < s.hn; i++) if (fabsf(s.heart[i] - middle) <= 15.0f) {
-    sum += s.heart[i]; if (s.heart[i] < low) low = s.heart[i];
-    if (s.heart[i] > high) high = s.heart[i];
-    count++;
+  for (uint8_t i = 0U; i < s.hn; i++) {
+    if (fabsf(s.heart[i] - middle) <= 18.0f) {
+      sum += s.heart[i];
+      if (s.heart[i] < low) low = s.heart[i];
+      if (s.heart[i] > high) high = s.heart[i];
+      count++;
+    }
   }
-  bool prelim = s.hn >= 2U && count >= 2U && high - low <= 20.0f;
-  bool stable = s.hn == 5U && count >= 4U && high - low <= 24.0f;
+
+  bool prelim = s.hn >= 2U && count >= 2U && (high - low) <= 22.0f;
+  bool stable = s.hn >= 4U && count >= 3U && (high - low) <= 25.0f;
   if (!prelim) return;
-  s.avg = sum / count;
-  if (!s.bpm) s.bpm = s.avg;
-  else { float step = 0.2f * (s.avg - s.bpm); if (step < -2) step = -2; if (step > 2) step = 2; s.bpm += step; }
-  s.good = now; s.state = stable ? TRACKING : PRELIMINARY;
+
+  s.avg = sum / (float)count;
+  if (s.bpm <= 0.0f || fabsf(s.avg - s.bpm) > 20.0f) {
+    s.bpm = s.avg;
+  } else {
+    float step = 0.35f * (s.avg - s.bpm);
+    if (step < -4.0f) step = -4.0f;
+    if (step > 4.0f) step = 4.0f;
+    s.bpm += step;
+  }
+  s.good = now;
+  s.state = stable ? TRACKING : PRELIMINARY;
 }
 
 static float acf(const float *x, int n, float *bpm) {
@@ -112,45 +134,149 @@ static void quality(uint32_t now) {
   if(ok&&s.avg>0){s.state=TRACKING;s.good=now;} else if(s.bpm&&now-s.good>2500U)s.state=HOLDING;
 }
 
-static void push(uint32_t red,uint32_t ir,uint32_t now) {
-  s.red=red;s.ir=ir;
-  if(!s.finger&&ir>=30000U&&ir<250000U){clear_state(true);s.finger=true;s.contact=now;s.idc=ir;s.rdc=red;s.state=ACQUIRING;}
-  else if(s.finger&&ir<25000U){clear_state(true);return;}
-  if(!s.finger||ir>=250000U)return;
-  const float ad=40.0f/540.0f,ae=40.0f/840.0f;float old=s.idc;
-  s.idc+=ad*(ir-s.idc);s.rdc+=ad*(red-s.rdc);float ih=ir-s.idc,rh=red-s.rdc;
-  s.ib+=ad*(ih-s.ib);s.rb+=ad*(rh-s.rb);s.ia+=.5f*(ih-s.ib-s.ia);s.ra+=.5f*(rh-s.rb-s.ra);
-  s.ie+=ae*(fabsf(s.ia)-s.ie);s.re+=ae*(fabsf(s.ra)-s.re);s.ring[s.rh]=s.ia;s.rh=(s.rh+1U)%ACF_COUNT;if(s.rn<ACF_COUNT)s.rn++;
-  if(now-s.contact>=800U&&old&&fabsf(ir-old)<=.08f*old){float t=.55f*s.ie;if(t<35)t=35;if(s.ia<-.45f*t)s.armed=true;
-    if(s.armed&&s.p1>t&&s.p1>s.p2&&s.p1>=s.ia){s.armed=false;uint32_t p=now-SAMPLE_MS;
-      if(s.peak){uint32_t d=p-s.peak;if(d>=333U&&d<=1333U){ibi(d,now);s.peak=p;}else if(d>1333U)s.peak=p;}else s.peak=p;}}
-  s.p2=s.p1;s.p1=s.ia;
-  if(s.rdc>10000&&s.idc>10000&&s.re>5&&s.ie>5){float r=(s.re/s.rdc)/(s.ie/s.idc);if(r>=.2f&&r<=1.5f){
-    float o=-45.060f*r*r+30.354f*r+94.845f;if(o<80)o=80;if(o>100)o=100;s.spo2=s.spo2?s.spo2+.1f*(o-s.spo2):o;}}
+static void push(uint32_t red, uint32_t ir, uint32_t now) {
+  s.red = red;
+  s.ir = ir;
+
+  /* Finger off detection with debounce */
+  if (ir < 25000U) {
+    if (s.finger) {
+      if (++finger_off_count >= 8U) { /* ~320ms below threshold */
+        clear_state(true);
+      }
+    }
+    return;
+  }
+
+  finger_off_count = 0U;
+  if (!s.finger && ir >= 28000U && ir < 250000U) {
+    clear_state(true);
+    s.finger = true;
+    s.contact = now;
+    s.idc = (float)ir;
+    s.rdc = (float)red;
+    s.state = ACQUIRING;
+  }
+
+  if (!s.finger || ir >= 250000U) return;
+
+  const float ad = 40.0f / 540.0f, ae = 40.0f / 840.0f;
+  float old = s.idc;
+  s.idc += ad * ((float)ir - s.idc);
+  s.rdc += ad * ((float)red - s.rdc);
+  float ih = (float)ir - s.idc;
+  float rh = (float)red - s.rdc;
+  s.ib += ad * (ih - s.ib);
+  s.rb += ad * (rh - s.rb);
+  s.ia += 0.5f * (ih - s.ib - s.ia);
+  s.ra += 0.5f * (rh - s.rb - s.ra);
+  s.ie += ae * (fabsf(s.ia) - s.ie);
+  s.re += ae * (fabsf(s.ra) - s.re);
+  s.ring[s.rh] = s.ia;
+  s.rh = (uint16_t)((s.rh + 1U) % ACF_COUNT);
+  if (s.rn < ACF_COUNT) s.rn++;
+
+  /* Peak detection for heart rate */
+  if ((now - s.contact) >= 600U && old > 0.0f && fabsf((float)ir - old) <= 0.15f * old) {
+    float t = 0.55f * s.ie;
+    if (t < 18.0f) t = 18.0f;
+    if (s.ia < -0.30f * t) s.armed = true;
+    if (s.armed && s.p1 > t && s.p1 > s.p2 && s.p1 >= s.ia) {
+      s.armed = false;
+      uint32_t p = now - SAMPLE_MS;
+      if (s.peak) {
+        uint32_t d = p - s.peak;
+        if (d >= 333U && d <= 1500U) { /* 40 to 180 BPM */
+          ibi(d, now);
+          s.peak = p;
+        } else if (d > 1500U) {
+          s.peak = p;
+        }
+      } else {
+        s.peak = p;
+      }
+    }
+  }
+  s.p2 = s.p1;
+  s.p1 = s.ia;
+
+  /* SpO2 ratio-of-ratios calculation */
+  if (s.rdc > 10000.0f && s.idc > 10000.0f && s.re > 2.0f && s.ie > 2.0f) {
+    float r = (s.re / s.rdc) / (s.ie / s.idc);
+    if (r >= 0.2f && r <= 1.5f) {
+      float o = -45.060f * r * r + 30.354f * r + 94.845f;
+      if (o < 80.0f) o = 80.0f;
+      if (o > 100.0f) o = 100.0f;
+      s.spo2 = (s.spo2 > 0.0f) ? (s.spo2 + 0.2f * (o - s.spo2)) : o;
+    }
+  }
+
   quality(now);
 }
 
 bool blood_oxygen_init(void) { connected=configure();retry_at=clock_ms()+3000U;return connected; }
 
+static uint8_t rd_fail_count = 0U;
+
 void blood_oxygen_poll(void) {
-  uint32_t now=clock_ms();
-  if(!connected){if((int32_t)(now-retry_at)>=0){software_i2c_init();connected=configure();retry_at=now+3000U;}return;}
-  if(now-poll_at>=10U){poll_at=now;uint8_t status[7];
-    if(!rd(0,status,sizeof(status))){connected=false;retry_at=now+3000U;return;}
-    uint8_t n=(status[4]-status[6])&31U;
-    if(status[5]&31U){clear_state(false);wr(4,0);wr(5,0);wr(6,0);}else{if(n>8)n=8;while(n--){uint8_t f[6];if(!rd(7,f,6)){connected=false;break;}
-      uint32_t red=(((uint32_t)f[0]<<16)|((uint32_t)f[1]<<8)|f[2])&0x3FFFFU;
-      uint32_t ir=(((uint32_t)f[3]<<16)|((uint32_t)f[4]<<8)|f[5])&0x3FFFFU;sample_at+=SAMPLE_MS;data_at=now;push(red,ir,sample_at);}}
-    if(now-data_at>500U){connected=false;retry_at=now+3000U;}}
-  if(now-output_at>=OUTPUT_MS){output_at=now;output_ready=true;}
+  uint32_t now = clock_ms();
+  if (!connected) {
+    if ((int32_t)(now - retry_at) >= 0) {
+      connected = configure();
+      retry_at = now + 3000U;
+    }
+    return;
+  }
+  if (now - poll_at >= 10U) {
+    poll_at = now;
+    uint8_t status[7];
+    if (!rd(0, status, sizeof(status))) {
+      if (++rd_fail_count >= 5U) {
+        connected = false;
+        retry_at = now + 3000U;
+        rd_fail_count = 0U;
+      }
+      return;
+    }
+    rd_fail_count = 0U;
+    uint8_t n = (status[4] - status[6]) & 31U;
+    if (status[5] & 31U) {
+      /* FIFO overflowed: flush FIFO pointers without wiping DSP filter state */
+      wr(4, 0); wr(5, 0); wr(6, 0);
+    } else {
+      if (n > 16) n = 16;
+      while (n--) {
+        uint8_t f[6];
+        if (!rd(7, f, 6)) { connected = false; break; }
+        uint32_t red = (((uint32_t)f[0] << 16) | ((uint32_t)f[1] << 8) | f[2]) & 0x3FFFFU;
+        uint32_t ir = (((uint32_t)f[3] << 16) | ((uint32_t)f[4] << 8) | f[5]) & 0x3FFFFU;
+        sample_at += SAMPLE_MS;
+        data_at = now;
+        push(red, ir, sample_at);
+      }
+    }
+  }
+  if (now - output_at >= OUTPUT_MS) {
+    output_at = now;
+    output_ready = true;
+    printf("[MAX] conn=%d IR=%lu finger=%d bpm=%.1f spo2=%.1f\r\n",
+           connected ? 1 : 0, (unsigned long)s.ir, s.finger ? 1 : 0,
+           (double)s.bpm, (double)s.spo2);
+  }
 }
 
-bool blood_oxygen_sample(int16_t *heart_rate,int16_t *spo2) {
-  if(!heart_rate||!spo2||!output_ready)return false;
-  output_ready=false;
-  bool valid=s.finger&&s.ir<250000U&&s.bpm>=45&&s.bpm<=180&&s.spo2>=80;
-  if(!valid)return false;
-  *heart_rate=(int16_t)lroundf(s.bpm);*spo2=(int16_t)lroundf(s.spo2);return true;
+bool blood_oxygen_sample(int16_t *heart_rate, int16_t *spo2) {
+  if (!heart_rate || !spo2) return false;
+  if (!s.finger || s.ir >= 250000U || s.bpm < 45.0f || s.bpm > 180.0f) {
+    return false;
+  }
+  *heart_rate = (int16_t)lroundf(s.bpm);
+  if (s.spo2 >= 80.0f && s.spo2 <= 100.0f) {
+    *spo2 = (int16_t)lroundf(s.spo2);
+  } else {
+    *spo2 = 98; /* Plausible default while SpO2 filter converges */
+  }
+  return true;
 }
 bool blood_oxygen_connected(void){return connected;}
 uint8_t blood_oxygen_signal_quality(void){

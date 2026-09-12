@@ -269,6 +269,17 @@ const UiUtils = (() => {
     // "bag running low = blocked line" alarm the load cell exists to remove.
     const deviceJudgedLine = bed.alertLevel != null;
 
+    if (patientActive && (!bed.heartRateSignal || !bed.spo2Signal)) {
+      const lost = [];
+      if (!bed.heartRateSignal) lost.push("Heart rate");
+      if (!bed.spo2Signal) lost.push("SpO2");
+      causes.push({
+        type: "patient", level: 3, sensor: "MAX30102", channel: lost.join(" / "),
+        reason: "Mất tín hiệu (nosignal - không nhận được nhịp tim / SpO2)",
+        value: "--"
+      });
+    }
+
     if (patientActive && bed.spo2Low && bed.spo2Signal) {
       causes.push({
         type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "SpO2",
@@ -290,7 +301,7 @@ const UiUtils = (() => {
       });
     }
 
-    if (patientActive && !bed.spo2Low && !bed.heartRateAbnormal) {
+    if (patientActive && !bed.spo2Low && !bed.heartRateAbnormal && bed.heartRateSignal && bed.spo2Signal) {
       causes.push({
         type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "HR / SpO2",
         reason: "Vitals differ from the learned baseline", value: "--"
