@@ -48,19 +48,17 @@ static int32_t hx711_read_raw(void)
 
   for (uint32_t bit = 0; bit < 24U; bit++) {
     GPIO_PinOutSet(HX711_SCK_PORT, HX711_SCK_PIN);
-    sl_udelay_wait(2);
+    sl_udelay_wait(1);
     value = (value << 1) |
             (GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN) ? 1U : 0U);
     GPIO_PinOutClear(HX711_SCK_PORT, HX711_SCK_PIN);
-    sl_udelay_wait(2);
+    sl_udelay_wait(1);
   }
 
-  /* Pulse 25 selects channel A, gain 128 for the next conversion.
-   * This 25th pulse is required by HX711 to pull DOUT back to HIGH. */
+  /* Pulse 25 selects channel A, gain 128 for the next conversion. */
   GPIO_PinOutSet(HX711_SCK_PORT, HX711_SCK_PIN);
-  sl_udelay_wait(2);
+  sl_udelay_wait(1);
   GPIO_PinOutClear(HX711_SCK_PORT, HX711_SCK_PIN);
-  sl_udelay_wait(2);
   CORE_EXIT_ATOMIC();
 
   if ((value & 0x00800000UL) != 0U) {
@@ -71,43 +69,10 @@ static int32_t hx711_read_raw(void)
 
 void hx711_sensor_init(void)
 {
-  /* Diagnostic check of PC01 and PC03 */
-  GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInputPull, 0);
-  sl_udelay_wait(50);
-  int dout_pd = GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN);
-
-  GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInputPull, 1);
-  sl_udelay_wait(50);
-  int dout_pu = GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN);
-
-  GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModeInputPull, 0);
-  sl_udelay_wait(50);
-  int sck_pd = GPIO_PinInGet(HX711_SCK_PORT, HX711_SCK_PIN);
-
-  GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModeInputPull, 1);
-  sl_udelay_wait(50);
-  int sck_pu = GPIO_PinInGet(HX711_SCK_PORT, HX711_SCK_PIN);
-
-  printf("\r\n--- [HX711 PIN DIAGNOSTIC] ---\r\n");
-  printf("  PC01 (DOUT): PD=%d PU=%d -> %s\r\n",
-         dout_pd, dout_pu,
-         (dout_pd == 0 && dout_pu == 1) ? "FLOATING/OPEN" :
-         (dout_pd == 0 && dout_pu == 0) ? "TIED TO GND (0V / Shorted)" :
-         (dout_pd == 1 && dout_pu == 1) ? "ACTIVE HIGH (3.3V / VCC)" : "OTHER");
-  printf("  PC03 (SCK) : PD=%d PU=%d -> %s\r\n",
-         sck_pd, sck_pu,
-         (sck_pd == 0 && sck_pu == 1) ? "FLOATING/OPEN" :
-         (sck_pd == 0 && sck_pu == 0) ? "TIED TO GND (0V / Shorted)" :
-         (sck_pd == 1 && sck_pu == 1) ? "ACTIVE HIGH (3.3V / VCC)" : "OTHER");
-  printf("-------------------------------\r\n");
-
-  /* Restore normal operating modes */
   GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModePushPull, 0);
-  GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInputPull, 1);
-  printf("[HX711] DOUT=PC01, SCK=PC03 configured. Keep loadcell EMPTY for automatic tare.\r\n");
+  GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInput, 0);
+  printf("[HX711] DOUT=PC01, SCK=PC03. Keep loadcell EMPTY for automatic tare.\r\n");
 }
-
-static uint32_t last_sample_time_ms = 0U;
 
 void hx711_sensor_poll(void)
 {
@@ -123,21 +88,10 @@ void hx711_sensor_poll(void)
     return;
   }
 
-  /* An HX711 chip at 10Hz/80Hz cannot produce a new sample faster than ~10ms.
-   * If DOUT is permanently stuck LOW (short to GND or SCK broken), enforce a minimum gap
-   * to avoid spinning at 100% CPU and fake-sampling tens of thousands of zeros. */
-  if ((ms - last_sample_time_ms) < 10U) {
-    return;
-  }
-  last_sample_time_ms = ms;
-
   int32_t raw = hx711_read_raw();
   connected = true;
   last_data_ms = ms;
   sample_count++;
-
-  /* Check if DOUT stayed LOW after pulse 25. If so, HX711 did not acknowledge clock. */
-  bool dout_stuck_low = (GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN) == 0);
 
   if (!tare_done) {
     tare_sum += raw;
@@ -154,15 +108,17 @@ void hx711_sensor_poll(void)
 
   if ((ms - last_report_ms) >= HX711_REPORT_PERIOD_MS) {
     int32_t delta = raw - tare_offset;
+    /* A load cell's electrical polarity depends on its mechanical mounting
+     * and A+/A- wiring. Mass has no sign: accepting only one polarity made a
+     * correctly hung bag read as zero on installations mounted the other way
+     * round. Tare remains the zero reference, so removing the bag still
+     * returns to zero. */
     weight_kg = (float)delta / HX711_CALIBRATION_FACTOR;
     if (weight_kg < 0.0f) { weight_kg = -weight_kg; }
     if (weight_kg > -0.015f && weight_kg < 0.015f) { weight_kg = 0.0f; }
     last_report_ms = ms;
-    printf("[HX711] sample=%lu raw=%ld (0x%06lX) delta=%ld wt=%.3fkg DOUT=%s%s\r\n",
-           (unsigned long)sample_count, (long)raw, (unsigned long)(raw & 0x00FFFFFFUL),
-           (long)delta, weight_kg,
-           dout_stuck_low ? "STUCK_LOW" : "HIGH",
-           dout_stuck_low ? " (CHECK SCK PC03 / DOUT PC01!)" : "");
+    printf("[HX711] sample=%lu raw=%ld delta=%ld DOUT=LOW\r\n",
+           (unsigned long)sample_count, (long)raw, (long)delta);
   }
 }
 
