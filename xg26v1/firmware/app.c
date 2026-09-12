@@ -35,12 +35,10 @@
 #define TARE_PIN        0U
 #define SAMPLE_INTERVAL_MS 250U
 #define SAMPLE_COUNT       4U
-#define VITALS_FILTER_WINDOW      12U
-#define VITALS_FILTER_MIN_SAMPLES 8U
 #define TARE_TIME_MS       10000U
 #define VITALS_HOLD_MS     3000U
 #define DROP_TRAINING_REQUIRED   20U
-#define VITALS_TRAINING_REQUIRED 64U
+#define VITALS_TRAINING_REQUIRED 20U
 
 #define SMART_IV_ENDPOINT          2U
 #define SMART_IV_CLUSTER_ID        0xFC01U
@@ -139,8 +137,6 @@ static uint8_t sample_count;
 static int16_t heart_rate;
 static int16_t spo2;
 static float weight_kg;
-static float filtered_heart_bpm;
-static float filtered_spo2_percent;
 static bool vitals_valid;
 static uint32_t last_vitals_good_ms;
 static bool fake_hr_enabled;
@@ -148,14 +144,6 @@ static bool fake_spo2_enabled;
 static uint8_t fake_vitals_level;
 static bool runtime_tare_in_progress;
 static uint32_t runtime_tare_start_ms;
-static uint8_t large_hr_jump_streak;
-static int8_t large_hr_jump_direction;
-static uint8_t large_spo2_jump_streak;
-static int8_t large_spo2_jump_direction;
-static int16_t heart_filter_history[VITALS_FILTER_WINDOW];
-static int16_t spo2_filter_history[VITALS_FILTER_WINDOW];
-static uint8_t heart_filter_count;
-static uint8_t spo2_filter_count;
 
 #define DROP_FORECAST_WINDOW 20U
 static float drop_rate_history[DROP_FORECAST_WINDOW];
@@ -493,11 +481,11 @@ static void publish_zigbee_attributes(int16_t current_hr,
   /* AlarmBitmap layout is shared with zigbee2mqtt_smart_iv_converter.js. */
   if (alerts_armed && !current_vitals_valid) { alarm_bitmap |= 0x0001U; }
   if (alerts_armed && current_vitals_valid && (ai_input_spo2 < 90
-      || (vitals_ai.baseline_samples >= 60U && vitals_ai.spo2_baseline > 0.0f
+      || (vitals_ai.baseline_samples >= 20U && vitals_ai.spo2_baseline > 0.0f
           && absolute_float((float)ai_input_spo2 - vitals_ai.spo2_baseline)
              / vitals_ai.spo2_baseline >= 0.15f))) { alarm_bitmap |= 0x0002U; }
   if (alerts_armed && current_vitals_valid && (ai_input_hr < 45 || ai_input_hr > 150
-      || (vitals_ai.baseline_samples >= 60U && vitals_ai.hr_baseline > 0.0f
+      || (vitals_ai.baseline_samples >= 20U && vitals_ai.hr_baseline > 0.0f
           && absolute_float((float)ai_input_hr - vitals_ai.hr_baseline)
              / vitals_ai.hr_baseline >= 0.15f))) { alarm_bitmap |= 0x0004U; }
   if (alerts_armed && drip_level > 1U) { alarm_bitmap |= 0x0008U; }
@@ -591,7 +579,7 @@ static void publish_zigbee_attributes(int16_t current_hr,
                              ? vitals_ai_baseline_recalibration_samples()
                              : vitals_ai.baseline_samples;
   write_zcl_u8(ATTR_HR_BASELINE_REMAINING,
-               baseline_samples < 60U ? (uint8_t)(60U - baseline_samples) : 0U);
+               baseline_samples < 20U ? (uint8_t)(20U - baseline_samples) : 0U);
   write_zcl_u16(ATTR_HR_BASELINE_BPM,
                 clamp_u16(vitals_ai.hr_baseline), ZCL_INT16U_ATTRIBUTE_TYPE);
   write_zcl_u8(ATTR_TARE_EVENT_COUNT, tare_event_count);
@@ -627,94 +615,12 @@ static void update_final_alert(void)
          (unsigned)vitals_ai.level, (unsigned)drip_level, (unsigned)final_level);
 }
 
-static int16_t median_int16(const int16_t *values, uint8_t count)
-{
-  int16_t sorted[VITALS_FILTER_WINDOW];
-  if (count == 0U) { return 0; }
-  for (uint8_t i = 0U; i < count; i++) { sorted[i] = values[i]; }
-  for (uint8_t i = 1U; i < count; i++) {
-    int16_t value = sorted[i];
-    uint8_t j = i;
-    while (j > 0U && sorted[j - 1U] > value) { sorted[j] = sorted[j - 1U]; j--; }
-    sorted[j] = value;
-  }
-  if ((count & 1U) != 0U) { return sorted[count / 2U]; }
-  return (int16_t)((sorted[count / 2U - 1U] + sorted[count / 2U]) / 2);
-}
-
-static void append_filter_samples(int16_t *history, uint8_t *history_count,
-                                  const int16_t *values, uint8_t count)
-{
-  for (uint8_t i = 0U; i < count; i++) {
-    if (*history_count < VITALS_FILTER_WINDOW) {
-      history[(*history_count)++] = values[i];
-    } else {
-      memmove(&history[0], &history[1],
-              (VITALS_FILTER_WINDOW - 1U) * sizeof(history[0]));
-      history[VITALS_FILTER_WINDOW - 1U] = values[i];
-    }
-  }
-}
-
 static float average_float(const float *values, uint8_t count)
 {
   float sum = 0.0f;
   if (count == 0U) { return 0.0f; }
   for (uint8_t i = 0U; i < count; i++) { sum += values[i]; }
   return sum / count;
-}
-
-static int16_t filter_heart_rate(const int16_t *values, uint8_t count)
-{
-  append_filter_samples(heart_filter_history, &heart_filter_count, values, count);
-  if (heart_filter_count < VITALS_FILTER_MIN_SAMPLES) { return heart_rate; }
-  int16_t median = median_int16(heart_filter_history, heart_filter_count);
-  if (filtered_heart_bpm <= 0.0f) { filtered_heart_bpm = (float)median; return median; }
-  float difference = (float)median - filtered_heart_bpm;
-  if (absolute_float(difference) > 20.0f) {
-    int8_t direction = difference > 0.0f ? 1 : -1;
-    if (direction == large_hr_jump_direction) {
-      if (large_hr_jump_streak < UINT8_MAX) { large_hr_jump_streak++; }
-    } else { large_hr_jump_direction = direction; large_hr_jump_streak = 1U; }
-    if (large_hr_jump_streak < 3U) { return (int16_t)(filtered_heart_bpm + 0.5f); }
-  } else { large_hr_jump_streak = 0U; large_hr_jump_direction = 0; }
-  float step = ((float)median - filtered_heart_bpm) * 0.20f;
-  if (step > 4.0f) { step = 4.0f; }
-  if (step < -4.0f) { step = -4.0f; }
-  filtered_heart_bpm += step;
-  return (int16_t)(filtered_heart_bpm + 0.5f);
-}
-
-static int16_t filter_spo2(const int16_t *values, uint8_t count)
-{
-  append_filter_samples(spo2_filter_history, &spo2_filter_count, values, count);
-  if (spo2_filter_count < VITALS_FILTER_MIN_SAMPLES) { return spo2; }
-  int16_t median = median_int16(spo2_filter_history, spo2_filter_count);
-  if (filtered_spo2_percent <= 0.0f) {
-    filtered_spo2_percent = (float)median;
-    return median;
-  }
-  float difference = (float)median - filtered_spo2_percent;
-  if (absolute_float(difference) > 3.0f) {
-    int8_t direction = difference > 0.0f ? 1 : -1;
-    if (direction == large_spo2_jump_direction) {
-      if (large_spo2_jump_streak < UINT8_MAX) { large_spo2_jump_streak++; }
-    } else {
-      large_spo2_jump_direction = direction;
-      large_spo2_jump_streak = 1U;
-    }
-    if (large_spo2_jump_streak < 3U) {
-      return (int16_t)(filtered_spo2_percent + 0.5f);
-    }
-  } else {
-    large_spo2_jump_streak = 0U;
-    large_spo2_jump_direction = 0;
-  }
-  float step = ((float)median - filtered_spo2_percent) * 0.25f;
-  if (step > 2.0f) { step = 2.0f; }
-  if (step < -2.0f) { step = -2.0f; }
-  filtered_spo2_percent += step;
-  return (int16_t)(filtered_spo2_percent + 0.5f);
 }
 
 static void all_alerts_off(void)
@@ -784,14 +690,6 @@ static void start_initial_tare(uint32_t now)
   drop_timeout_sent = false;
   drop_training_samples = 0U;
   alerts_armed = false;
-  filtered_heart_bpm = 0.0f;
-  filtered_spo2_percent = 0.0f;
-  heart_filter_count = 0U;
-  spo2_filter_count = 0U;
-  large_hr_jump_streak = 0U;
-  large_hr_jump_direction = 0;
-  large_spo2_jump_streak = 0U;
-  large_spo2_jump_direction = 0;
   last_vitals_good_ms = 0U;
   fake_hr_enabled = false;
   fake_spo2_enabled = false;
@@ -845,7 +743,7 @@ static bool process_command(const char *command)
       save_monitoring_state();
       printf("AI_SET_OK,%lu\r\n", value);
       oled_display_message("COLLECTING DATA", "DROP: 0/20",
-                           "HR+SPO2: 0/64", "ALARMS: OFF");
+                           "HR+SPO2: 0/20", "ALARMS: OFF");
     } else { printf("AI_SET_ERROR\r\n"); }
     return true;
   } else if (strncmp(command, "LEVEL,", 6U) == 0) {
@@ -946,7 +844,7 @@ static void update_startup(uint32_t now)
     printf("AI_READY\r\n");
     if (monitoring_requested) {
       oled_display_message("COLLECTING DATA", "DROP: 0/20",
-                           "HR+SPO2: 0/64", "ALARMS: OFF");
+                           "HR+SPO2: 0/20", "ALARMS: OFF");
     } else {
       oled_display_message("SYSTEM READY", "HANG IV BAG",
                            "OPEN HIS WEB", "SET DROP RATE");
@@ -993,8 +891,8 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
         system_state = SYSTEM_MONITORING;
         reset_monitoring_training();
         oled_display_message("TARGET RECEIVED", "COLLECTING DATA",
-                             "DROP: 0/20", "HR+SPO2: 0/64");
-        printf("[MONITOR] Target confirmed by HIS Web; starting 20 drop and 64 vitals samples.\r\n");
+                             "DROP: 0/20", "HR+SPO2: 0/20");
+        printf("[MONITOR] Target confirmed by HIS Web; starting 20 drop and 20 vitals samples.\r\n");
       } else if (system_state == SYSTEM_MONITORING && target_changed) {
         apply_target_drops_per_min(next);
         reset_drop_training_for_target();
@@ -1027,8 +925,8 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
       system_state = SYSTEM_MONITORING;
       reset_monitoring_training();
       oled_display_message("COLLECTING DATA", "DROP: 0/20",
-                           "HR+SPO2: 0/64", "ALARMS: OFF");
-      printf("[MONITOR] Collecting 20 drip intervals and 64 vitals samples; alarms off.\r\n");
+                           "HR+SPO2: 0/20", "ALARMS: OFF");
+      printf("[MONITOR] Collecting 20 drip intervals and 20 vitals samples; alarms off.\r\n");
     }
     return;
   }
@@ -1201,7 +1099,7 @@ static void send_new_drop_to_ai(void)
  *     drop_sensor_last_drop_ms() is still 0 - timed from monitoring_start_ms
  *     instead;
  *   - recovery, once a fresh drop arrives and moves last_drop forward again.
- * A total stoppage detected before the 20/64-sample training window
+ * A total stoppage detected before the 20/20-sample training window
  * completes forces alerts_armed on early: silence during ordinary setup
  * noise is intentional elsewhere in this firmware, but "zero drops at all
  * since Start" for two full target intervals is not setup noise, it is the
@@ -1248,12 +1146,10 @@ static void publish_display(void)
   uint32_t now = now_ms();
   bool received_vitals = heart_count > 0U && spo2_count > 0U;
   if (received_vitals) {
-    heart_rate = filter_heart_rate(heart_samples, heart_count);
-    spo2 = filter_spo2(spo2_samples, spo2_count);
+    heart_rate = heart_samples[heart_count - 1U];
+    spo2 = spo2_samples[spo2_count - 1U];
   }
-  bool new_vitals = received_vitals
-                    && heart_filter_count >= VITALS_FILTER_MIN_SAMPLES
-                    && spo2_filter_count >= VITALS_FILTER_MIN_SAMPLES;
+  bool new_vitals = received_vitals;
   if (new_vitals) {
     last_vitals_good_ms = now;
   }
@@ -1262,21 +1158,13 @@ static void publish_display(void)
   if (!vitals_valid && last_vitals_good_ms != 0U) {
     /* A real signal loss starts a fresh filter window.  Otherwise old finger
      * readings can pull the first measurements after contact is restored. */
-    heart_filter_count = 0U;
-    spo2_filter_count = 0U;
-    filtered_heart_bpm = 0.0f;
-    filtered_spo2_percent = 0.0f;
-    large_hr_jump_streak = 0U;
-    large_hr_jump_direction = 0;
-    large_spo2_jump_streak = 0U;
-    large_spo2_jump_direction = 0;
     last_vitals_good_ms = 0U;
   }
   if (weight_count > 0U) { weight_kg = average_float(weight_samples, weight_count); }
   if (system_state == SYSTEM_MONITORING) {
     int16_t ai_heart_rate = heart_rate;
     int16_t ai_spo2 = spo2;
-    bool fake_ready = vitals_ai.baseline_samples >= 60U;
+    bool fake_ready = vitals_ai.baseline_samples >= 20U;
     if (fake_ready && fake_hr_enabled) {
       /* Use a downward deviation so it is >30% from baseline while staying
          inside the hard red limits (45..150 BPM): this tests level 2. */
@@ -1298,7 +1186,7 @@ static void publish_display(void)
        repeated as if they were new sensor samples. */
     if (new_vitals) {
       vitals_ai_step(ai_heart_rate, ai_spo2, true, &vitals_ai);
-      if (previous_baseline_samples < 60U && vitals_ai.baseline_samples >= 60U) {
+      if (previous_baseline_samples < 20U && vitals_ai.baseline_samples >= 20U) {
         hr_baseline_event_count++;
         hr_baseline_just_completed = true;
       }
@@ -1479,6 +1367,7 @@ void app_process_action(void)
 {
   uint32_t now = now_ms();
   oled_display_ota_step(now);
+  blood_oxygen_poll();
   drop_sensor_poll();
   hx711_sensor_poll();
   bool pressed = GPIO_PinInGet(TARE_PORT, TARE_PIN) == 0;

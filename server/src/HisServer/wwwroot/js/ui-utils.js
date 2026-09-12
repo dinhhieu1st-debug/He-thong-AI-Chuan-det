@@ -319,17 +319,13 @@ const UiUtils = (() => {
       });
     }
 
-    if (bed.aeAlarm) {
-      causes.push({ type: "ai", severity: "warning", sensor: "AI (autoencoder)", channel: "HR + SpO2 combination",
-        reason: "Abnormal HR/SpO2 combination detected", value: "--" });
+    if (bed.aeAlarm || bed.vitalsAnomaly) {
+      causes.push({ type: "ai", severity: "warning", sensor: "AI (Decision Tree)", channel: "HR + SpO2",
+        reason: "5-second patient risk classified as attention or alarm", value: "--" });
     }
     if (bed.dripAnomaly) {
       causes.push({ type: "ai", severity: "warning", sensor: "AI (drip forecaster)", channel: "Drop rate",
         reason: "Infusion flow changing unexpectedly", value: "--" });
-    }
-    if (bed.vitalsAnomaly) {
-      causes.push({ type: "ai", severity: "warning", sensor: "AI (vitals forecaster)", channel: "HR/SpO2 trend",
-        reason: "Vitals changing unexpectedly", value: "--" });
     }
 
     // Signal loss is only its own listed cause for a device too old to
@@ -365,9 +361,9 @@ const UiUtils = (() => {
     LINE_FAULT: { source: "Infusion line", sensor: "Photodiode drop sensor", channel: "Drop rate" },
     LINE_BLOCKED: { source: "Infusion line", sensor: "Photodiode drop sensor", channel: "Drop rate" },
     FLUID_OVERLOAD_SUSPECTED: { source: "Infusion line + Patient vitals", sensor: "Photodiode + MAX30102", channel: "Combined" },
-    AE_ALARM: { source: "AI model", sensor: "AI (autoencoder)", channel: "HR + SpO2 combination" },
+    AE_ALARM: { source: "AI model", sensor: "AI (Decision Tree)", channel: "HR + SpO2" },
     DRIP_MODEL_ANOMALY: { source: "AI model", sensor: "AI (drip forecaster)", channel: "Drop rate" },
-    VITALS_MODEL_ANOMALY: { source: "AI model", sensor: "AI (vitals forecaster)", channel: "HR/SpO2 trend" },
+    VITALS_MODEL_ANOMALY: { source: "AI model", sensor: "AI (Decision Tree)", channel: "5-second HR/SpO2 risk" },
     SENSOR_DISCONNECTED: { source: "Sensor", sensor: "Sensor", channel: "Signal" },
     CRITICAL: { source: "XG26 device", sensor: "On-chip fusion", channel: "Combined" },
     WARNING: { source: "XG26 device", sensor: "On-chip fusion", channel: "Combined" },

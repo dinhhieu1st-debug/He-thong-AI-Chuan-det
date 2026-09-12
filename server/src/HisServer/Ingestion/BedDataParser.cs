@@ -64,9 +64,8 @@ public static class BedDataParser
         var tareEventCount = ReadNullableInt(root, "tareEventCount", "tare_event_count");
         var hrBaselineEventCount = ReadNullableInt(root, "hrBaselineEventCount", "hr_baseline_event_count");
 
-        // Ket qua cua model DU BAO chuoi thoi gian tren chip (ts_monitor.c).
-        // Deu nullable: gateway/firmware cu khong gui, va ngay ca firmware moi
-        // cung chi co du bao sau khi gom du cua so 64 giay dau tien.
+        // Ket qua AI tren chip. HR/SpO2 dung Decision Tree 20 mau de du bao 5
+        // giay; ten wire *Forecast16s duoc giu de tuong thich gateway da trien khai.
         var tsReady = ReadBool(root, false, "tsReady", "ts_ready");
         var tsAnomaly = ReadBool(root, false, "tsAnomaly", "ts_anomaly");
         var tsEarlyWarning = ReadBool(root, false, "tsEarlyWarning", "ts_early_warning");
@@ -74,7 +73,7 @@ public static class BedDataParser
         var hrForecast16s = ReadNullableInt(root, "hrForecast16s", "hr_forecast_16s");
         var spo2Forecast16s = ReadNullableInt(root, "spo2Forecast16s", "spo2_forecast_16s");
         var hrTrendBpmPerMin = ReadNullableInt(root, "hrTrendBpmPerMin", "hr_trend_bpm_per_min");
-        // Firmware gui diem da nhan 100 de giu 2 chu so thap phan qua duong so nguyen.
+        // Firmware moi gui diem muc phan loai (0/100/200); giu field cu de tuong thich.
         var tsAnomalyScoreX100 = ReadNullableInt(root, "tsAnomalyScore", "ts_anomaly_score");
         var dropsTrend = ReadNullableInt(root, "dropsTrend", "drops_trend");
         var dropsTrendDpmPerMin = ReadNullableInt(root, "dropsTrendDpmPerMin", "drops_trend_dpm_per_min");

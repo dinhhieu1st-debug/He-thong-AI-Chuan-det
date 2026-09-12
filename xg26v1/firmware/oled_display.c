@@ -301,7 +301,7 @@ void oled_display_monitor(int16_t heart_rate,
     (void)hr_baseline_samples;
     (void)snprintf(text, sizeof(text), "DROP %u/20 ALARM OFF", drop_training_samples);
     frame_center(6U, text);
-    (void)snprintf(text, sizeof(text), "HR+O2 %u/64", vitals_history_samples);
+    (void)snprintf(text, sizeof(text), "HR+O2 %u/20", vitals_history_samples);
     frame_center(7U, text);
   } else {
     char causes[18] = "";

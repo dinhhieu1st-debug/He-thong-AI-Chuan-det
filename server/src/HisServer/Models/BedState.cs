@@ -29,9 +29,9 @@ public sealed class BedState
     public int? HrBaselineBpm { get; set; }
 
     /// <summary>
-    /// Ket qua model du bao chuoi thoi gian chay TREN CHIP (xem ts_monitor.c).
+    /// Ket qua AI HR/SpO2 Decision Tree 20 mau, du bao 5 giay tren chip.
     /// TsTrend: 0 = on dinh, 1 = nhip tim dang tang, 2 = dang giam.
-    /// TsAnomalyScoreX100 da nhan 100 (firmware gui so nguyen).
+    /// Truong diem tuong thich: firmware moi gui muc 0/100/200.
     /// </summary>
     public bool TsReady { get; set; }
     public bool TsAnomaly { get; set; }
@@ -86,7 +86,7 @@ public sealed class BedState
     public bool Monitoring { get; set; } = true;
     public int? DropTrainingSamples { get; set; }
     public int? VitalsTrainingSamples { get; set; }
-    /// <summary>False while the device is collecting 20 drip intervals and 64 vitals samples.</summary>
+    /// <summary>False while the device is collecting 20 drip intervals and 20 HR/SpO2 samples.</summary>
     public bool? AlertsArmed { get; set; }
 
     /* What the device says it is RUNNING ON, as opposed to what it measured.
