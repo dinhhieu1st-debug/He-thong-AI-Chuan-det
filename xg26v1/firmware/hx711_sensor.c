@@ -71,9 +71,40 @@ static int32_t hx711_read_raw(void)
 
 void hx711_sensor_init(void)
 {
+  /* Diagnostic check of PC01 and PC03 */
+  GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInputPull, 0);
+  sl_udelay_wait(50);
+  int dout_pd = GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN);
+
+  GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInputPull, 1);
+  sl_udelay_wait(50);
+  int dout_pu = GPIO_PinInGet(HX711_DOUT_PORT, HX711_DOUT_PIN);
+
+  GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModeInputPull, 0);
+  sl_udelay_wait(50);
+  int sck_pd = GPIO_PinInGet(HX711_SCK_PORT, HX711_SCK_PIN);
+
+  GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModeInputPull, 1);
+  sl_udelay_wait(50);
+  int sck_pu = GPIO_PinInGet(HX711_SCK_PORT, HX711_SCK_PIN);
+
+  printf("\r\n--- [HX711 PIN DIAGNOSTIC] ---\r\n");
+  printf("  PC01 (DOUT): PD=%d PU=%d -> %s\r\n",
+         dout_pd, dout_pu,
+         (dout_pd == 0 && dout_pu == 1) ? "FLOATING/OPEN" :
+         (dout_pd == 0 && dout_pu == 0) ? "TIED TO GND (0V / Shorted)" :
+         (dout_pd == 1 && dout_pu == 1) ? "ACTIVE HIGH (3.3V / VCC)" : "OTHER");
+  printf("  PC03 (SCK) : PD=%d PU=%d -> %s\r\n",
+         sck_pd, sck_pu,
+         (sck_pd == 0 && sck_pu == 1) ? "FLOATING/OPEN" :
+         (sck_pd == 0 && sck_pu == 0) ? "TIED TO GND (0V / Shorted)" :
+         (sck_pd == 1 && sck_pu == 1) ? "ACTIVE HIGH (3.3V / VCC)" : "OTHER");
+  printf("-------------------------------\r\n");
+
+  /* Restore normal operating modes */
   GPIO_PinModeSet(HX711_SCK_PORT, HX711_SCK_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(HX711_DOUT_PORT, HX711_DOUT_PIN, gpioModeInputPull, 1);
-  printf("[HX711] DOUT=PC01, SCK=PC03. Keep loadcell EMPTY for automatic tare.\r\n");
+  printf("[HX711] DOUT=PC01, SCK=PC03 configured. Keep loadcell EMPTY for automatic tare.\r\n");
 }
 
 static uint32_t last_sample_time_ms = 0U;
