@@ -9,6 +9,7 @@
 #include "blood_oxygen.h"
 #include "drop_sensor.h"
 #include "em_cmu.h"
+#include "em_eusart.h"
 #include "em_gpio.h"
 #include "hx711_sensor.h"
 #include "oled_display.h"
@@ -25,14 +26,23 @@
 
 #define GREEN_LED_PORT  gpioPortA
 #define GREEN_LED_PIN   7U
-#define YELLOW_LED_PORT gpioPortA
-#define YELLOW_LED_PIN  4U
-#define RED_LED_PORT    gpioPortA
-#define RED_LED_PIN     5U
+#define YELLOW_LED_PORT gpioPortC
+#define YELLOW_LED_PIN  2U
+#define RED_LED_PORT    gpioPortC
+#define RED_LED_PIN     0U
 #define BUZZER_PORT     gpioPortC
 #define BUZZER_PIN      6U
 #define TARE_PORT       gpioPortB
 #define TARE_PIN        0U
+
+/* mikroBUS UART pins freed up by moving RED/YELLOW LED to PC00/PC02 above;
+ * wired crossed to an ESP32-S3 (this TX -> ESP32 RX, this RX <- ESP32 TX). */
+#define ESP32_UART              EUSART1
+#define ESP32_UART_PORT         gpioPortA
+#define ESP32_UART_TX_PIN       4U
+#define ESP32_UART_RX_PIN       5U
+#define ESP32_UART_BAUDRATE     115200U
+#define ESP32_UART_LINE_MAX     63U
 #define SAMPLE_INTERVAL_MS 250U
 #define SAMPLE_COUNT       4U
 #define TARE_TIME_MS       10000U
@@ -746,6 +756,93 @@ static void update_runtime_tare(uint32_t now)
   }
 }
 
+/* --- ESP32-S3 UART link (EUSART1, PA04=TX/PA05=RX) -------------------------
+ *
+ * VCOM/CLI stays on EUSART0 (PB02/PB03, see smart_iv_cli_dispatch()) and is
+ * untouched. This is a second, independent physical UART used only to talk
+ * to the ESP32 voice module: "voice <digits>" below writes "<digits>\n" out
+ * ESP32_UART, and esp32_uart_poll() (called every app_process_action() tick,
+ * never blocking) accumulates whatever the ESP32 sends back a line at a time
+ * and echoes recognized status lines to the CLI. */
+static void esp32_uart_init(void)
+{
+  CMU_ClockEnable(cmuClock_EUSART1, true);
+
+  /* Order matches the SDK's own sl_iostream_eusart.c: GPIO pin mode first,
+   * then EUSART_UartInitHf(), then the crossbar route last. RX carries a
+   * weak pull-up so the line reads idle-high (not garbage) before the ESP32
+   * side has its TX pin driving. */
+  GPIO_PinModeSet(ESP32_UART_PORT, ESP32_UART_TX_PIN, gpioModePushPull, 1);
+  GPIO_PinModeSet(ESP32_UART_PORT, ESP32_UART_RX_PIN, gpioModeInputPull, 1);
+
+  EUSART_UartInit_TypeDef init = EUSART_UART_INIT_DEFAULT_HF;
+  init.baudrate = ESP32_UART_BAUDRATE;
+  EUSART_UartInitHf(ESP32_UART, &init);
+
+  GPIO->EUSARTROUTE[EUSART_NUM(ESP32_UART)].TXROUTE =
+    ((uint32_t)ESP32_UART_PORT << _GPIO_EUSART_TXROUTE_PORT_SHIFT)
+    | ((uint32_t)ESP32_UART_TX_PIN << _GPIO_EUSART_TXROUTE_PIN_SHIFT);
+  GPIO->EUSARTROUTE[EUSART_NUM(ESP32_UART)].RXROUTE =
+    ((uint32_t)ESP32_UART_PORT << _GPIO_EUSART_RXROUTE_PORT_SHIFT)
+    | ((uint32_t)ESP32_UART_RX_PIN << _GPIO_EUSART_RXROUTE_PIN_SHIFT);
+  GPIO->EUSARTROUTE[EUSART_NUM(ESP32_UART)].ROUTEEN =
+    GPIO_EUSART_ROUTEEN_TXPEN | GPIO_EUSART_ROUTEEN_RXPEN;
+}
+
+static void esp32_uart_send_line(const char *digits)
+{
+  while (*digits != '\0') {
+    while ((EUSART_StatusGet(ESP32_UART) & EUSART_STATUS_TXFL) == 0U) {
+      /* Wait for TX FIFO space; called only from CLI command context. */
+    }
+    EUSART_Tx(ESP32_UART, (uint8_t)*digits);
+    digits++;
+  }
+  while ((EUSART_StatusGet(ESP32_UART) & EUSART_STATUS_TXFL) == 0U) {
+  }
+  EUSART_Tx(ESP32_UART, (uint8_t)'\n');
+}
+
+static void esp32_uart_handle_line(const char *line)
+{
+  /* Debug phase: print every line the ESP32 sends, not just the known
+   * READY/ACK/DONE/ERROR keywords, so unexpected replies are still visible. */
+  printf("[ESP32 RX] %s\r\n", line);
+}
+
+static void esp32_uart_poll(void)
+{
+  static char line[ESP32_UART_LINE_MAX + 1U];
+  static uint8_t line_len = 0U;
+  static uint32_t last_rx_ms = 0U;
+
+  while (EUSART_StatusGet(ESP32_UART) & EUSART_STATUS_RXFL) {
+    uint8_t c = EUSART_Rx(ESP32_UART);
+    last_rx_ms = now_ms();
+    if (c == '\n' || c == '\r') {
+      if (line_len > 0U) {
+        line[line_len] = '\0';
+        esp32_uart_handle_line(line);
+        line_len = 0U;
+      }
+    } else if (line_len < ESP32_UART_LINE_MAX) {
+      line[line_len++] = (char)c;
+    }
+  }
+
+  /* Bytes arrived but never completed a line (wrong baud/framing, wiring
+   * fault, or ESP32 sent a partial burst): dump them as hex, non-blocking,
+   * so a wiring/framing bug is visible instead of a silent gap. */
+  if (line_len > 0U && (now_ms() - last_rx_ms) >= 500U) {
+    printf("[ESP32 RX HEX-PARTIAL]");
+    for (uint8_t i = 0U; i < line_len; i++) {
+      printf(" %02X", (unsigned)(uint8_t)line[i]);
+    }
+    printf("\r\n");
+    line_len = 0U;
+  }
+}
+
 static bool process_command(const char *command)
 {
   if (strncmp(command, "SET,", 4U) == 0) {
@@ -811,6 +908,22 @@ static bool process_command(const char *command)
         printf("VITAL_TEST_HISTORY_RESTORED\r\n");
       }
       printf("FAKE_VITAL_OK,%d\r\n", level);
+    }
+    return true;
+  } else if (strncmp(command, "voice", 5U) == 0
+             && (command[5] == '\0' || command[5] == ' ')) {
+    const char *arg = command + 5U;
+    while (*arg == ' ') { arg++; }
+    size_t len = strlen(arg);
+    bool valid = (len >= 1U && len <= 10U);
+    for (size_t i = 0U; valid && i < len; i++) {
+      if (arg[i] < '0' || arg[i] > '9') { valid = false; }
+    }
+    if (valid) {
+      esp32_uart_send_line(arg);
+      printf("[VOICE] TX -> ESP32: %s\r\n", arg);
+    } else {
+      printf("[VOICE] ERROR: chuoi phai la 1-10 chu so (0-9)\r\n");
     }
     return true;
   }
@@ -1319,6 +1432,7 @@ void app_init(void)
   GPIO_PinModeSet(BUZZER_PORT, BUZZER_PIN, gpioModePushPull, 0);
   buzzer_set(false);
   GPIO_PinModeSet(TARE_PORT, TARE_PIN, gpioModeInputPullFilter, 1);
+  esp32_uart_init();
   software_i2c_init();
   sl_sleeptimer_delay_millisecond(100U);
   printf("[I2C_SCAN] Bus pins: SCL=PC05 (level=%d), SDA=PC07 (level=%d)\r\n",
@@ -1403,6 +1517,7 @@ void app_process_action(void)
   uint32_t now = now_ms();
   oled_display_ota_step(now);
   oled_display_poll(now);
+  esp32_uart_poll();
   blood_oxygen_poll();
   drop_sensor_poll();
   hx711_sensor_poll();
