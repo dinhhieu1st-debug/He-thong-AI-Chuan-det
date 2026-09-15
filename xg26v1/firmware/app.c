@@ -35,12 +35,10 @@
 #define TARE_PIN        0U
 #define SAMPLE_INTERVAL_MS 250U
 #define SAMPLE_COUNT       4U
-#define VITALS_FILTER_WINDOW      12U
-#define VITALS_FILTER_MIN_SAMPLES 8U
 #define TARE_TIME_MS       10000U
 #define VITALS_HOLD_MS     3000U
 #define DROP_TRAINING_REQUIRED   20U
-#define VITALS_TRAINING_REQUIRED 64U
+#define VITALS_TRAINING_REQUIRED 20U
 
 #define SMART_IV_ENDPOINT          2U
 #define SMART_IV_CLUSTER_ID        0xFC01U
@@ -100,6 +98,7 @@ static uint8_t ai_drip_level = 1U;
  * is debounced so a single clean interval right after an occlusion clears
  * doesn't instantly wipe the alarm. */
 #define DRIP_RECOVERY_STREAK_REQUIRED 3U
+#define NO_DROP_ALARM_MIN_REMAINING_ML 50.0f
 static uint8_t drip_recovery_streak;
 /* Timestamp the current SYSTEM_MONITORING session started, so a total flow
  * stoppage from the very first drop (never any drop at all) can still be
@@ -118,6 +117,17 @@ static uint16_t target_drops_per_min = 20U;
 static uint16_t target_flow_ml_h = 100U;
 static bool drop_timeout_sent;
 static bool buzzer_on;
+
+static inline void buzzer_set(bool on)
+{
+  buzzer_on = on;
+  /* Active HIGH: PC06 HIGH sounds buzzer, PC06 LOW is silent */
+  if (on) {
+    GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN);
+  } else {
+    GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN);
+  }
+}
 static bool previous_button;
 static bool monitoring_requested;
 static bool alerts_armed;
@@ -139,8 +149,6 @@ static uint8_t sample_count;
 static int16_t heart_rate;
 static int16_t spo2;
 static float weight_kg;
-static float filtered_heart_bpm;
-static float filtered_spo2_percent;
 static bool vitals_valid;
 static uint32_t last_vitals_good_ms;
 static bool fake_hr_enabled;
@@ -148,14 +156,6 @@ static bool fake_spo2_enabled;
 static uint8_t fake_vitals_level;
 static bool runtime_tare_in_progress;
 static uint32_t runtime_tare_start_ms;
-static uint8_t large_hr_jump_streak;
-static int8_t large_hr_jump_direction;
-static uint8_t large_spo2_jump_streak;
-static int8_t large_spo2_jump_direction;
-static int16_t heart_filter_history[VITALS_FILTER_WINDOW];
-static int16_t spo2_filter_history[VITALS_FILTER_WINDOW];
-static uint8_t heart_filter_count;
-static uint8_t spo2_filter_count;
 
 #define DROP_FORECAST_WINDOW 20U
 static float drop_rate_history[DROP_FORECAST_WINDOW];
@@ -235,7 +235,7 @@ static void configure_zigbee_reporting(void)
     { ATTR_DROPS_PER_MIN,         5U,  1U },
     { ATTR_TARGET_FLOW_ML_H,      1U,  1U },
     { ATTR_TARGET_DROPS_PER_MIN,  1U,  1U },
-    { ATTR_HR_BASELINE_REMAINING, 5U,  1U },
+    { ATTR_HR_BASELINE_REMAINING, 1U,  1U },
     { ATTR_HR_BASELINE_BPM,       1U,  1U },
     { ATTR_TARE_EVENT_COUNT,      1U,  1U },
     { ATTR_HR_BASELINE_EVENTS,    1U,  1U },
@@ -469,9 +469,9 @@ static void reset_hr_baseline(void)
 {
   vitals_ai_begin_baseline_recalibration();
   if (vitals_ai_baseline_recalibrating()) {
-    printf("[HR] Collecting 60 candidate baseline samples; old baseline remains active.\r\n");
+    printf("[HR] Collecting 20 candidate baseline samples; old baseline remains active.\r\n");
   } else {
-    printf("[HR] Recalibration ignored until the first 60-sample baseline is ready.\r\n");
+    printf("[HR] Recalibration ignored until the first 20-sample baseline is ready.\r\n");
   }
 }
 
@@ -493,11 +493,11 @@ static void publish_zigbee_attributes(int16_t current_hr,
   /* AlarmBitmap layout is shared with zigbee2mqtt_smart_iv_converter.js. */
   if (alerts_armed && !current_vitals_valid) { alarm_bitmap |= 0x0001U; }
   if (alerts_armed && current_vitals_valid && (ai_input_spo2 < 90
-      || (vitals_ai.baseline_samples >= 60U && vitals_ai.spo2_baseline > 0.0f
+      || (vitals_ai.baseline_samples >= 20U && vitals_ai.spo2_baseline > 0.0f
           && absolute_float((float)ai_input_spo2 - vitals_ai.spo2_baseline)
              / vitals_ai.spo2_baseline >= 0.15f))) { alarm_bitmap |= 0x0002U; }
   if (alerts_armed && current_vitals_valid && (ai_input_hr < 45 || ai_input_hr > 150
-      || (vitals_ai.baseline_samples >= 60U && vitals_ai.hr_baseline > 0.0f
+      || (vitals_ai.baseline_samples >= 20U && vitals_ai.hr_baseline > 0.0f
           && absolute_float((float)ai_input_hr - vitals_ai.hr_baseline)
              / vitals_ai.hr_baseline >= 0.15f))) { alarm_bitmap |= 0x0004U; }
   if (alerts_armed && drip_level > 1U) { alarm_bitmap |= 0x0008U; }
@@ -536,7 +536,7 @@ static void publish_zigbee_attributes(int16_t current_hr,
   if (alerts_armed) {
     ts_flags |= (uint16_t)((uint16_t)alert_level << 9);
     if (drip_level > 1U) { ts_flags |= 0x0800U; }
-    if (vitals_ai.level > 1U) { ts_flags |= 0x1000U; }
+    if (vitals_ai.level > 1U || !current_vitals_valid) { ts_flags |= 0x1000U; }
   }
   ts_flags |= (uint16_t)((uint16_t)encoded_line_state(current_weight_kg,
                                                        current_drops_per_minute) << 13);
@@ -574,7 +574,7 @@ static void publish_zigbee_attributes(int16_t current_hr,
   write_zcl_u16(ATTR_AI_INPUT_SPO2,
                 current_vitals_valid ? (uint16_t)ai_input_spo2 : UINT16_MAX,
                 ZCL_INT16U_ATTRIBUTE_TYPE);
-  write_zcl_u8(ATTR_VITALS_LEVEL, vitals_ai.level);
+  write_zcl_u8(ATTR_VITALS_LEVEL, current_vitals_valid ? vitals_ai.level : 3U);
   write_zcl_i16(ATTR_HEART_RATE,
                 current_vitals_valid ? current_hr : (int16_t)0x8000);
   write_zcl_u16(ATTR_SPO2,
@@ -591,7 +591,7 @@ static void publish_zigbee_attributes(int16_t current_hr,
                              ? vitals_ai_baseline_recalibration_samples()
                              : vitals_ai.baseline_samples;
   write_zcl_u8(ATTR_HR_BASELINE_REMAINING,
-               baseline_samples < 60U ? (uint8_t)(60U - baseline_samples) : 0U);
+               baseline_samples < 20U ? (uint8_t)(20U - baseline_samples) : 0U);
   write_zcl_u16(ATTR_HR_BASELINE_BPM,
                 clamp_u16(vitals_ai.hr_baseline), ZCL_INT16U_ATTRIBUTE_TYPE);
   write_zcl_u8(ATTR_TARE_EVENT_COUNT, tare_event_count);
@@ -610,8 +610,11 @@ static void publish_zigbee_attributes(int16_t current_hr,
   hr_baseline_just_completed = false;
 }
 
-/* Exact two-branch fusion contract:
- * 1+1 -> 1, 3+3 -> 3, every other combination -> 2. */
+/* Fusion contract (Table: Final alert fusion):
+ * - No vitals signal (!vitals_valid) -> Level 3 (Critical)
+ * - Vitals = 1 && Drip = 1           -> Level 1 (Normal)
+ * - Vitals = 3 && Drip = 3           -> Level 3 (Critical)
+ * - Any other combination            -> Level 2 (Attention) */
 static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 {
   if (vitals_level == 1U && drops_level == 1U) { return 1U; }
@@ -621,39 +624,17 @@ static uint8_t fuse_alert_levels(uint8_t vitals_level, uint8_t drops_level)
 
 static void update_final_alert(void)
 {
-  uint8_t final_level = fuse_alert_levels(vitals_ai.level, drip_level);
+  uint8_t final_level;
+  if (!vitals_valid) {
+    /* Mất tín hiệu nhịp tim / SpO2 (nosignal) khi đang theo dõi:
+     * Cảnh báo Mức 3 (CRITICAL / ĐỎ / Còi cấp cứu) ngay lập tức */
+    final_level = 3U;
+  } else {
+    final_level = fuse_alert_levels(vitals_ai.level, drip_level);
+  }
   alert_level = (alert_level_t)(final_level - 1U);
-  printf("[ALERT] vitals=%u drop=%u final=%u\r\n",
-         (unsigned)vitals_ai.level, (unsigned)drip_level, (unsigned)final_level);
-}
-
-static int16_t median_int16(const int16_t *values, uint8_t count)
-{
-  int16_t sorted[VITALS_FILTER_WINDOW];
-  if (count == 0U) { return 0; }
-  for (uint8_t i = 0U; i < count; i++) { sorted[i] = values[i]; }
-  for (uint8_t i = 1U; i < count; i++) {
-    int16_t value = sorted[i];
-    uint8_t j = i;
-    while (j > 0U && sorted[j - 1U] > value) { sorted[j] = sorted[j - 1U]; j--; }
-    sorted[j] = value;
-  }
-  if ((count & 1U) != 0U) { return sorted[count / 2U]; }
-  return (int16_t)((sorted[count / 2U - 1U] + sorted[count / 2U]) / 2);
-}
-
-static void append_filter_samples(int16_t *history, uint8_t *history_count,
-                                  const int16_t *values, uint8_t count)
-{
-  for (uint8_t i = 0U; i < count; i++) {
-    if (*history_count < VITALS_FILTER_WINDOW) {
-      history[(*history_count)++] = values[i];
-    } else {
-      memmove(&history[0], &history[1],
-              (VITALS_FILTER_WINDOW - 1U) * sizeof(history[0]));
-      history[VITALS_FILTER_WINDOW - 1U] = values[i];
-    }
-  }
+  printf("[ALERT] vitals_valid=%d vitals=%u drop=%u final=%u\r\n",
+         vitals_valid ? 1 : 0, (unsigned)vitals_ai.level, (unsigned)drip_level, (unsigned)final_level);
 }
 
 static float average_float(const float *values, uint8_t count)
@@ -664,66 +645,12 @@ static float average_float(const float *values, uint8_t count)
   return sum / count;
 }
 
-static int16_t filter_heart_rate(const int16_t *values, uint8_t count)
-{
-  append_filter_samples(heart_filter_history, &heart_filter_count, values, count);
-  if (heart_filter_count < VITALS_FILTER_MIN_SAMPLES) { return heart_rate; }
-  int16_t median = median_int16(heart_filter_history, heart_filter_count);
-  if (filtered_heart_bpm <= 0.0f) { filtered_heart_bpm = (float)median; return median; }
-  float difference = (float)median - filtered_heart_bpm;
-  if (absolute_float(difference) > 20.0f) {
-    int8_t direction = difference > 0.0f ? 1 : -1;
-    if (direction == large_hr_jump_direction) {
-      if (large_hr_jump_streak < UINT8_MAX) { large_hr_jump_streak++; }
-    } else { large_hr_jump_direction = direction; large_hr_jump_streak = 1U; }
-    if (large_hr_jump_streak < 3U) { return (int16_t)(filtered_heart_bpm + 0.5f); }
-  } else { large_hr_jump_streak = 0U; large_hr_jump_direction = 0; }
-  float step = ((float)median - filtered_heart_bpm) * 0.20f;
-  if (step > 4.0f) { step = 4.0f; }
-  if (step < -4.0f) { step = -4.0f; }
-  filtered_heart_bpm += step;
-  return (int16_t)(filtered_heart_bpm + 0.5f);
-}
-
-static int16_t filter_spo2(const int16_t *values, uint8_t count)
-{
-  append_filter_samples(spo2_filter_history, &spo2_filter_count, values, count);
-  if (spo2_filter_count < VITALS_FILTER_MIN_SAMPLES) { return spo2; }
-  int16_t median = median_int16(spo2_filter_history, spo2_filter_count);
-  if (filtered_spo2_percent <= 0.0f) {
-    filtered_spo2_percent = (float)median;
-    return median;
-  }
-  float difference = (float)median - filtered_spo2_percent;
-  if (absolute_float(difference) > 3.0f) {
-    int8_t direction = difference > 0.0f ? 1 : -1;
-    if (direction == large_spo2_jump_direction) {
-      if (large_spo2_jump_streak < UINT8_MAX) { large_spo2_jump_streak++; }
-    } else {
-      large_spo2_jump_direction = direction;
-      large_spo2_jump_streak = 1U;
-    }
-    if (large_spo2_jump_streak < 3U) {
-      return (int16_t)(filtered_spo2_percent + 0.5f);
-    }
-  } else {
-    large_spo2_jump_streak = 0U;
-    large_spo2_jump_direction = 0;
-  }
-  float step = ((float)median - filtered_spo2_percent) * 0.25f;
-  if (step > 2.0f) { step = 2.0f; }
-  if (step < -2.0f) { step = -2.0f; }
-  filtered_spo2_percent += step;
-  return (int16_t)(filtered_spo2_percent + 0.5f);
-}
-
 static void all_alerts_off(void)
 {
   GPIO_PinOutClear(GREEN_LED_PORT, GREEN_LED_PIN);
   GPIO_PinOutClear(YELLOW_LED_PORT, YELLOW_LED_PIN);
   GPIO_PinOutClear(RED_LED_PORT, RED_LED_PIN);
-  GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN);
-  buzzer_on = false;
+  buzzer_set(false);
 }
 
 static void reset_monitoring_training(void)
@@ -784,14 +711,6 @@ static void start_initial_tare(uint32_t now)
   drop_timeout_sent = false;
   drop_training_samples = 0U;
   alerts_armed = false;
-  filtered_heart_bpm = 0.0f;
-  filtered_spo2_percent = 0.0f;
-  heart_filter_count = 0U;
-  spo2_filter_count = 0U;
-  large_hr_jump_streak = 0U;
-  large_hr_jump_direction = 0;
-  large_spo2_jump_streak = 0U;
-  large_spo2_jump_direction = 0;
   last_vitals_good_ms = 0U;
   fake_hr_enabled = false;
   fake_spo2_enabled = false;
@@ -820,7 +739,7 @@ static void start_runtime_tare(uint32_t now)
 static void update_runtime_tare(uint32_t now)
 {
   if (!runtime_tare_in_progress) { return; }
-  if ((now - runtime_tare_start_ms) >= TARE_TIME_MS && hx711_sensor_tared()) {
+  if ((now - runtime_tare_start_ms) >= 1500U && hx711_sensor_tared()) {
     runtime_tare_in_progress = false;
     tare_event_count++;
     tare_just_completed = true;
@@ -845,7 +764,7 @@ static bool process_command(const char *command)
       save_monitoring_state();
       printf("AI_SET_OK,%lu\r\n", value);
       oled_display_message("COLLECTING DATA", "DROP: 0/20",
-                           "HR+SPO2: 0/64", "ALARMS: OFF");
+                           "HR+SPO2: 0/20", "ALARMS: OFF");
     } else { printf("AI_SET_ERROR\r\n"); }
     return true;
   } else if (strncmp(command, "LEVEL,", 6U) == 0) {
@@ -946,7 +865,7 @@ static void update_startup(uint32_t now)
     printf("AI_READY\r\n");
     if (monitoring_requested) {
       oled_display_message("COLLECTING DATA", "DROP: 0/20",
-                           "HR+SPO2: 0/64", "ALARMS: OFF");
+                           "HR+SPO2: 0/20", "ALARMS: OFF");
     } else {
       oled_display_message("SYSTEM READY", "HANG IV BAG",
                            "OPEN HIS WEB", "SET DROP RATE");
@@ -993,8 +912,8 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
         system_state = SYSTEM_MONITORING;
         reset_monitoring_training();
         oled_display_message("TARGET RECEIVED", "COLLECTING DATA",
-                             "DROP: 0/20", "HR+SPO2: 0/64");
-        printf("[MONITOR] Target confirmed by HIS Web; starting 20 drop and 64 vitals samples.\r\n");
+                             "DROP: 0/20", "HR+SPO2: 0/20");
+        printf("[MONITOR] Target confirmed by HIS Web; starting 20 drop and 20 vitals samples.\r\n");
       } else if (system_state == SYSTEM_MONITORING && target_changed) {
         apply_target_drops_per_min(next);
         reset_drop_training_for_target();
@@ -1027,8 +946,8 @@ void sl_zigbee_af_post_attribute_change_cb(uint8_t endpoint,
       system_state = SYSTEM_MONITORING;
       reset_monitoring_training();
       oled_display_message("COLLECTING DATA", "DROP: 0/20",
-                           "HR+SPO2: 0/64", "ALARMS: OFF");
-      printf("[MONITOR] Collecting 20 drip intervals and 64 vitals samples; alarms off.\r\n");
+                           "HR+SPO2: 0/20", "ALARMS: OFF");
+      printf("[MONITOR] Collecting 20 drip intervals and 20 vitals samples; alarms off.\r\n");
     }
     return;
   }
@@ -1122,8 +1041,7 @@ static void update_alert_outputs(uint32_t now)
     GPIO_PinOutSet(GREEN_LED_PORT, GREEN_LED_PIN);
     GPIO_PinOutClear(YELLOW_LED_PORT, YELLOW_LED_PIN);
     GPIO_PinOutClear(RED_LED_PORT, RED_LED_PIN);
-    GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN);
-    buzzer_on = false;
+    buzzer_set(false);
     previous_level = ALERT_GREEN;
     return;
   }
@@ -1131,8 +1049,7 @@ static void update_alert_outputs(uint32_t now)
   if (alert_level != previous_level) {
     previous_level = alert_level;
     last_buzzer_toggle_ms = now;
-    buzzer_on = true;
-    GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN);
+    buzzer_set(true);
     if (alert_level == ALERT_RED) {
       GPIO_PinOutClear(YELLOW_LED_PORT, YELLOW_LED_PIN);
       GPIO_PinOutSet(RED_LED_PORT, RED_LED_PIN);
@@ -1156,9 +1073,7 @@ static void update_alert_outputs(uint32_t now)
   else { phase = 250U; }
   if ((now - last_buzzer_toggle_ms) >= phase) {
     last_buzzer_toggle_ms = now;
-    buzzer_on = !buzzer_on;
-    if (buzzer_on) { GPIO_PinOutClear(BUZZER_PORT, BUZZER_PIN); }
-    else { GPIO_PinOutSet(BUZZER_PORT, BUZZER_PIN); }
+    buzzer_set(!buzzer_on);
     if (alert_level == ALERT_RED) {
       if (buzzer_on) { GPIO_PinOutSet(RED_LED_PORT, RED_LED_PIN); }
       else { GPIO_PinOutClear(RED_LED_PORT, RED_LED_PIN); }
@@ -1201,7 +1116,7 @@ static void send_new_drop_to_ai(void)
  *     drop_sensor_last_drop_ms() is still 0 - timed from monitoring_start_ms
  *     instead;
  *   - recovery, once a fresh drop arrives and moves last_drop forward again.
- * A total stoppage detected before the 20/64-sample training window
+ * A total stoppage detected before the 20/20-sample training window
  * completes forces alerts_armed on early: silence during ordinary setup
  * noise is intentional elsewhere in this firmware, but "zero drops at all
  * since Start" for two full target intervals is not setup noise, it is the
@@ -1221,6 +1136,26 @@ static void monitor_drop_timeout(uint32_t now)
   }
   uint32_t elapsed = (uint32_t)signed_elapsed;
   uint32_t timeout = 2U * target_interval_ms + 200U;
+
+  /* No drops are expected once the bag has less than 50 ml remaining. Only
+   * trust this exception when the load cell is connected and tared; without
+   * a valid weight, retain the existing no-flow alarm as the safe fallback. */
+  bool bag_below_no_drop_alarm_threshold = hx711_sensor_connected()
+                                            && hx711_sensor_tared()
+                                            && weight_kg * 1000.0f
+                                               < NO_DROP_ALARM_MIN_REMAINING_ML;
+  if (elapsed >= timeout && bag_below_no_drop_alarm_threshold) {
+    bool drop_alarm_was_active = drop_timeout_sent
+                                 || physical_drip_level > 1U
+                                 || drip_level > 1U;
+    drop_timeout_sent = false;
+    physical_drip_level = 1U;
+    drip_recovery_streak = 0U;
+    drip_level = 1U;
+    if (alerts_armed && drop_alarm_was_active) { update_final_alert(); }
+    return;
+  }
+
   if (elapsed >= timeout) {
     if (!drop_timeout_sent) {
       drop_timeout_sent = true;
@@ -1248,12 +1183,10 @@ static void publish_display(void)
   uint32_t now = now_ms();
   bool received_vitals = heart_count > 0U && spo2_count > 0U;
   if (received_vitals) {
-    heart_rate = filter_heart_rate(heart_samples, heart_count);
-    spo2 = filter_spo2(spo2_samples, spo2_count);
+    heart_rate = heart_samples[heart_count - 1U];
+    spo2 = spo2_samples[spo2_count - 1U];
   }
-  bool new_vitals = received_vitals
-                    && heart_filter_count >= VITALS_FILTER_MIN_SAMPLES
-                    && spo2_filter_count >= VITALS_FILTER_MIN_SAMPLES;
+  bool new_vitals = received_vitals;
   if (new_vitals) {
     last_vitals_good_ms = now;
   }
@@ -1262,21 +1195,14 @@ static void publish_display(void)
   if (!vitals_valid && last_vitals_good_ms != 0U) {
     /* A real signal loss starts a fresh filter window.  Otherwise old finger
      * readings can pull the first measurements after contact is restored. */
-    heart_filter_count = 0U;
-    spo2_filter_count = 0U;
-    filtered_heart_bpm = 0.0f;
-    filtered_spo2_percent = 0.0f;
-    large_hr_jump_streak = 0U;
-    large_hr_jump_direction = 0;
-    large_spo2_jump_streak = 0U;
-    large_spo2_jump_direction = 0;
     last_vitals_good_ms = 0U;
   }
   if (weight_count > 0U) { weight_kg = average_float(weight_samples, weight_count); }
+  else if (hx711_sensor_connected() && hx711_sensor_tared()) { weight_kg = hx711_sensor_weight_kg(); }
   if (system_state == SYSTEM_MONITORING) {
     int16_t ai_heart_rate = heart_rate;
     int16_t ai_spo2 = spo2;
-    bool fake_ready = vitals_ai.baseline_samples >= 60U;
+    bool fake_ready = vitals_ai.baseline_samples >= 20U;
     if (fake_ready && fake_hr_enabled) {
       /* Use a downward deviation so it is >30% from baseline while staying
          inside the hard red limits (45..150 BPM): this tests level 2. */
@@ -1298,7 +1224,7 @@ static void publish_display(void)
        repeated as if they were new sensor samples. */
     if (new_vitals) {
       vitals_ai_step(ai_heart_rate, ai_spo2, true, &vitals_ai);
-      if (previous_baseline_samples < 60U && vitals_ai.baseline_samples >= 60U) {
+      if (previous_baseline_samples < 20U && vitals_ai.baseline_samples >= 20U) {
         hr_baseline_event_count++;
         hr_baseline_just_completed = true;
       }
@@ -1411,9 +1337,27 @@ void app_init(void)
   GPIO_PinModeSet(GREEN_LED_PORT, GREEN_LED_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(YELLOW_LED_PORT, YELLOW_LED_PIN, gpioModePushPull, 0);
   GPIO_PinModeSet(RED_LED_PORT, RED_LED_PIN, gpioModePushPull, 0);
-  GPIO_PinModeSet(BUZZER_PORT, BUZZER_PIN, gpioModePushPull, 1);
+  GPIO_PinModeSet(BUZZER_PORT, BUZZER_PIN, gpioModePushPull, 0);
+  buzzer_set(false);
   GPIO_PinModeSet(TARE_PORT, TARE_PIN, gpioModeInputPullFilter, 1);
   software_i2c_init();
+  sl_sleeptimer_delay_millisecond(100U);
+  printf("[I2C_SCAN] Bus pins: SCL=PC05 (level=%d), SDA=PC07 (level=%d)\r\n",
+         GPIO_PinInGet(gpioPortC, 5U), GPIO_PinInGet(gpioPortC, 7U));
+  printf("[I2C_SCAN] Probing 0x3C: %s\r\n", software_i2c_probe(0x3CU) ? "ACK" : "NACK");
+  printf("[I2C_SCAN] Probing 0x3D: %s\r\n", software_i2c_probe(0x3DU) ? "ACK" : "NACK");
+  printf("[I2C_SCAN] Probing 0x57: %s\r\n", software_i2c_probe(0x57U) ? "ACK" : "NACK");
+  printf("[I2C_SCAN] Scanning bus (0x08 to 0x77)...\r\n");
+  uint8_t i2c_found = 0U;
+  for (uint8_t addr = 0x08U; addr <= 0x77U; addr++) {
+    if (software_i2c_probe(addr)) {
+      printf("[I2C_SCAN] Found device at 0x%02X\r\n", (unsigned int)addr);
+      i2c_found++;
+    }
+  }
+  if (i2c_found == 0U) {
+    printf("[I2C_SCAN] No devices responded on I2C bus!\r\n");
+  }
   bool oled_ok = oled_display_init();
   bool max_ok = blood_oxygen_init();
   bool vitals_models_ok = vitals_ai_init();
@@ -1479,6 +1423,8 @@ void app_process_action(void)
 {
   uint32_t now = now_ms();
   oled_display_ota_step(now);
+  oled_display_poll(now);
+  blood_oxygen_poll();
   drop_sensor_poll();
   hx711_sensor_poll();
   bool pressed = GPIO_PinInGet(TARE_PORT, TARE_PIN) == 0;

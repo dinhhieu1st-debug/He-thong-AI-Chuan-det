@@ -1,8 +1,8 @@
 # Smart IV Monitor – AI-based IV Drip Monitoring System
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform: EFR32xG26](https://img.shields.io/badge/MCU-EFR32xG26-informational)](firmware/PIN_MAP.md)
-[![Backend: .NET 8](https://img.shields.io/badge/Backend-.NET%208-512BD4)](software/server/README.md)
+[![Platform: EFR32xG26](https://img.shields.io/badge/MCU-EFR32xG26-informational)](xg26v1/firmware/PIN_MAP.md)
+[![Backend: .NET 8](https://img.shields.io/badge/Backend-.NET%208-512BD4)](server/README.md)
 
 A student capstone project that monitors patients on an IV drip. A bedside
 device measures heart rate, SpO2, drip rate, and remaining bag volume; data
@@ -24,6 +24,7 @@ buzzer while sending the alert level and cause to the server.
 - [Hardware and pinout](#hardware-and-pinout)
 - [Zigbee protocol](#zigbee-protocol)
 - [Operating sequence](#operating-sequence)
+- [AI pipeline and outputs](#ai-pipeline-and-outputs)
 - [Alert logic](#alert-logic)
 - [Web test mode](#web-test-mode)
 - [Windows setup](#windows-setup)
@@ -62,20 +63,19 @@ software the team wrote by hand.
 
 | Directory / file | Contents |
 |---|---|
-| `firmware/` | G26 firmware: sensors, OLED, AI, alerts, and Zigbee (paths declared in `smart-iv-monitor.slcp`) |
-| `firmware/models/` | TFLite Micro model embedded in the firmware |
-| `firmware/PIN_MAP.md` | Full G26 pinout reference |
-| `main.c`, `*.slcp`, `*.slps`, `*.pintool` | Entry point and Simplicity Studio project files |
-| `autogen/`, `config/`, `cmake_gcc/`, `bootloader/` | Generated/managed by SLC — rebuild with `tools/build_firmware.ps1` |
-| `simplicity_sdk_2025.12.3/`, `aiml_2.2.2/` | Vendor SDK and AI libraries, not edited directly |
-| `tools/` | Build, flash, firewall, and Pi launch scripts (invoked relative to the repo root) |
+| `xg26v1/firmware/` | G26 firmware: sensors, OLED, on-chip AI, alert fusion, and Zigbee |
+| `xg26v1/firmware/models/` | Model artifacts used by the firmware project |
+| `xg26v1/firmware/PIN_MAP.md` | Full G26 pinout reference |
+| `xg26v1/*.slcp`, `xg26v1/*.slps`, `xg26v1/*.pintool` | Simplicity Studio project files |
+| `xg26v1/autogen/`, `xg26v1/config/`, `xg26v1/cmake_gcc/` | Generated/managed SLC build files |
+| `xg26v1/tools/` | Firmware build and flash scripts |
 
 ### Team-written software
 
 | Directory | Contents |
 |---|---|
 | `software/gateway-pi/` | MQTT ↔ TCP gateway source and deployment config for the Pi |
-| `software/server/` | HIS Server .NET 8, web UI, API, and database |
+| `server/` | HIS Server .NET 8, web UI, API, database, and tests |
 | `software/host_ai/` | Dataset, training code, and documentation for the drip AI |
 
 ### Documentation
@@ -99,7 +99,8 @@ MAX30102 + drop sensor + HX711/loadcell
                     |
                     v
         EFR32xG26 / BRD2709A
-  sensors + AI + OLED + LED + buzzer
+  sensors + physical checks + on-chip AI
+       + alert fusion + OLED/LED/buzzer
                     |
                     | Zigbee ZCL Attribute
                     v
@@ -123,23 +124,24 @@ HIS Web -> HIS Server -> TCP Gateway -> MQTT
         -> Zigbee2MQTT -> ZCL Attribute -> G26
 ```
 
-G26 is where sensors are read, AI runs, and the final alert level is
-decided. The server receives that result to store and display it — it does
-not reimplement the device's vitals alert algorithm.
+G26 is the safety authority: it reads sensors, runs the on-chip vitals
+Decision Tree, combines the local physical drip verdict with the drip-AI
+result, and produces the final alert level. The HIS Server stores, explains,
+and displays that device output; it does not replace the firmware decision.
 
 ## Repository structure
 
 | Path | Contents |
 |---|---|
-| `firmware/` | Sensors, OLED, AI, and alert control on G26 |
-| `firmware/models/` | TFLite Micro model embedded in the firmware |
-| `config/zcl/` | Custom Zigbee cluster and attributes |
-| `gateway-pi/` | MQTT ↔ HIS TCP gateway and Pi configuration |
+| `xg26v1/firmware/` | Sensors, OLED, AI, and alert control on G26 |
+| `xg26v1/firmware/models/` | Firmware model artifacts |
+| `xg26v1/config/zcl/` | Custom Zigbee cluster and attributes |
+| `software/gateway-pi/` | MQTT ↔ HIS TCP gateway and Pi configuration |
 | `server/` | HIS Server .NET 8, database, frontend, and tests |
-| `host_ai/` | Dataset, training code, and AI tooling |
-| `tools/` | Firmware build/flash scripts and system launch scripts |
-| `bootloader/` | G26 bootloader project |
-| `cmake_gcc/` | Firmware build configuration |
+| `software/host_ai/` | Dataset, MLP/LSTM training, inference, and evaluation tooling |
+| `xg26v1/tools/` | Firmware build/flash scripts |
+| `xg26v1/bootloader/` | G26 bootloader project |
+| `xg26v1/cmake_gcc/` | Firmware build configuration |
 
 The official server lives under `server/`; the project no longer uses a
 `demo1/` folder.
@@ -195,22 +197,76 @@ correct attribute on G26.
 2. G26 tares the loadcell; do not hang the bag during this step.
 3. The device reports sensor status so it can be verified on the web.
 4. Hang the bag and set the target drip rate on the HIS Web UI.
-5. Once the target is received, G26 collects `20/20` drop intervals and `64/64` vitals samples.
+5. Once monitoring starts, G26 collects `20/20` drop intervals and `20/20` valid HR/SpO2 samples.
 6. AI alerts stay disabled while sampling, to avoid false alarms at startup.
 7. Once enough data is collected, `alerts_armed` turns on and monitoring begins.
 8. G26 continuously sends readings, alert level, and alert cause to the server.
+
+## AI pipeline and outputs
+
+The system has two independent decision branches. Neither branch is allowed
+to silently lower a more severe physical result.
+
+### Patient-vitals branch (on G26)
+
+1. MAX30102 supplies one valid HR/SpO2 input per second.
+2. The first 20 valid inputs establish the patient baseline and fill the
+   20-sample time window.
+3. The on-chip Decision Tree evaluates 14 features: mean, standard deviation,
+   minimum/maximum, latest value, slope, short-term change, and deviation from
+   baseline for HR and SpO2.
+4. A conservative clinical guard filters implausible model escalation, then a
+   three-result majority vote stabilizes the output.
+5. Output is `vitals_level`: `1` normal, `2` attention, or `3` critical.
+
+The compatibility fields named `hr_forecast_16s` and `spo2_forecast_16s`
+contain the current 5-second projection. Their wire names are retained so
+deployed gateways remain compatible.
+
+### Infusion/drip branch
+
+- G26 first compares every real drop interval with the prescribed interval.
+- The physical result is `1` within ±200 ms, `2` when deviation is over
+  200 ms, and `3` when deviation is over 800 ms or the no-drop watchdog fires.
+- The MLP/LSTM tooling under `software/host_ai/` evaluates a 20-drop sequence
+  and can send its result back as `ai_drip_level`.
+- Effective `drip_level = max(physical_drip_level, ai_drip_level)`, so an AI
+  response can escalate but cannot clear a physical blockage warning.
+- If no drops arrive but a connected, tared load cell reports less than 50 ml
+  remaining, the no-drop blockage alarm is suppressed because the bag is
+  effectively empty. At 50 ml or more, or when weight is unavailable, the
+  existing watchdog warning remains active.
+
+### Outputs reported to HIS
+
+| Output | Meaning |
+|---|---|
+| `heart_rate`, `spo2` | Raw valid sensor readings shown to the operator |
+| `ai_input_heart_rate`, `ai_input_spo2` | Exact values evaluated by AI; differ from raw values in test mode |
+| `vitals_level` | Decision Tree output: 1/2/3 |
+| `server_drop_level` | Effective physical/AI drip output: 1/2/3 |
+| `final_alert_level` | Fused device output shown as normal/warning/critical |
+| `hr_forecast_16s`, `spo2_forecast_16s` | Five-second patient projection (legacy field name) |
+| `drops_forecast_16s`, trend fields | Drip forecast and direction |
+| `line_state`, `remaining_ml`, `remaining_min` | Cause context from drop sensor and load cell |
+| `alarm_bitmap`, `ts_flags` | Signal, cause, readiness, and alert-state flags |
+
+The web alert card shows the sensor/AI source, signal ON/OFF state, evaluated
+value, raw value, learned baseline or target, absolute difference, percentage
+difference, and load-cell context where available.
 
 ## Alert logic
 
 ### Vitals
 
-- The first 60 valid samples build the HR/SpO2 baseline.
-- 64 samples provide enough history for the time-series AI.
-- Deviation under 15%: level 1.
-- Deviation from 15% to under 20%: level 2.
-- Deviation of 20% or more: level 3.
-- HR below 45, HR above 150, or SpO2 below 90: level 3.
+- The first 20 valid samples build the HR/SpO2 baseline and AI history.
+- Firmware publishes baseline/recalibration progress every second.
+- HR below 45, HR above 150, SpO2 below 90, or deviation of at least 15%
+  from the learned baseline sets the corresponding alarm-cause bit.
+- The Decision Tree and conservative guard produce `vitals_level` 1/2/3 from
+  the full 20-sample feature window; the result is stabilized by majority vote.
 - When the finger leaves the MAX30102, the data is marked "no signal" instead of holding the old value indefinitely.
+- Loss of valid HR/SpO2 signal while monitoring is armed forces final level 3.
 
 ### Drip rate
 
@@ -219,14 +275,17 @@ correct attribute on G26.
 - Deviation over `800 ms`: level 3.
 - A watchdog detects an excessively long gap with no drop, for blockage/no-drop alerts.
 - The drip AI uses a 20-interval window to analyze trend.
+- A valid load-cell reading below 50 ml suppresses only the no-drop blockage
+  alarm; all other patient and sensor warnings continue normally.
 
 ### Final alert fusion
 
-| Vitals | Drip | Output |
-|---:|---:|---:|
-| 1 | 1 | 1 – normal |
-| 3 | 3 | 3 – critical |
-| Any other combination | | 2 – attention |
+| Condition | Vitals | Drip | `final_alert_level` |
+|---|---:|---:|---:|
+| Valid signals, both branches normal | 1 | 1 | 1 – normal |
+| Both branches critical | 3 | 3 | 3 – critical |
+| Any other valid-signal combination | 1–3 | 1–3 | 2 – attention/warning |
+| HR/SpO2 signal lost while armed | — | any | 3 – critical |
 
 ### LED and buzzer
 
@@ -266,17 +325,17 @@ cd .\He-thong-AI-Chuan-det
 ## Build and flash G26
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
-powershell -ExecutionPolicy Bypass -File .\tools\flash_firmware.ps1
+powershell -ExecutionPolicy Bypass -File .\xg26v1\tools\build_firmware.ps1
+powershell -ExecutionPolicy Bypass -File .\xg26v1\tools\flash_firmware.ps1
 ```
 
-The firmware image ends up at `cmake_gcc/build/base/smart-iv-monitor.hex`.
+The firmware image ends up at `xg26v1/cmake_gcc/build/base/smart-iv-monitor.hex`.
 
 If the board has no bootloader yet, or the whole chip was just erased:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_bootloader.ps1
-powershell -ExecutionPolicy Bypass -File .\tools\flash_bootloader_and_app.ps1
+powershell -ExecutionPolicy Bypass -File .\xg26v1\tools\build_bootloader.ps1
+powershell -ExecutionPolicy Bypass -File .\xg26v1\tools\flash_bootloader_and_app.ps1
 ```
 
 ## Install MySQL and run the HIS Server
@@ -344,7 +403,7 @@ The launcher auto-detects the coordinator and opens Mosquitto on port
 On Windows, as Administrator:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\configure_pi_firewall.ps1
+powershell -ExecutionPolicy Bypass -File .\xg26v1\tools\configure_pi_firewall.ps1
 ipconfig
 ```
 
@@ -384,7 +443,7 @@ time — the processes will fight over the Zigbee coordinator.
 6. Check Zigbee2MQTT at `http://<PI_IP>:8080`.
 7. Open the HIS Web UI at `http://localhost:3000`.
 8. Wait for taring, hang the bag, and set the target drip rate.
-9. Wait for a full 20 drop samples and 64 vitals samples before testing alerts.
+9. Wait for a full 20 drop samples and 20 valid HR/SpO2 samples before testing alerts.
 
 ## Testing and troubleshooting
 
@@ -435,22 +494,23 @@ is what confirms the command actually arrived at the device.
 ## Pre-handoff build check
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_firmware.ps1
+powershell -ExecutionPolicy Bypass -File .\xg26v1\tools\build_firmware.ps1
 dotnet build .\server\HisServer.sln
 dotnet run --project .\server\tests\EvaluatorTests\EvaluatorTests.csproj
 ```
 
 Detailed technical documentation:
 
-- `firmware/PIN_MAP.md`
-- `gateway-pi/README.md`
+- `xg26v1/firmware/PIN_MAP.md`
+- `software/gateway-pi/README.md`
 - `server/README.md`
-- `SYSTEM_INTEGRATION.md`
-- `host_ai/README.md`
+- `docs/system-integration.md`
+- `software/host_ai/README.md`
 
 ## License
 
-This project's own source (`firmware/`, `software/`, `docs/`, `tools/`) is
+This project's own source (`xg26v1/firmware/`, `server/`, `software/`,
+`docs/`, and `xg26v1/tools/`) is
 licensed under the [Apache License 2.0](LICENSE). Vendored components —
 the Simplicity SDK, AI/ML libraries under `simplicity_sdk_*/` and
 `aiml_*/`, and third-party packages under `node_modules/` — keep their own

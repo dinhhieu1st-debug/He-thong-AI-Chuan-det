@@ -118,7 +118,7 @@ const BedsTab = (() => {
       const key = `${bed.bedId}:hr:${bed.lastUpdated}`;
       if (!shownEventKeys.has(key)) {
         shownEventKeys.add(key);
-        UiUtils.toast(`${bed.bedId}: HR 60s baseline sample complete`);
+        UiUtils.toast(`${bed.bedId}: HR 20s baseline sample complete`);
       }
     }
   }
@@ -145,9 +145,8 @@ const BedsTab = (() => {
     return `<div class="status-line status-line-muted">Not tared yet</div>`;
   }
 
-  /* On-chip time-series forecaster output (ts_monitor.c). This is the part that
-   * a plain threshold cannot produce: where the vitals are HEADING, not just
-   * where they are now.
+  /* On-chip Decision Tree output. It uses 20 one-second HR/SpO2 samples and
+   * 14 statistical/trend features to classify risk over the next 5 seconds.
    *
    * The trend arrow only appears at all when the forecaster says the movement
    * is large enough to be real (the firmware applies a +-10 bpm/min deadband -
@@ -215,7 +214,7 @@ const BedsTab = (() => {
     if (bed.spo2Low) causes.push("SpO2 low");
     if (bed.heartRateAbnormal) causes.push("Heart rate abnormal");
     if (bed.lineBlocked) causes.push("Line blocked");
-    if (bed.aeAlarm) causes.push("Vitals combination");
+    if (bed.aeAlarm) causes.push("Vitals Decision Tree");
     const causeLine = causes.length
       ? `<div class="status-line status-line-active">Reported cause:
            <b>${UiUtils.escapeHtml(causes.join(" · "))}</b></div>`
@@ -252,7 +251,7 @@ const BedsTab = (() => {
     // and server payload untouched (e.g. 7897 -> 789 mL).
     const rawRemainingMl = Number(bed.remainingMl);
     const displayRemainingMl = bed.remainingMl != null && Number.isFinite(rawRemainingMl)
-      ? Math.floor(rawRemainingMl / 10)
+      ? (rawRemainingMl > 2000 ? Math.floor(rawRemainingMl / 10) : Math.round(rawRemainingMl))
       : null;
     const remaining = (bed.remainingMl != null || bed.remainingMin != null)
       ? `<div class="ls-remaining">
@@ -268,11 +267,8 @@ const BedsTab = (() => {
     if (bed.dripAnomaly) {
       models.push(`<span class="fc-flag fc-alarm" title="The drip forecaster's error stayed above threshold for 11 consecutive seconds.">Drip model</span>`);
     }
-    if (bed.vitalsAnomaly) {
-      models.push(`<span class="fc-flag fc-alarm" title="The vitals forecaster's error stayed above threshold for 11 consecutive seconds.">Vitals model</span>`);
-    }
-    if (bed.aeAlarm) {
-      models.push(`<span class="fc-flag fc-alarm" title="The autoencoder found this combination of heart rate and SpO2 abnormal, even though neither reading has crossed its own limit.">Vitals combination</span>`);
+    if (bed.vitalsAnomaly || bed.aeAlarm) {
+      models.push(`<span class="fc-flag fc-alarm" title="The on-chip HR/SpO2 Decision Tree reported an abnormal patient state.">Vitals AI alert</span>`);
     }
 
     return `
@@ -290,7 +286,7 @@ const BedsTab = (() => {
         <div class="bed-forecast">
           <h4>AI forecast (on-chip)</h4>
           <div class="status-line status-line-muted">
-            Collecting the first 64 seconds of history…
+            Collecting 20 HR/SpO2 samples for the Decision Tree…
           </div>
         </div>`;
     }
@@ -315,16 +311,12 @@ const BedsTab = (() => {
     const dropRateText = (bed.dropsTrendDpmPerMin != null && bed.dropsTrend !== 0)
       ? `${bed.dropsTrendDpmPerMin > 0 ? "+" : ""}${bed.dropsTrendDpmPerMin} dpm/min` : "";
 
-    // Score is sent x100 by the firmware to keep 2 decimals over an integer wire.
-    const score = bed.tsAnomalyScoreX100 != null
-      ? (bed.tsAnomalyScoreX100 / 100).toFixed(2) : "--";
-
     const flags = [];
     if (bed.tsEarlyWarning) {
-      flags.push(`<span class="fc-flag fc-warn" title="The forecast crosses a clinical limit within the next 16 seconds, while the current reading is still inside it.">Early warning</span>`);
+      flags.push(`<span class="fc-flag fc-warn" title="The 5-second HR/SpO2 projection crosses a clinical limit while the current reading is still inside it.">Early warning</span>`);
     }
     if (bed.tsAnomaly) {
-      flags.push(`<span class="fc-flag fc-alarm" title="Forecast error stayed above threshold for 11 consecutive seconds - a sustained deviation, not a transient blip.">Sustained anomaly</span>`);
+      flags.push(`<span class="fc-flag fc-alarm" title="The Decision Tree classified the patient forecast as attention or alarm after majority-vote smoothing.">Decision Tree alert</span>`);
     }
 
     return `
@@ -350,29 +342,29 @@ const BedsTab = (() => {
           </div>
           <div class="fc-card${bed.hrForecastTrusted === false && bed.hrForecast16s != null ? " fc-untrusted" : ""}">
             <span class="fc-label">${bed.hrForecastTrusted === false && bed.hrForecast16s != null
-              ? "HR: expected if normal" : "HR in 16s"}</span>
+              ? "HR: expected if normal" : "HR in 5s"}</span>
             <b>${UiUtils.formatMetric(bed.hrForecast16s, " bpm")}</b>
             <span class="fc-sub">${bed.hrForecast16s == null ? "no sensor signal"
                                     : "now " + UiUtils.formatMetric(bed.heartRate, " bpm")
                                       + (bed.hrForecastTrusted === false ? " — not a forecast" : "")}</span>
           </div>
           <div class="fc-card">
-            <span class="fc-label">SpO2 in 16s</span>
+            <span class="fc-label">SpO2 in 5s</span>
             <b>${UiUtils.formatMetric(bed.spo2Forecast16s, "%")}</b>
             <span class="fc-sub">${bed.spo2Forecast16s == null ? "no sensor signal"
                                     : "now " + UiUtils.formatMetric(bed.spo2, "%")}</span>
           </div>
           <div class="fc-card">
-            <span class="fc-label">Anomaly score</span>
-            <b>${score}</b>
-            <span class="fc-sub">alarms above 5.61</span>
+            <span class="fc-label">Decision Tree level</span>
+            <b>${bed.vitalsLevel != null ? UiUtils.escapeHtml(String(bed.vitalsLevel)) : "--"}</b>
+            <span class="fc-sub">1 normal · 2 attention · 3 alarm</span>
           </div>
         </div>
         ${flags.length ? `<div class="fc-flags">${flags.join("")}</div>` : ""}
         ${(bed.dropsForecastTrusted === false || (bed.hrForecastTrusted === false && bed.hrForecast16s != null))
-          ? `<div class="fc-note" title="The model was trained only on normal behaviour, so it cannot predict an abnormal channel. What it reports instead is the value a healthy line would be showing now; the gap between that and the real reading is what raises the anomaly score.">
+          ? `<div class="fc-note" title="A legacy normal-only forecast may report a healthy reference value instead of an abnormal-channel prediction.">
              <b>“Expected if normal”</b> = what a healthy line would read now, not a
-             prediction. The gap raises the anomaly score.</div>`
+             prediction. This label is retained for the drip model and older firmware.</div>`
           : ""}
       </div>`;
   }
@@ -435,18 +427,18 @@ const BedsTab = (() => {
   }
 
   /* AI-learned HR/SpO2 baseline (vitals_ai.hr_baseline / vitals_ai.spo2_baseline
-   * on the chip), NOT the 16s forecast and NOT the live reading - those answer
+   * on the chip), NOT the 5s forecast and NOT the live reading - those answer
    * different questions ("where is it heading" / "what is it now" vs "what does
    * this AI consider this patient's normal").
    *
-   * Readiness is vitalsTrainingSamples reaching 64 (vitals_ai.history_samples on
-   * the chip) - the same counter the Monitoring block's "HR+SpO2: n/64" progress
+   * Readiness is vitalsTrainingSamples reaching 20 (vitals_ai.history_samples on
+   * the chip) - the same counter the Monitoring block's "HR+SpO2: n/20" progress
    * bar already uses, so the two never disagree.
    *
    * The current wire protocol has no dedicated SpO2-baseline attribute. After
    * training is ready, show the filtered SpO2 sample actually supplied to the
    * on-chip AI (aiInputSpo2). Older firmware does not report that field, so use
-   * the live value only while its sensor-valid flag is true. Never use the 16 s
+   * the live value only while its sensor-valid flag is true. Never use the 5 s
    * forecast: a prediction is not an observed SpO2 reference value. */
   function baselineTileHtml(value, unit, label, ready, note) {
     return `
@@ -457,8 +449,8 @@ const BedsTab = (() => {
   }
 
   function aiBaselineCardHtml(bed) {
-    const samples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
-    const ready = samples >= 64;
+    const samples = Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
+    const ready = samples >= 20;
     const aiSpo2 = bed.aiInputSpo2 != null
       ? Number(bed.aiInputSpo2)
       : (bed.spo2Signal && bed.spo2 != null ? Number(bed.spo2) : null);
@@ -477,8 +469,8 @@ const BedsTab = (() => {
       <div class="bd-card">
         <h4>AI learned baseline</h4>
         ${ready
-          ? `<div class="status-line status-line-done">✓ READY · 64/64</div>`
-          : `<div class="status-line status-line-active">${samples} / 64 samples</div>`}
+          ? `<div class="status-line status-line-done">✓ READY · 20/20</div>`
+          : `<div class="status-line status-line-active">${samples} / 20 samples</div>`}
         <div class="bd-vitals">${hrTile}${spo2Tile}</div>
       </div>`;
   }
@@ -498,6 +490,10 @@ const BedsTab = (() => {
       detail = ` — ${cause.value}`;
     }
     if (cause.baseline) detail += ` · baseline ${cause.baseline}`;
+    if (cause.comparison) detail += `<br><span class="muted">${UiUtils.escapeHtml(cause.comparison)}</span>`;
+    if (cause.baselineComparison) detail += `<br><span class="muted">${UiUtils.escapeHtml(cause.baselineComparison)}</span>`;
+    if (cause.signal) detail += `<br><span class="muted">Signal: ${UiUtils.escapeHtml(cause.signal)}</span>`;
+    if (cause.weight) detail += `<br><span class="muted">Load cell: ${UiUtils.escapeHtml(cause.weight)}</span>`;
     const level = cause.level != null ? `Level ${cause.level} · ` : "";
     return `<li><b>${level}${UiUtils.escapeHtml(cause.sensor)}</b> · ${UiUtils.escapeHtml(cause.channel)}: ${UiUtils.escapeHtml(cause.reason)}${detail}</li>`;
   }
@@ -683,28 +679,34 @@ const BedsTab = (() => {
   function monitoringSectionHtml(bed) {
     const on = bed.monitoring !== false;
     const calibrating = on && bed.alertsArmed === false;
+    const hrRecalibrating = Number(bed.hrBaselineSecondsRemaining) > 0;
+    const collecting = calibrating || hrRecalibrating;
     const drops = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
-    const vitals = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
-    const color = calibrating ? "#e68a00" : (on ? "#1ea050" : "#8a97a8");
+    const vitals = hrRecalibrating
+      ? Math.max(0, Math.min(20, 20 - Number(bed.hrBaselineSecondsRemaining)))
+      : Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
+    const color = collecting ? "#e68a00" : (on ? "#1ea050" : "#8a97a8");
     return `
-      <div class="settings-block monitoring-block ${calibrating ? "is-calibrating" : (on ? "is-on" : "is-standby")}">
+      <div class="settings-block monitoring-block ${collecting ? "is-calibrating" : (on ? "is-on" : "is-standby")}">
         <label>Monitoring</label>
         <div class="monitoring-state">
           <span class="status-chip" style="background:${color};">
-            ${calibrating ? "COLLECTING DATA" : (on ? "MONITORING" : "STANDBY")}
+            ${collecting ? "COLLECTING DATA" : (on ? "MONITORING" : "STANDBY")}
           </span>
           <span class="muted">${on
-            ? (calibrating
+            ? (hrRecalibrating
+              ? "Collecting a new HR/SpO2 baseline."
+              : calibrating
               ? "Collecting startup samples. AI alarms remain off until both counters finish."
               : "AI and alarms are running for this bed.")
             : "Sensors are read and shown, but no AI and no alarms yet."}</span>
         </div>
-        <div id="monitoringProgress" style="${calibrating ? "" : "display:none;"}margin-top:10px;">
+        <div id="monitoringProgress" style="${collecting ? "" : "display:none;"}margin-top:10px;">
           <div style="display:flex;justify-content:space-between;font-size:12px;"><span>Drip intervals</span><b id="dropTrainingText">${drops}/20</b></div>
           <progress id="dropTrainingProgress" max="20" value="${drops}" style="width:100%;"></progress>
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:5px;"><span>HR/SpO2 samples</span><b id="vitalsTrainingText">${vitals}/64</b></div>
-          <progress id="vitalsTrainingProgress" max="64" value="${vitals}" style="width:100%;"></progress>
-          <div class="muted" style="font-size:12px;margin-top:4px;">Alarms start automatically after 20/20 and 64/64.</div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:5px;"><span>HR/SpO2 samples</span><b id="vitalsTrainingText">${vitals}/20</b></div>
+          <progress id="vitalsTrainingProgress" max="20" value="${vitals}" style="width:100%;"></progress>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Alarms start automatically after 20/20 drip intervals and 20/20 HR/SpO2 samples.</div>
         </div>
         <div class="inline-form" style="margin-top:8px;">
           <button type="button" id="monitoringBtn" class="btn ${on ? "" : "primary"}">
@@ -714,7 +716,7 @@ const BedsTab = (() => {
         <div class="muted" style="margin-top:6px;font-size:12px;">
           ${on
             ? `Pauses AI and alarms for this bed only. Not for taking a reading —
-               use "Reset scale (tare)" or "Recalibrate 60s baseline" below for
+               use "Reset scale (tare)" or "Recalibrate 20s baseline" below for
                that; neither one needs monitoring paused first.`
             : `Hang the bag, attach the sensors and tare the scale first —
                readings taken while setting up would otherwise be the AI's
@@ -786,7 +788,7 @@ const BedsTab = (() => {
           <label>Heart rate</label>
           <div id="hrStatusState">${hrStatusHtml(bed)}</div>
           <div class="inline-form" style="margin-top:8px;">
-            <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 60s baseline</button>
+            <button type="button" id="recalibrateHrBtn" class="btn">Recalibrate 20s baseline</button>
           </div>
         </div>
 
@@ -884,7 +886,9 @@ const BedsTab = (() => {
     document.getElementById("recalibrateHrBtn").addEventListener("click", async () => {
       try {
         await Api.recalibrateHr(bed.bedId);
-        UiUtils.toast(`${bed.bedId}: HR recalibration started - measuring for 60s`);
+        const latest = State.beds.get(bed.bedId) || bed;
+        State.upsertBed({ ...latest, hrBaselineSecondsRemaining: 20 });
+        UiUtils.toast(`${bed.bedId}: HR recalibration started - measuring for 20s`);
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not start HR recalibration (${err.message})`, true);
       }
@@ -1012,6 +1016,7 @@ const BedsTab = (() => {
   }
 
   const TREND_REFRESH_MS = 15000;
+  const LIVE_CHART_SAMPLE_MS = 10000;
 
   let trendMinutes = 60;
   let trendSamples = null;
@@ -1045,25 +1050,22 @@ const BedsTab = (() => {
   }
 
   /* Turn the bed's current state into a sample shaped exactly like a row from
-   * /history, so renderTrends() cannot tell the two apart. Deduped on
-   * lastUpdated: renderDetail() also runs for re-renders that carry no new
-   * reading (opening the panel, typing in a field), which must not stack
-   * duplicate points on top of each other. */
+   * /history, so renderTrends() cannot tell the two apart. Live readings arrive
+   * every second while stored history is sampled every 10 seconds. Keep only
+   * the latest live value in each 10-second slot so the right edge of a 15m
+   * chart does not become a dense, near-vertical cluster. */
   function appendLiveSample(bed) {
     if (!bed || !bed.lastUpdated) return;
 
     const t = new Date(bed.lastUpdated);
     if (Number.isNaN(t.getTime())) return;
 
-    const last = liveSamples[liveSamples.length - 1];
-    if (last && new Date(last.recordedAt).getTime() === t.getTime()) return;
-
     // A lost channel becomes a chart GAP (null), same as the stored history
     // already does - never the raw reading, which can be a stale or
     // physically-impossible 0 from an unplugged probe. Charts.metricChart
     // skips nulls when drawing the line AND when picking the "now" corner
     // value, so a disconnected sensor never paints as a flatlining 0.
-    liveSamples.push({
+    const sample = {
       recordedAt: bed.lastUpdated,
       spo2: bed.spo2Signal ? bed.spo2 : null,
       heartRate: bed.heartRateSignal ? bed.heartRate : null,
@@ -1073,7 +1075,20 @@ const BedsTab = (() => {
       weightG: bed.flowSignal ? bed.weightG : null,
       lineBlocked: bed.lineBlocked,
       aeAlarm: bed.aeAlarm
-    });
+    };
+
+    const last = liveSamples[liveSamples.length - 1];
+    if (last) {
+      const elapsed = t.getTime() - new Date(last.recordedAt).getTime();
+      if (elapsed < 0) return;
+      if (elapsed < LIVE_CHART_SAMPLE_MS) {
+        liveSamples[liveSamples.length - 1] = sample;
+      } else {
+        liveSamples.push(sample);
+      }
+    } else {
+      liveSamples.push(sample);
+    }
 
     // A live point is only ever a tail on top of the stored series, so the tail
     // never needs to be longer than the gap a fetch can leave behind. Cap it
@@ -1098,23 +1113,25 @@ const BedsTab = (() => {
   async function loadTrends() {
     if (!selectedBedId) return;
     const bedId = selectedBedId;
+    const requestedMinutes = trendMinutes;
 
     trendLoading = trendSamples === null;   // only show the spinner on a cold load
     trendError = null;
     renderTrends();
 
     try {
-      const result = await Api.getBedHistory(bedId, trendMinutes);
+      const result = await Api.getBedHistory(bedId, requestedMinutes);
       // The user may have closed the panel or switched beds while the
       // request was in flight - dropping a stale response avoids charting
       // one bed's history under another bed's name.
-      if (selectedBedId !== bedId) return;
+      if (selectedBedId !== bedId || trendMinutes !== requestedMinutes) return;
       trendSamples = result.samples || [];
       pruneLiveSamples();
     } catch (err) {
-      if (selectedBedId !== bedId) return;
+      if (selectedBedId !== bedId || trendMinutes !== requestedMinutes) return;
       trendError = err.message;
     } finally {
+      if (selectedBedId !== bedId || trendMinutes !== requestedMinutes) return;
       trendLoading = false;
       renderTrends();
     }
@@ -1166,6 +1183,8 @@ const BedsTab = (() => {
       return;
     }
 
+    const windowEnd = new Date();
+    const windowStart = new Date(windowEnd.getTime() - trendMinutes * 60 * 1000);
     host.innerHTML = TREND_METRICS.map((metric) => Charts.metricChart({
       label: metric.label,
       unit: metric.unit,
@@ -1174,6 +1193,8 @@ const BedsTab = (() => {
       // both - metricChart() lets yRange win when present.
       minSpan: metric.minSpan,
       yRange: metric.yRange,
+      xRange: [windowStart, windowEnd],
+      zeroMeansNoSignal: metric.zeroMeansNoSignal,
       severity: severityOf(metric, samples),
       points: samples.map((s) => ({
         t: new Date(s.recordedAt),
@@ -1376,7 +1397,7 @@ const BedsTab = (() => {
             ${fusionSectionHtml(bed)}
           </div>
           <div class="bd-card" id="bedForecastState">
-            <h4>AI forecast (on-chip)</h4>
+        <h4>AI forecast (on-chip)</h4>
             ${forecastSectionHtml(bed)}
           </div>
           <div class="bd-card" data-cap="bed.control">
@@ -1463,27 +1484,33 @@ const BedsTab = (() => {
 
     const monitoringOn = bed.monitoring !== false;
     const calibrating = monitoringOn && bed.alertsArmed === false;
+    const hrRecalibrating = Number(bed.hrBaselineSecondsRemaining) > 0;
+    const collecting = calibrating || hrRecalibrating;
     const monitoringBlock = document.querySelector("#bedDetailPanel .monitoring-block");
-    monitoringBlock?.classList.toggle("is-on", monitoringOn && !calibrating);
+    monitoringBlock?.classList.toggle("is-on", monitoringOn && !collecting);
     monitoringBlock?.classList.toggle("is-standby", !monitoringOn);
-    monitoringBlock?.classList.toggle("is-calibrating", calibrating);
+    monitoringBlock?.classList.toggle("is-calibrating", collecting);
     const monitoringChip = monitoringBlock?.querySelector(".status-chip");
     if (monitoringChip) {
-      monitoringChip.textContent = calibrating ? "COLLECTING DATA" : (monitoringOn ? "MONITORING" : "STANDBY");
-      monitoringChip.style.background = calibrating ? "#e68a00" : (monitoringOn ? "#1ea050" : "#8a97a8");
+      monitoringChip.textContent = collecting ? "COLLECTING DATA" : (monitoringOn ? "MONITORING" : "STANDBY");
+      monitoringChip.style.background = collecting ? "#e68a00" : (monitoringOn ? "#1ea050" : "#8a97a8");
     }
     const monitoringDescription = monitoringBlock?.querySelector(".monitoring-state .muted");
     if (monitoringDescription) {
       monitoringDescription.textContent = monitoringOn
-        ? (calibrating
+        ? (hrRecalibrating
+          ? "Collecting a new HR/SpO2 baseline."
+          : calibrating
           ? "Collecting startup samples. AI alarms remain off until both counters finish."
           : "AI and alarms are running for this bed.")
         : "Sensors are read and shown, but no AI and no alarms yet.";
     }
     const dropSamples = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
-    const vitalsSamples = Math.max(0, Math.min(64, Number(bed.vitalsTrainingSamples) || 0));
+    const vitalsSamples = hrRecalibrating
+      ? Math.max(0, Math.min(20, 20 - Number(bed.hrBaselineSecondsRemaining)))
+      : Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
     const progress = document.getElementById("monitoringProgress");
-    if (progress) progress.style.display = calibrating ? "" : "none";
+    if (progress) progress.style.display = collecting ? "" : "none";
     const dropProgress = document.getElementById("dropTrainingProgress");
     if (dropProgress) dropProgress.value = dropSamples;
     const vitalsProgress = document.getElementById("vitalsTrainingProgress");
@@ -1491,7 +1518,7 @@ const BedsTab = (() => {
     const dropText = document.getElementById("dropTrainingText");
     if (dropText) dropText.textContent = `${dropSamples}/20`;
     const vitalsText = document.getElementById("vitalsTrainingText");
-    if (vitalsText) vitalsText.textContent = `${vitalsSamples}/64`;
+    if (vitalsText) vitalsText.textContent = `${vitalsSamples}/20`;
     const monitoringBtn = document.getElementById("monitoringBtn");
     if (monitoringBtn) {
       monitoringBtn.textContent = monitoringOn ? "Pause monitoring" : "Start monitoring";

@@ -255,6 +255,36 @@ const UiUtils = (() => {
   function buildAlertCauses(bed) {
     const causes = [];
 
+    function inputDetail(aiValue, rawValue, unit, percentagePoints = false) {
+      if (aiValue == null || rawValue == null || !Number.isFinite(Number(aiValue))
+          || !Number.isFinite(Number(rawValue))) return null;
+      const difference = Number(aiValue) - Number(rawValue);
+      const absolute = Math.abs(difference);
+      if (absolute === 0) return `AI input matches raw sensor (${rawValue}${unit})`;
+      const percent = Number(rawValue) !== 0 ? absolute * 100 / Math.abs(Number(rawValue)) : null;
+      const amount = percentagePoints ? `${absolute} percentage points` : `${absolute}${unit}`;
+      return `AI input ${aiValue}${unit}; raw sensor ${rawValue}${unit}; `
+        + `${difference > 0 ? "higher" : "lower"} by ${amount}`
+        + (percent != null ? ` (${percent.toFixed(1)}%)` : "");
+    }
+
+    function targetDetail(measured, target) {
+      if (measured == null || target == null || Number(target) <= 0) return null;
+      const difference = Number(measured) - Number(target);
+      const percent = Math.abs(difference) * 100 / Number(target);
+      if (difference === 0) return `Measured ${measured} dpm matches target ${target} dpm`;
+      return `Measured ${measured} dpm; target ${target} dpm; `
+        + `${difference > 0 ? "higher" : "lower"} by ${Math.abs(difference)} dpm (${percent.toFixed(1)}%)`;
+    }
+
+    function baselineDetail(value, baseline, unit) {
+      if (value == null || baseline == null || Number(baseline) === 0) return null;
+      const difference = Number(value) - Number(baseline);
+      const percent = Math.abs(difference) * 100 / Math.abs(Number(baseline));
+      return `Compared with baseline ${baseline}${unit}: ${difference === 0 ? "no deviation"
+        : `${difference > 0 ? "higher" : "lower"} by ${Math.abs(difference)}${unit} (${percent.toFixed(1)}%)`}`;
+    }
+
     // Alert levels are verdicts received from the device/server. The UI only
     // explains those verdicts and never calculates or changes their severity.
     const vitalsLevel = [1, 2, 3].includes(Number(bed.vitalsLevel)) ? Number(bed.vitalsLevel) : null;
@@ -269,31 +299,52 @@ const UiUtils = (() => {
     // "bag running low = blocked line" alarm the load cell exists to remove.
     const deviceJudgedLine = bed.alertLevel != null;
 
+    if (patientActive && (!bed.heartRateSignal || !bed.spo2Signal)) {
+      const lost = [];
+      if (!bed.heartRateSignal) lost.push("Heart rate");
+      if (!bed.spo2Signal) lost.push("SpO2");
+      causes.push({
+        type: "patient", level: 3, sensor: "MAX30102", channel: lost.join(" / "),
+        reason: "Sensor signal is OFF / disconnected; no valid measurement is reaching the AI",
+        value: "--", signal: "OFF"
+      });
+    }
+
     if (patientActive && bed.spo2Low && bed.spo2Signal) {
+      const evaluatedSpo2 = bed.aiInputSpo2 != null ? Number(bed.aiInputSpo2) : bed.spo2;
       causes.push({
         type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "SpO2",
-        reason: "SpO2 lower than the accepted baseline",
-        value: bed.spo2 != null ? `${bed.spo2}%` : "--"
+        reason: "AI-evaluated SpO2 is outside the accepted limit or learned baseline",
+        value: evaluatedSpo2 != null ? `${evaluatedSpo2}%` : "--",
+        threshold: "below 90% or at least 15% from learned baseline",
+        comparison: inputDetail(evaluatedSpo2, bed.spo2, "%", true)
       });
     }
 
     if (patientActive && bed.heartRateAbnormal && bed.heartRateSignal) {
+      const evaluatedHeartRate = bed.aiInputHeartRate != null
+        ? Number(bed.aiInputHeartRate) : bed.heartRate;
       let reason = "Heart rate differs from the learned baseline";
-      if (bed.heartRate != null && bed.hrBaselineBpm != null) {
-        if (bed.heartRate > bed.hrBaselineBpm) reason = "Heart rate higher than the learned baseline";
-        else if (bed.heartRate < bed.hrBaselineBpm) reason = "Heart rate lower than the learned baseline";
+      if (evaluatedHeartRate != null && bed.hrBaselineBpm != null) {
+        if (evaluatedHeartRate > bed.hrBaselineBpm) reason = "AI-evaluated heart rate is higher than the learned baseline";
+        else if (evaluatedHeartRate < bed.hrBaselineBpm) reason = "AI-evaluated heart rate is lower than the learned baseline";
       }
       causes.push({
         type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "Heart rate", reason,
-        value: bed.heartRate != null ? `${bed.heartRate} bpm` : "--",
-        baseline: bed.hrBaselineBpm != null ? `${bed.hrBaselineBpm} bpm` : null
+        value: evaluatedHeartRate != null ? `${evaluatedHeartRate} bpm` : "--",
+        baseline: bed.hrBaselineBpm != null ? `${bed.hrBaselineBpm} bpm` : null,
+        threshold: "below 45, above 150, or at least 15% from baseline",
+        comparison: inputDetail(evaluatedHeartRate, bed.heartRate, " bpm"),
+        baselineComparison: baselineDetail(evaluatedHeartRate, bed.hrBaselineBpm, " bpm")
       });
     }
 
-    if (patientActive && !bed.spo2Low && !bed.heartRateAbnormal) {
+    if (patientActive && !bed.spo2Low && !bed.heartRateAbnormal && bed.heartRateSignal && bed.spo2Signal) {
       causes.push({
         type: "patient", level: vitalsLevel, sensor: "MAX30102", channel: "HR / SpO2",
-        reason: "Vitals differ from the learned baseline", value: "--"
+        reason: "Vitals Decision Tree reported an abnormal combined pattern",
+        value: `${bed.aiInputHeartRate ?? "--"} bpm / ${bed.aiInputSpo2 ?? "--"}%`,
+        comparison: `Raw sensor ${bed.heartRate ?? "--"} bpm / ${bed.spo2 ?? "--"}%`
       });
     }
 
@@ -310,26 +361,33 @@ const UiUtils = (() => {
       else if (bed.lineState === 3) reason = "Free flow / drops dangerously fast";
       else if (bed.lineState === 5) reason = "IV bag empty";
       else if (bed.lineState === 4) reason = "Photodiode drop sensor fault";
+      else if (measured === 0) reason = "No drops detected / infusion flow stopped";
       causes.push({
         type: "line", level: dripLevel,
         sensor: "Photodiode drop sensor",
         channel: "Drop rate", reason,
         value: measured != null ? `${measured} dpm` : "--",
-        target: target != null ? `${target} dpm` : "--"
+        target: target != null ? `${target} dpm` : "--",
+        comparison: targetDetail(measured, target),
+        weight: bed.remainingMl != null ? `${bed.remainingMl} ml remaining`
+          : (bed.weightG != null ? `${bed.weightG} g on load cell` : null),
+        signal: bed.dripRateSignal ? "ON" : "OFF / no drop-sensor signal"
       });
     }
 
-    if (bed.aeAlarm) {
-      causes.push({ type: "ai", severity: "warning", sensor: "AI (autoencoder)", channel: "HR + SpO2 combination",
-        reason: "Abnormal HR/SpO2 combination detected", value: "--" });
+    if (bed.aeAlarm || bed.vitalsAnomaly) {
+      causes.push({ type: "ai", severity: "warning", sensor: "AI (Decision Tree)", channel: "HR + SpO2",
+        reason: `5-second patient risk classified as level ${vitalsLevel || "warning"}`,
+        value: bed.aiInputHeartRate != null || bed.aiInputSpo2 != null
+          ? `${bed.aiInputHeartRate ?? "--"} bpm / ${bed.aiInputSpo2 ?? "--"}%` : "--",
+        comparison: `Raw sensor ${bed.heartRate ?? "--"} bpm / ${bed.spo2 ?? "--"}%` });
     }
     if (bed.dripAnomaly) {
       causes.push({ type: "ai", severity: "warning", sensor: "AI (drip forecaster)", channel: "Drop rate",
-        reason: "Infusion flow changing unexpectedly", value: "--" });
-    }
-    if (bed.vitalsAnomaly) {
-      causes.push({ type: "ai", severity: "warning", sensor: "AI (vitals forecaster)", channel: "HR/SpO2 trend",
-        reason: "Vitals changing unexpectedly", value: "--" });
+        reason: "Infusion flow changing unexpectedly",
+        value: bed.dropsPerMin != null ? `${bed.dropsPerMin} dpm` : "--",
+        comparison: targetDetail(bed.dropsPerMin, bed.targetDropsPerMin),
+        weight: bed.remainingMl != null ? `${bed.remainingMl} ml remaining` : null });
     }
 
     // Signal loss is only its own listed cause for a device too old to
@@ -365,9 +423,9 @@ const UiUtils = (() => {
     LINE_FAULT: { source: "Infusion line", sensor: "Photodiode drop sensor", channel: "Drop rate" },
     LINE_BLOCKED: { source: "Infusion line", sensor: "Photodiode drop sensor", channel: "Drop rate" },
     FLUID_OVERLOAD_SUSPECTED: { source: "Infusion line + Patient vitals", sensor: "Photodiode + MAX30102", channel: "Combined" },
-    AE_ALARM: { source: "AI model", sensor: "AI (autoencoder)", channel: "HR + SpO2 combination" },
+    AE_ALARM: { source: "AI model", sensor: "AI (Decision Tree)", channel: "HR + SpO2" },
     DRIP_MODEL_ANOMALY: { source: "AI model", sensor: "AI (drip forecaster)", channel: "Drop rate" },
-    VITALS_MODEL_ANOMALY: { source: "AI model", sensor: "AI (vitals forecaster)", channel: "HR/SpO2 trend" },
+    VITALS_MODEL_ANOMALY: { source: "AI model", sensor: "AI (Decision Tree)", channel: "5-second HR/SpO2 risk" },
     SENSOR_DISCONNECTED: { source: "Sensor", sensor: "Sensor", channel: "Signal" },
     CRITICAL: { source: "XG26 device", sensor: "On-chip fusion", channel: "Combined" },
     WARNING: { source: "XG26 device", sensor: "On-chip fusion", channel: "Combined" },

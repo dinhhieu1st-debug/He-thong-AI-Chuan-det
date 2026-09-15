@@ -807,7 +807,7 @@ body.no-scroll { overflow: hidden; }
    the card, and makes the amber/red alarm strokes read at a glance. */
 .chart-plot-bg { fill: #f7f9fc; }
 
-/* Periods the device flagged (line blocked / autoencoder alarm). */
+/* Periods the device flagged (line blocked / HR-SpO2 Decision Tree alarm). */
 .chart-alarm-band { fill: var(--critical); opacity: 0.08; }
 
 /* ---- Alarm states on a chart -------------------------------------------

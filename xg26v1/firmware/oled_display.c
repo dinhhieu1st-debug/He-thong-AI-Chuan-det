@@ -6,7 +6,7 @@
 #include "sl_sleeptimer.h"
 #include "software_i2c.h"
 
-#define OLED_ADDRESS 0x3CU
+static uint8_t oled_address = 0x3CU;
 
 static bool connected;
 
@@ -69,7 +69,7 @@ static uint8_t ota_anim_frame;
 static bool command(uint8_t value)
 {
   uint8_t packet[2] = { 0x00U, value };
-  return software_i2c_write(OLED_ADDRESS, packet, sizeof(packet));
+  return software_i2c_write(oled_address, packet, sizeof(packet));
 }
 
 static void glyph(char c, uint8_t columns[5])
@@ -84,23 +84,32 @@ static void glyph(char c, uint8_t columns[5])
   else if (c == '%') { uint8_t p[5] = {0x23,0x13,0x08,0x64,0x62}; memcpy(columns,p,5U); }
 }
 
-static void line(uint8_t page, const char *text)
+static bool write_page_data(uint8_t page, const uint8_t *data128)
 {
   uint8_t packet[129];
+  packet[0] = 0x40U; /* Co = 0, D/C = 1 (Data) */
+  memcpy(&packet[1], data128, 128U);
+
+  bool ok = command((uint8_t)(0xB0U + page));
+  ok = ok && command(0x00U);
+  ok = ok && command(0x10U);
+  ok = ok && software_i2c_write(oled_address, packet, sizeof(packet));
+  return ok;
+}
+
+static void line(uint8_t page, const char *text)
+{
+  uint8_t buffer[128];
+  memset(buffer, 0, sizeof(buffer));
   size_t length = strlen(text);
   size_t width = length * 6U;
   size_t left = width < 128U ? (128U - width) / 2U : 0U;
-  packet[0] = 0x40U;
-  memset(&packet[1], 0, 128U);
   for (size_t i = 0U; i < length && left + i * 6U + 5U <= 128U; i++) {
     uint8_t columns[5];
     glyph(text[i], columns);
-    memcpy(&packet[1U + left + i * 6U], columns, 5U);
+    memcpy(&buffer[left + i * 6U], columns, 5U);
   }
-  command((uint8_t)(0xB0U + page));
-  command(0x00U);
-  command(0x10U);
-  (void)software_i2c_write(OLED_ADDRESS, packet, sizeof(packet));
+  (void)write_page_data(page, buffer);
 }
 
 static void frame_text(uint8_t page, uint8_t x, const char *text)
@@ -175,37 +184,119 @@ static void frame_large_value(uint8_t first_page, uint8_t x,
   }
 }
 
-static void frame_flush(void)
+static bool send_oled_config(void)
 {
-  uint8_t packet[129];
-  packet[0] = 0x40U;
-  for (uint8_t page = 0U; page < 8U; page++) {
-    if (previous_monitor_valid
-        && memcmp(monitor_frame[page], previous_monitor_frame[page], 128U) == 0) {
-      continue;
-    }
-    memcpy(&packet[1], monitor_frame[page], 128U);
-    command((uint8_t)(0xB0U + page));
-    command(0x00U);
-    command(0x10U);
-    (void)software_i2c_write(OLED_ADDRESS, packet, sizeof(packet));
-    memcpy(previous_monitor_frame[page], monitor_frame[page], 128U);
-  }
-  previous_monitor_valid = true;
-}
-
-bool oled_display_init(void)
-{
-  connected = software_i2c_probe(OLED_ADDRESS);
-  if (!connected) { return false; }
-  sl_sleeptimer_delay_millisecond(50U);
   static const uint8_t init[] = {
     0xAE,0xD5,0x80,0xA8,0x3F,0xD3,0x00,0x40,0x8D,0x14,0x20,0x02,
     0xA1,0xC8,0xDA,0x12,0x81,0xCF,0xD9,0xF1,0xDB,0x40,0xA4,0xA6,0xAF
   };
-  for (size_t i = 0U; connected && i < sizeof(init); i++) { connected = command(init[i]); }
-  for (uint8_t page = 0U; connected && page < 8U; page++) { line(page, ""); }
+  bool ok = true;
+  for (size_t i = 0U; ok && i < sizeof(init); i++) { ok = command(init[i]); }
+  sl_sleeptimer_delay_millisecond(20U);
+  return ok;
+}
+
+static uint8_t consecutive_write_errors = 0U;
+static uint32_t last_full_refresh_ms = 0U;
+
+static void frame_flush(void)
+{
+  bool flush_all = false;
+  uint32_t now = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+
+  /* Periodic full refresh every 10 seconds: ensures display recovers even from silent glitches */
+  if ((now - last_full_refresh_ms) >= 10000U) {
+    last_full_refresh_ms = now;
+    flush_all = true;
+    previous_monitor_valid = false;
+    /* Re-affirm charge pump and display on */
+    (void)command(0x8DU); (void)command(0x14U);
+    (void)command(0xAFU);
+  }
+
+  bool all_pages_ok = true;
+  for (uint8_t page = 0U; page < 8U; page++) {
+    if (!flush_all && previous_monitor_valid
+        && memcmp(monitor_frame[page], previous_monitor_frame[page], 128U) == 0) {
+      continue;
+    }
+    if (write_page_data(page, monitor_frame[page])) {
+      memcpy(previous_monitor_frame[page], monitor_frame[page], 128U);
+    } else {
+      all_pages_ok = false;
+      break;
+    }
+  }
+
+  if (all_pages_ok) {
+    previous_monitor_valid = true;
+    consecutive_write_errors = 0U;
+  } else {
+    /* If write failed, invalidate cached frame so next frame re-attempts all pages */
+    previous_monitor_valid = false;
+    consecutive_write_errors++;
+    if (consecutive_write_errors >= 2U) {
+      /* Reconfigure OLED without pulsing the shared I2C bus */
+      (void)send_oled_config();
+    }
+    if (consecutive_write_errors >= 4U) {
+      /* Prolonged failure: mark disconnected so oled_display_poll can auto-reconnect cleanly */
+      connected = false;
+      consecutive_write_errors = 0U;
+    }
+  }
+}
+
+bool oled_display_connected(void)
+{
   return connected;
+}
+
+bool oled_display_init(void)
+{
+  sl_sleeptimer_delay_millisecond(50U);
+  if (software_i2c_probe(0x3CU)) {
+    oled_address = 0x3CU;
+    connected = true;
+  } else if (software_i2c_probe(0x3DU)) {
+    oled_address = 0x3DU;
+    connected = true;
+  } else {
+    connected = false;
+    return false;
+  }
+  sl_sleeptimer_delay_millisecond(30U);
+  connected = send_oled_config();
+  if (connected) {
+    previous_monitor_valid = false;
+    for (uint8_t page = 0U; page < 8U; page++) { line(page, ""); }
+  }
+  return connected;
+}
+
+void oled_display_poll(uint32_t now_ms)
+{
+  if (connected) { return; }
+  static uint32_t last_poll_ms = 0U;
+  if ((now_ms - last_poll_ms) < 1000U) { return; }
+  last_poll_ms = now_ms;
+
+  if (software_i2c_probe(0x3CU)) {
+    oled_address = 0x3CU;
+  } else if (software_i2c_probe(0x3DU)) {
+    oled_address = 0x3DU;
+  } else {
+    return;
+  }
+
+  printf("[OLED] Detected device at 0x%02X! Initializing display...\r\n", (unsigned)oled_address);
+  sl_sleeptimer_delay_millisecond(30U);
+  connected = send_oled_config();
+  if (connected) {
+    previous_monitor_valid = false;
+    for (uint8_t page = 0U; page < 8U; page++) { line(page, ""); }
+    printf("[OLED] Reconnected and initialized successfully!\r\n");
+  }
 }
 
 void oled_display_message(const char *line1,
@@ -260,7 +351,7 @@ void oled_display_monitor(int16_t heart_rate,
     frame_large_value(0U, 84U, 127U, text);
     frame_text(1U, 120U, "%");
   } else if (baseline_recalibrating) {
-    (void)snprintf(text, sizeof(text), "BASELINE %u/60", hr_baseline_samples);
+    (void)snprintf(text, sizeof(text), "BASELINE %u/20", hr_baseline_samples);
     frame_center(6U, text);
     (void)snprintf(text, sizeof(text), "ALERT LEVEL %u", final_level);
     frame_center(7U, text);
@@ -284,8 +375,13 @@ void oled_display_monitor(int16_t heart_rate,
 
   frame_text(4U, 1U, "BG");
   frame_text(4U, 66U, "ST");
-  if (weight_valid) { (void)snprintf(text, sizeof(text), "%.1F", (double)weight_kg); }
-  else { (void)snprintf(text, sizeof(text), "--"); }
+  if (weight_valid) {
+    if (weight_kg >= 10.0f) {
+      (void)snprintf(text, sizeof(text), "%.1f", (double)weight_kg);
+    } else {
+      (void)snprintf(text, sizeof(text), "%.2f", (double)weight_kg);
+    }
+  } else { (void)snprintf(text, sizeof(text), "--"); }
   frame_large_value(4U, 15U, 63U, text);
   if (learned_interval_s > 0.0f) {
     (void)snprintf(text, sizeof(text), "%.0F", (double)(60.0f / learned_interval_s));
@@ -301,7 +397,7 @@ void oled_display_monitor(int16_t heart_rate,
     (void)hr_baseline_samples;
     (void)snprintf(text, sizeof(text), "DROP %u/20 ALARM OFF", drop_training_samples);
     frame_center(6U, text);
-    (void)snprintf(text, sizeof(text), "HR+O2 %u/64", vitals_history_samples);
+    (void)snprintf(text, sizeof(text), "HR+O2 %u/20", vitals_history_samples);
     frame_center(7U, text);
   } else {
     char causes[18] = "";

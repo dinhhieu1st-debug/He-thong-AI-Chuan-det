@@ -89,7 +89,7 @@ public static class BedEndpoints
             }
 
             var windowMinutes = Math.Clamp(minutes ?? 60, 1, 60 * 24 * 7);
-            var maxPoints = Math.Clamp(limit ?? 1000, 10, 5000);
+            var maxPoints = Math.Clamp(limit ?? 1000, 10, 10000);
 
             var to = DateTime.UtcNow;
             var from = to.AddMinutes(-windowMinutes);

@@ -25,9 +25,7 @@ source:
 - path: firmware/hx711_sensor.c
 - path: firmware/oled_display.c
 - path: firmware/software_i2c.c
-- path: firmware/vitals_ai.cpp
-- path: firmware/models/model_vitals.c
-- path: firmware/models/model_ae.c
+- path: firmware/vitals_ai.c
 include:
 - path: firmware
   file_list:
@@ -38,14 +36,6 @@ include:
   - path: oled_display.h
   - path: software_i2c.h
   - path: vitals_ai.h
-  - path: models/model_vitals.h
-    directory: firmware/models/
-  - path: models/model_vitals_opcodes.h
-    directory: firmware/models/
-  - path: models/model_ae.h
-    directory: firmware/models/
-  - path: models/model_ae_opcodes.h
-    directory: firmware/models/
 sdk:
   vendor: silabs
   id: simplicity_sdk
@@ -53,9 +43,6 @@ sdk:
 toolchain_settings: [
   ]
 component:
-- package: aiml
-  vendor: silabs
-  id: tensorflow_lite_micro
 - package: simplicity_sdk
   vendor: silabs
   id: EFR32MG26B510F3200IM48
@@ -128,27 +115,6 @@ component:
   vendor: silabs
   id: zigbee_zcl_cli
 autoselected_components:
-- package: aiml
-  vendor: silabs
-  id: tensorflow_debug_log_iostream
-- package: aiml
-  vendor: silabs
-  id: tensorflow_dependency_flatbuffers
-- package: aiml
-  vendor: silabs
-  id: tensorflow_dependency_gemmlowp
-- package: aiml
-  vendor: silabs
-  id: tensorflow_dependency_ruy
-- package: aiml
-  vendor: silabs
-  id: tensorflow_lite_micro_accelerated_kernels
-- package: aiml
-  vendor: silabs
-  id: tensorflow_lite_micro_optimized_kernels
-- package: aiml
-  vendor: silabs
-  id: tensorflow_lite_micro_reference_kernels
 - package: simplicity_sdk
   vendor: silabs
   id: agents_md
@@ -167,9 +133,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: bootloader_interface_s2
-- package: simplicity_sdk
-  vendor: silabs
-  id: slot_manager
 - package: simplicity_sdk
   vendor: silabs
   id: brd2709a_config
@@ -193,9 +156,6 @@ autoselected_components:
   id: cmsis_core
 - package: simplicity_sdk
   vendor: silabs
-  id: cmsis_nn
-- package: simplicity_sdk
-  vendor: silabs
   id: code_classification
 - package: simplicity_sdk
   vendor: silabs
@@ -214,13 +174,7 @@ autoselected_components:
   id: component_catalog
 - package: simplicity_sdk
   vendor: silabs
-  id: compute_util
-- package: simplicity_sdk
-  vendor: silabs
   id: configuration_over_swo
-- package: simplicity_sdk
-  vendor: silabs
-  id: cpp_support
 - package: simplicity_sdk
   vendor: silabs
   id: debug_swo
@@ -260,12 +214,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: dmadrv_core
-- package: simplicity_sdk
-  vendor: silabs
-  id: driver_mvp
-- package: simplicity_sdk
-  vendor: silabs
-  id: driver_mvp_hal_efr32
 - package: simplicity_sdk
   vendor: silabs
   id: ecode
@@ -387,15 +335,6 @@ autoselected_components:
   id: legacy_hal_wdog
 - package: simplicity_sdk
   vendor: silabs
-  id: math
-- package: simplicity_sdk
-  vendor: silabs
-  id: math_mvp
-- package: simplicity_sdk
-  vendor: silabs
-  id: math_types
-- package: simplicity_sdk
-  vendor: silabs
   id: mbedtls_config
 - package: simplicity_sdk
   vendor: silabs
@@ -417,9 +356,6 @@ autoselected_components:
   id: mbedtls_source
 - package: simplicity_sdk
   vendor: silabs
-  id: memory_manager_cpp
-- package: simplicity_sdk
-  vendor: silabs
   id: memory_manager_pool
 - package: simplicity_sdk
   vendor: silabs
@@ -430,12 +366,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: memory_manager_retention_control_hal
-- package: simplicity_sdk
-  vendor: silabs
-  id: nn_mvp
-- package: simplicity_sdk
-  vendor: silabs
-  id: nn_util
 - package: simplicity_sdk
   vendor: silabs
   id: nvm3_default
@@ -600,9 +530,6 @@ autoselected_components:
   id: sl_string
 - package: simplicity_sdk
   vendor: silabs
-  id: sl_syscalls
-- package: simplicity_sdk
-  vendor: silabs
   id: sli_psec_osal
 - package: simplicity_sdk
   vendor: silabs
@@ -610,15 +537,6 @@ autoselected_components:
 - package: simplicity_sdk
   vendor: silabs
   id: status
-- package: simplicity_sdk
-  vendor: silabs
-  id: toolchain_gcc
-- package: simplicity_sdk
-  vendor: silabs
-  id: toolchain_gcc_standard
-- package: simplicity_sdk
-  vendor: silabs
-  id: toolchain_variant_arm
 - package: simplicity_sdk
   vendor: silabs
   id: trustzone_unaware

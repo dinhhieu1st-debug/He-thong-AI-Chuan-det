@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 bool oled_display_init(void);
+void oled_display_poll(uint32_t now_ms);
+bool oled_display_connected(void);
 void oled_display_message(const char *line1,
                           const char *line2,
                           const char *line3,

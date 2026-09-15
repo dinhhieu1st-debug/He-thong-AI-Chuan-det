@@ -83,14 +83,14 @@ Console.WriteLine("\n== Startup sampling: alarms stay off until both windows fin
         Monitoring = true,
         AlertsArmed = false,
         DropTrainingSamples = 19,
-        VitalsTrainingSamples = 63,
+        VitalsTrainingSamples = 19,
         Spo2 = 84,
         HeartRate = 140,
         AlertLevel = 3,
         LineBranch = true,
         PatientBranch = true
     };
-    Check("19/20 and 63/64 -> still Stable with alarms off",
+    Check("19/20 and 19/20 -> still Stable with alarms off",
           VitalsStatusEvaluator.Evaluate(dangerousDuringTraining,
             VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Stable,
           "AlertsArmed=false");
@@ -103,9 +103,9 @@ Console.WriteLine("\n== Startup sampling: alarms stay off until both windows fin
     {
         AlertsArmed = true,
         DropTrainingSamples = 20,
-        VitalsTrainingSamples = 64
+        VitalsTrainingSamples = 20
     };
-    Check("20/20 and 64/64 -> the same danger is evaluated",
+    Check("20/20 and 20/20 -> the same danger is evaluated",
           VitalsStatusEvaluator.Evaluate(ready,
             VitalsStatusEvaluator.MetricHysteresis.None) == BedStatus.Critical,
           "AlertsArmed=true");
@@ -342,8 +342,8 @@ Console.WriteLine("   dropping the entire alert.");
           message.StartsWith("Infusion line AND patient"), message[..Math.Min(60, message.Length)]);
     Check("no cause is cut mid-word - whole causes are dropped instead",
           !message.EndsWith("…"), message[^28..]);
-    Check("and the reader is told something was dropped",
-          message.Contains("more)"), message[^28..]);
+    Check("Decision Tree compatibility flags are not reported twice",
+          message.Split("Decision Tree").Length - 1 == 1, message[^Math.Min(80, message.Length)..]);
 }
 
 // The real thing: a line captured verbatim off the board's VCOM port, parsed by

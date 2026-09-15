@@ -10,7 +10,7 @@ referenced in this SBOM.)
 -->
 <bom xmlns="http://cyclonedx.org/schema/bom/1.6" version="1">
   <metadata>
-    <timestamp>2026-08-24T19:33:15Z</timestamp>
+    <timestamp>2026-09-15T01:15:05Z</timestamp>
     <authors>
       <author>
         <name>Silicon Laboratories, Inc.</name>
@@ -18,155 +18,6 @@ referenced in this SBOM.)
     </authors>
   </metadata>
   <components>
-    <component bom-ref="silabs.aiml:2.2.2" type="library">
-      <supplier>
-        <name>Silicon Laboratories Inc.</name>
-      </supplier>
-      <name>Silicon Labs AI/ML</name>
-      <version>2.2.2</version>
-      <components>
-        <component bom-ref="silabs.aiml:2.2.2:tflite-micro" type="library">
-          <name>TensorFlow Lite Micro</name>
-          <version>2.2.2</version>
-	      <supplier>
-	        <name>Silicon Laboratories Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Apache-2.0 AND MSLA</expression>
-          </licenses>
-          <pedigree>
-            <ancestors>
-              <component bom-ref="tflite-micro:ea8db00ab35" type="library">
-                <supplier>
-                  <name>The Tensorflow Authors</name>
-                </supplier>
-                <name>Tensorflow Lite for Microcontrollers</name>
-                <version>ea8db00ab35</version>
-                <purl>pkg:github/tensorflow/tflite-micro@ea8db00ab35</purl>
-                <pedigree>
-                  <notes>Tensorflow Lite for Microcontrollers library as it was on GitHub, at commit hash ea8db00ab35</notes>
-                </pedigree>
-                <externalReferences>
-                  <reference type="website">
-                    <url>https://github.com/tensorflow/tflite-micro</url>
-                  </reference>
-                </externalReferences>
-              </component>
-            </ancestors>
-          </pedigree>
-        </component>
-        <component bom-ref="silabs.aiml:2.2.2:tensorflow_debug_log_iostream" type="library">
-          <name>Debug Logging using IO Stream</name>
-          <version>2.2.2</version>
-	      <supplier>
-	        <name>Silicon Laboratories Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.aiml:2.2.2:tensorflow_dependency_flatbuffers" type="library">
-          <name>Flatbuffers</name>
-          <version>2.2.2</version>
-	      <supplier>
-	        <name>Silicon Laboratories Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Apache-2.0</expression>
-          </licenses>
-          <pedigree>
-            <ancestors>
-              <component bom-ref="tensorflow_dependency_flatbuffers:07a8b5cb5a1085b7a3d7348ca547ec2643ca18c2" type="library">
-                <supplier>
-                  <name>Google Inc.</name>
-                </supplier>
-                <name>Flatbuffers</name>
-                <version>07a8b5cb5a1085b7a3d7348ca547ec2643ca18c2</version>
-                <purl>pkg:github/google/flatbuffers@07a8b5cb5a1085b7a3d7348ca547ec2643ca18c2</purl>
-                <pedigree>
-                  <notes>Only "include/" folder copied from Flatbuffers GitHub repo, commit hash 07a8b5cb5a1085b7a3d7348ca547ec2643ca18c2</notes>
-                </pedigree>
-                <externalReferences>
-                  <reference type="website">
-                    <url>https://github.com/google/flatbuffers</url>
-                  </reference>
-                </externalReferences>
-              </component>
-            </ancestors>
-          </pedigree>
-        </component>
-        <component bom-ref="silabs.aiml:2.2.2:tensorflow_dependency_gemmlowp" type="library">
-          <name>Low Precision General Matrix Multiplication (GEMMLOWP)</name>
-          <version>2.2.2</version>
-	      <supplier>
-	        <name>Silicon Laboratories Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Apache-2.0</expression>
-          </licenses>
-          <pedigree>
-            <ancestors>
-              <component bom-ref="tensorflow_dependency_gemmlowp:719139ce755a0" type="library">
-                <supplier>
-                  <name>The Gemmlowp Authors</name>
-                </supplier>
-                <name>Gemmlowp</name>
-                <version>719139ce755a0</version>
-                <purl>pkg:github/google/gemmlowp@719139ce755a0</purl>
-                <pedigree>
-                  <notes>Few header files copied from "fixedpoint" and "internal" folders from Gemmlowp GitHub repo, commit hash 719139ce755a0</notes>
-                </pedigree>
-                <externalReferences>
-                  <reference type="website">
-                    <url>https://github.com/google/gemmlowp</url>
-                  </reference>
-                </externalReferences>
-              </component>
-            </ancestors>
-          </pedigree>
-        </component>
-        <component bom-ref="silabs.aiml:2.2.2:tensorflow_dependency_ruy" type="library">
-          <name>Ruy Matrix Multiplication</name>
-          <version>2.2.2</version>
-	      <supplier>
-	        <name>Silicon Laboratories Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Apache-2.0</expression>
-          </licenses>
-          <pedigree>
-            <ancestors>
-              <component bom-ref="tensorflow_dependency_ruy:5bb02fbf90824" type="library">
-                <supplier>
-                  <name>Google LLC</name>
-                </supplier>
-                <name>Ruy</name>
-                <version>5bb02fbf90824</version>
-                <purl>pkg:github/google/ruy@5bb02fbf90824</purl>
-                <pedigree>
-                  <notes>Only profiler instrumentation header copied from GitHub repo, commit hash 5bb02fbf90824</notes>
-                </pedigree>
-                <externalReferences>
-                  <reference type="website">
-                    <url>https://github.com/google/ruy</url>
-                  </reference>
-                </externalReferences>
-              </component>
-            </ancestors>
-          </pedigree>
-        </component>
-        <component bom-ref="silabs.aiml:2.2.2:tensorflow_lite_micro_accelerated_kernels" type="library">
-          <name>MVPv1 Accelerated Kernels</name>
-          <version>2.2.2</version>
-	      <supplier>
-	        <name>Silicon Laboratories Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>MSLA</expression>
-          </licenses>
-        </component>
-      </components>
-    </component>
     <component bom-ref="silabs.simplicity_sdk:2025.12.3" type="library">
       <supplier>
         <name>Silicon Laboratories, Inc.</name>
@@ -554,36 +405,6 @@ referenced in this SBOM.)
             </ancestors>
           </pedigree>
         </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:cmsis_nn" type="library">
-          <name>CMSIS-NN</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Apache-2.0</expression>
-          </licenses>
-          <pedigree>
-            <ancestors>
-              <component bom-ref="cmsis_nn:3f773cbf8f5" type="library">
-                <supplier>
-                  <name>ARM-software</name>
-                </supplier>
-                <name>CMSIS-NN</name>
-                <version>3f773cbf8f5</version>
-                <purl>pkg:github/ARM-software/CMSIS-NN@3f773cbf8f5</purl>
-                <pedigree>
-                  <notes>CMSIS NN Library as packaged and released by ARM-software, version 4.1.0, tag 23.08, commit hash 3f773cbf8f5</notes>
-                </pedigree>
-                <externalReferences>
-                  <reference type="website">
-                    <url>https://github.com/ARM-software/CMSIS-NN</url>
-                  </reference>
-                </externalReferences>
-              </component>
-            </ancestors>
-          </pedigree>
-        </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:code_classification" type="library">
           <name>Code Classification</name>
           <version>2025.12.3</version>
@@ -644,28 +465,8 @@ referenced in this SBOM.)
             <expression>Zlib</expression>
           </licenses>
         </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:compute_util" type="library">
-          <name>Compute utilities</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:configuration_over_swo" type="library">
           <name>Configuration Over SWO</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:cpp_support" type="library">
-          <name>Toolchain: C++ Support</name>
           <version>2025.12.3</version>
 	      <supplier>
 	        <name>Silicon Laboratories, Inc.</name>
@@ -796,26 +597,6 @@ referenced in this SBOM.)
         </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:dmadrv_core" type="library">
           <name>DMADRV Core</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:driver_mvp" type="library">
-          <name>MVP Driver</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:driver_mvp_hal_efr32" type="library">
-          <name>MVP HAL Driver for EFR32 parts</name>
           <version>2025.12.3</version>
 	      <supplier>
 	        <name>Silicon Laboratories, Inc.</name>
@@ -1214,36 +995,6 @@ referenced in this SBOM.)
             <expression>MSLA</expression>
           </licenses>
         </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:math" type="library">
-          <name>Math</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:math_mvp" type="library">
-          <name>MVP Math</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:math_types" type="library">
-          <name>Math Types</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:mbedtls_config" type="library">
           <name>Configuration</name>
           <version>2025.12.3</version>
@@ -1266,16 +1017,6 @@ referenced in this SBOM.)
         </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:mbedtls_slcrypto_driver" type="library">
           <name>Drivers for Silicon Labs Crypto Acceleration</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:memory_manager_cpp" type="library">
-          <name>Memory Manager C++ Support</name>
           <version>2025.12.3</version>
 	      <supplier>
 	        <name>Silicon Laboratories, Inc.</name>
@@ -1316,26 +1057,6 @@ referenced in this SBOM.)
         </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:memory_manager_retention_control_hal" type="library">
           <name>Memory Manager Retention Control HAL</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:nn_mvp" type="library">
-          <name>MVP NN</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib and MSLA</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:nn_util" type="library">
-          <name>NN Utilities</name>
           <version>2025.12.3</version>
 	      <supplier>
 	        <name>Silicon Laboratories, Inc.</name>
@@ -1814,16 +1535,6 @@ referenced in this SBOM.)
             <expression>Zlib</expression>
           </licenses>
         </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:sl_syscalls" type="library">
-          <name>SystemCall Functions</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:sli_psec_osal" type="library">
           <name>OS Abstraction Layer</name>
           <version>2025.12.3</version>
@@ -1846,36 +1557,6 @@ referenced in this SBOM.)
         </component>
         <component bom-ref="silabs.simplicity_sdk:2025.12.3:status" type="library">
           <name>Status Codes Definitions</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:toolchain_gcc" type="library">
-          <name>GCC Toolchain</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:toolchain_gcc_standard" type="library">
-          <name>GCC Toolchain Standard Linker</name>
-          <version>2025.12.3</version>
-	      <supplier>
-	        <name>Silicon Laboratories, Inc.</name>
-	      </supplier>
-          <licenses>
-            <expression>Zlib</expression>
-          </licenses>
-        </component>
-        <component bom-ref="silabs.simplicity_sdk:2025.12.3:toolchain_variant_arm" type="library">
-          <name>Toolchain for ARM</name>
           <version>2025.12.3</version>
 	      <supplier>
 	        <name>Silicon Laboratories, Inc.</name>

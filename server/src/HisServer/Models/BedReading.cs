@@ -47,7 +47,7 @@ public sealed record BedReading(
     string? DeviceId = null,
 
     // ---- AI v2 -----------------------------------------------------------
-    // The device now runs three independent models and reports a four-level
+    // The device reports independent patient/line branches and a fused level.
     // alert plus WHICH SIDE is at fault. That distinction is the one a nurse
     // acts on first: a blocked line and a deteriorating patient need completely
     // different responses, and v1 gave them the same alarm.
@@ -65,12 +65,12 @@ public sealed record BedReading(
     /// <summary>The infusion line is at fault: drip model anomaly, or the
     /// load-cell cross-check concluded occlusion / free flow.</summary>
     bool LineBranch = false,
-    /// <summary>The patient is at fault: vitals model anomaly, vitals
-    /// autoencoder anomaly, or a hard clinical limit breached.</summary>
+    /// <summary>The patient is at fault: the 20-sample Decision Tree predicts
+    /// attention/alarm, or a hard clinical limit is breached.</summary>
     bool PatientBranch = false,
     /// <summary>Model 1 (drip forecaster), confirmed through the K=11 filter.</summary>
     bool DripAnomaly = false,
-    /// <summary>Model 2 (vitals forecaster), confirmed through the K=11 filter.</summary>
+    /// <summary>HR/SpO2 Decision Tree forecast, smoothed by a 3-result majority vote.</summary>
     bool VitalsAnomaly = false,
     /// <summary>Load-cell verdict: 0 ok, 1 running low, 2 occlusion, 3 free
     /// flow, 4 drop-sensor fault, 5 empty. Null while the 60 s weight trend is

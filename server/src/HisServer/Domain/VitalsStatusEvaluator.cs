@@ -9,7 +9,7 @@ namespace HisServer.Domain;
 ///
 /// Status is driven by two kinds of signal: hard vitals thresholds (SpO2/HR)
 /// and equipment-state flags reported by the firmware (IV line blocked/free-flow,
-/// AI autoencoder anomaly, and per-channel sensor connectivity). A bed with a
+/// on-chip HR/SpO2 Decision Tree, and per-channel sensor connectivity). A bed with a
 /// disconnected sensor is not "Stable" — it is unmonitored, which is exactly
 /// the condition a nurse needs to be alerted to.
 ///
@@ -127,7 +127,7 @@ public static class VitalsStatusEvaluator
         // The device's own four-level verdict comes first when it is available.
         // It is decided on-chip from three independent models plus the hard
         // clinical rules plus the load-cell cross-check, and it has information
-        // this server does not: a 64-second history per channel, and whether the
+        // this server does not: a 20-sample history per channel, and whether the
         // bag is actually getting lighter.
         //
         // That last point is why the device's LINE_WARNING is not promoted to
@@ -276,11 +276,10 @@ public static class VitalsStatusEvaluator
             causes.Add(("HEART_RATE_ABNORMAL", $"{direction} heart rate: {reading.HeartRate} bpm"));
         }
 
-        if (reading.AeAlarm)
+        if (reading.AeAlarm || reading.VitalsAnomaly)
         {
-            causes.Add(("AE_ALARM",
-                "AI: this combination of heart rate and SpO2 is abnormal even "
-                + "though neither reading has crossed its own limit"));
+            causes.Add(("VITALS_MODEL_ANOMALY",
+                "AI Decision Tree: 5-second HR/SpO2 risk is attention or alarm"));
         }
 
         if (reading.DripAnomaly)
@@ -288,10 +287,6 @@ public static class VitalsStatusEvaluator
             causes.Add(("DRIP_MODEL_ANOMALY", "AI: the infusion flow is changing unexpectedly"));
         }
 
-        if (reading.VitalsAnomaly)
-        {
-            causes.Add(("VITALS_MODEL_ANOMALY", "AI: vitals are changing unexpectedly"));
-        }
 
         if (HasLostSignal(reading))
         {
@@ -311,6 +306,10 @@ public static class VitalsStatusEvaluator
     {
         var causes = new List<(string Type, string Text)>();
 
+        if (HasLostSignal(reading))
+        {
+            causes.Add(("SENSOR_DISCONNECTED", $"No signal from: {DescribeLostChannels(reading)} (heart rate / SpO2 lost)"));
+        }
         if (reading.PatientBranch)
         {
             causes.Add(("PATIENT_DETERIORATING", "Patient vitals branch is abnormal"));
@@ -319,21 +318,14 @@ public static class VitalsStatusEvaluator
         {
             causes.Add(("LINE_FAULT", DescribeLineState(reading)));
         }
-        if (reading.AeAlarm)
+        if (reading.AeAlarm || reading.VitalsAnomaly)
         {
-            causes.Add(("AE_ALARM", "AI detected an abnormal HR/SpO2 combination"));
+            causes.Add(("VITALS_MODEL_ANOMALY",
+                "AI Decision Tree predicted abnormal HR/SpO2 risk within 5 seconds"));
         }
         if (reading.DripAnomaly)
         {
             causes.Add(("DRIP_MODEL_ANOMALY", "AI detected abnormal infusion timing"));
-        }
-        if (reading.VitalsAnomaly)
-        {
-            causes.Add(("VITALS_MODEL_ANOMALY", "AI detected an abnormal vitals trend"));
-        }
-        if (HasLostSignal(reading))
-        {
-            causes.Add(("SENSOR_DISCONNECTED", $"No signal from: {DescribeLostChannels(reading)}"));
         }
 
         if (causes.Count == 0)

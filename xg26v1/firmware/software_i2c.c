@@ -9,18 +9,11 @@
 #define I2C_SDA_PIN  7U
 #define I2C_CLOCK_STRETCH_LIMIT 200U
 
-static void delay_bus(void) { sl_udelay_wait(5U); }
+static void delay_bus(void) { sl_udelay_wait(10U); }
 static void set_scl(bool high)
 {
   if (high) {
     GPIO_PinOutSet(I2C_SCL_PORT, I2C_SCL_PIN);
-    /* A sensor may hold SCL low briefly while preparing the next byte. */
-    for (uint16_t wait = 0U;
-         wait < I2C_CLOCK_STRETCH_LIMIT
-         && GPIO_PinInGet(I2C_SCL_PORT, I2C_SCL_PIN) == 0;
-         wait++) {
-      sl_udelay_wait(5U);
-    }
   } else {
     GPIO_PinOutClear(I2C_SCL_PORT, I2C_SCL_PIN);
   }
@@ -68,11 +61,21 @@ static uint8_t read_byte(bool acknowledge)
 
 void software_i2c_init(void)
 {
-  GPIO_PinModeSet(I2C_SCL_PORT, I2C_SCL_PIN, gpioModeWiredAndPullUp, 1);
-  GPIO_PinModeSet(I2C_SDA_PORT, I2C_SDA_PIN, gpioModeWiredAndPullUp, 1);
+  GPIO_PinModeSet(I2C_SCL_PORT, I2C_SCL_PIN, gpioModePushPull, 1);
+  GPIO_PinModeSet(I2C_SDA_PORT, I2C_SDA_PIN, gpioModeWiredAndPullUpFilter, 1);
   set_sda(true);
-  for (uint8_t i = 0U; i < 9U; i++) { set_scl(false); set_scl(true); }
+  /* Clock out any hung slave holding SDA low */
+  for (uint8_t i = 0U; i < 16U; i++) {
+    set_scl(false);
+    set_scl(true);
+    if (GPIO_PinInGet(I2C_SDA_PORT, I2C_SDA_PIN) != 0) {
+      break;
+    }
+  }
   stop_bus();
+  set_sda(true);
+  set_scl(true);
+  sl_udelay_wait(10U);
 }
 
 bool software_i2c_probe(uint8_t address)
