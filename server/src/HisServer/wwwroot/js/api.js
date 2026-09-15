@@ -49,8 +49,10 @@ const Api = (() => {
     /* 0 real sensor data, 2 force the attention band, 3 force the alarm band. */
     setVitalsTestMode: (bedId, mode) =>
       request("PUT", `/api/beds/${encodeURIComponent(bedId)}/vitals-test-mode`, { mode }),
-    getBedHistory: (bedId, minutes) =>
-      request("GET", `/api/beds/${encodeURIComponent(bedId)}/history?minutes=${encodeURIComponent(minutes)}`),
+    getBedHistory: (bedId, minutes) => {
+      const limit = Math.min(10000, Math.max(10, minutes * 6 + 60));
+      return request("GET", `/api/beds/${encodeURIComponent(bedId)}/history?minutes=${encodeURIComponent(minutes)}&limit=${limit}`);
+    },
 
     getAlerts: (params) => request("GET", `/api/alerts?${new URLSearchParams(params)}`),
     ackAlert: (id, note) => request("POST", `/api/alerts/${id}/ack`, { note: note || null }),

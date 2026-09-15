@@ -490,6 +490,10 @@ const BedsTab = (() => {
       detail = ` — ${cause.value}`;
     }
     if (cause.baseline) detail += ` · baseline ${cause.baseline}`;
+    if (cause.comparison) detail += `<br><span class="muted">${UiUtils.escapeHtml(cause.comparison)}</span>`;
+    if (cause.baselineComparison) detail += `<br><span class="muted">${UiUtils.escapeHtml(cause.baselineComparison)}</span>`;
+    if (cause.signal) detail += `<br><span class="muted">Signal: ${UiUtils.escapeHtml(cause.signal)}</span>`;
+    if (cause.weight) detail += `<br><span class="muted">Load cell: ${UiUtils.escapeHtml(cause.weight)}</span>`;
     const level = cause.level != null ? `Level ${cause.level} · ` : "";
     return `<li><b>${level}${UiUtils.escapeHtml(cause.sensor)}</b> · ${UiUtils.escapeHtml(cause.channel)}: ${UiUtils.escapeHtml(cause.reason)}${detail}</li>`;
   }
@@ -675,23 +679,29 @@ const BedsTab = (() => {
   function monitoringSectionHtml(bed) {
     const on = bed.monitoring !== false;
     const calibrating = on && bed.alertsArmed === false;
+    const hrRecalibrating = Number(bed.hrBaselineSecondsRemaining) > 0;
+    const collecting = calibrating || hrRecalibrating;
     const drops = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
-    const vitals = Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
-    const color = calibrating ? "#e68a00" : (on ? "#1ea050" : "#8a97a8");
+    const vitals = hrRecalibrating
+      ? Math.max(0, Math.min(20, 20 - Number(bed.hrBaselineSecondsRemaining)))
+      : Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
+    const color = collecting ? "#e68a00" : (on ? "#1ea050" : "#8a97a8");
     return `
-      <div class="settings-block monitoring-block ${calibrating ? "is-calibrating" : (on ? "is-on" : "is-standby")}">
+      <div class="settings-block monitoring-block ${collecting ? "is-calibrating" : (on ? "is-on" : "is-standby")}">
         <label>Monitoring</label>
         <div class="monitoring-state">
           <span class="status-chip" style="background:${color};">
-            ${calibrating ? "COLLECTING DATA" : (on ? "MONITORING" : "STANDBY")}
+            ${collecting ? "COLLECTING DATA" : (on ? "MONITORING" : "STANDBY")}
           </span>
           <span class="muted">${on
-            ? (calibrating
+            ? (hrRecalibrating
+              ? "Collecting a new HR/SpO2 baseline."
+              : calibrating
               ? "Collecting startup samples. AI alarms remain off until both counters finish."
               : "AI and alarms are running for this bed.")
             : "Sensors are read and shown, but no AI and no alarms yet."}</span>
         </div>
-        <div id="monitoringProgress" style="${calibrating ? "" : "display:none;"}margin-top:10px;">
+        <div id="monitoringProgress" style="${collecting ? "" : "display:none;"}margin-top:10px;">
           <div style="display:flex;justify-content:space-between;font-size:12px;"><span>Drip intervals</span><b id="dropTrainingText">${drops}/20</b></div>
           <progress id="dropTrainingProgress" max="20" value="${drops}" style="width:100%;"></progress>
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:5px;"><span>HR/SpO2 samples</span><b id="vitalsTrainingText">${vitals}/20</b></div>
@@ -876,6 +886,8 @@ const BedsTab = (() => {
     document.getElementById("recalibrateHrBtn").addEventListener("click", async () => {
       try {
         await Api.recalibrateHr(bed.bedId);
+        const latest = State.beds.get(bed.bedId) || bed;
+        State.upsertBed({ ...latest, hrBaselineSecondsRemaining: 20 });
         UiUtils.toast(`${bed.bedId}: HR recalibration started - measuring for 20s`);
       } catch (err) {
         UiUtils.toast(`${bed.bedId}: could not start HR recalibration (${err.message})`, true);
@@ -1004,6 +1016,7 @@ const BedsTab = (() => {
   }
 
   const TREND_REFRESH_MS = 15000;
+  const LIVE_CHART_SAMPLE_MS = 10000;
 
   let trendMinutes = 60;
   let trendSamples = null;
@@ -1037,25 +1050,22 @@ const BedsTab = (() => {
   }
 
   /* Turn the bed's current state into a sample shaped exactly like a row from
-   * /history, so renderTrends() cannot tell the two apart. Deduped on
-   * lastUpdated: renderDetail() also runs for re-renders that carry no new
-   * reading (opening the panel, typing in a field), which must not stack
-   * duplicate points on top of each other. */
+   * /history, so renderTrends() cannot tell the two apart. Live readings arrive
+   * every second while stored history is sampled every 10 seconds. Keep only
+   * the latest live value in each 10-second slot so the right edge of a 15m
+   * chart does not become a dense, near-vertical cluster. */
   function appendLiveSample(bed) {
     if (!bed || !bed.lastUpdated) return;
 
     const t = new Date(bed.lastUpdated);
     if (Number.isNaN(t.getTime())) return;
 
-    const last = liveSamples[liveSamples.length - 1];
-    if (last && new Date(last.recordedAt).getTime() === t.getTime()) return;
-
     // A lost channel becomes a chart GAP (null), same as the stored history
     // already does - never the raw reading, which can be a stale or
     // physically-impossible 0 from an unplugged probe. Charts.metricChart
     // skips nulls when drawing the line AND when picking the "now" corner
     // value, so a disconnected sensor never paints as a flatlining 0.
-    liveSamples.push({
+    const sample = {
       recordedAt: bed.lastUpdated,
       spo2: bed.spo2Signal ? bed.spo2 : null,
       heartRate: bed.heartRateSignal ? bed.heartRate : null,
@@ -1065,7 +1075,20 @@ const BedsTab = (() => {
       weightG: bed.flowSignal ? bed.weightG : null,
       lineBlocked: bed.lineBlocked,
       aeAlarm: bed.aeAlarm
-    });
+    };
+
+    const last = liveSamples[liveSamples.length - 1];
+    if (last) {
+      const elapsed = t.getTime() - new Date(last.recordedAt).getTime();
+      if (elapsed < 0) return;
+      if (elapsed < LIVE_CHART_SAMPLE_MS) {
+        liveSamples[liveSamples.length - 1] = sample;
+      } else {
+        liveSamples.push(sample);
+      }
+    } else {
+      liveSamples.push(sample);
+    }
 
     // A live point is only ever a tail on top of the stored series, so the tail
     // never needs to be longer than the gap a fetch can leave behind. Cap it
@@ -1090,23 +1113,25 @@ const BedsTab = (() => {
   async function loadTrends() {
     if (!selectedBedId) return;
     const bedId = selectedBedId;
+    const requestedMinutes = trendMinutes;
 
     trendLoading = trendSamples === null;   // only show the spinner on a cold load
     trendError = null;
     renderTrends();
 
     try {
-      const result = await Api.getBedHistory(bedId, trendMinutes);
+      const result = await Api.getBedHistory(bedId, requestedMinutes);
       // The user may have closed the panel or switched beds while the
       // request was in flight - dropping a stale response avoids charting
       // one bed's history under another bed's name.
-      if (selectedBedId !== bedId) return;
+      if (selectedBedId !== bedId || trendMinutes !== requestedMinutes) return;
       trendSamples = result.samples || [];
       pruneLiveSamples();
     } catch (err) {
-      if (selectedBedId !== bedId) return;
+      if (selectedBedId !== bedId || trendMinutes !== requestedMinutes) return;
       trendError = err.message;
     } finally {
+      if (selectedBedId !== bedId || trendMinutes !== requestedMinutes) return;
       trendLoading = false;
       renderTrends();
     }
@@ -1158,6 +1183,8 @@ const BedsTab = (() => {
       return;
     }
 
+    const windowEnd = new Date();
+    const windowStart = new Date(windowEnd.getTime() - trendMinutes * 60 * 1000);
     host.innerHTML = TREND_METRICS.map((metric) => Charts.metricChart({
       label: metric.label,
       unit: metric.unit,
@@ -1166,6 +1193,7 @@ const BedsTab = (() => {
       // both - metricChart() lets yRange win when present.
       minSpan: metric.minSpan,
       yRange: metric.yRange,
+      xRange: [windowStart, windowEnd],
       zeroMeansNoSignal: metric.zeroMeansNoSignal,
       severity: severityOf(metric, samples),
       points: samples.map((s) => ({
@@ -1456,27 +1484,33 @@ const BedsTab = (() => {
 
     const monitoringOn = bed.monitoring !== false;
     const calibrating = monitoringOn && bed.alertsArmed === false;
+    const hrRecalibrating = Number(bed.hrBaselineSecondsRemaining) > 0;
+    const collecting = calibrating || hrRecalibrating;
     const monitoringBlock = document.querySelector("#bedDetailPanel .monitoring-block");
-    monitoringBlock?.classList.toggle("is-on", monitoringOn && !calibrating);
+    monitoringBlock?.classList.toggle("is-on", monitoringOn && !collecting);
     monitoringBlock?.classList.toggle("is-standby", !monitoringOn);
-    monitoringBlock?.classList.toggle("is-calibrating", calibrating);
+    monitoringBlock?.classList.toggle("is-calibrating", collecting);
     const monitoringChip = monitoringBlock?.querySelector(".status-chip");
     if (monitoringChip) {
-      monitoringChip.textContent = calibrating ? "COLLECTING DATA" : (monitoringOn ? "MONITORING" : "STANDBY");
-      monitoringChip.style.background = calibrating ? "#e68a00" : (monitoringOn ? "#1ea050" : "#8a97a8");
+      monitoringChip.textContent = collecting ? "COLLECTING DATA" : (monitoringOn ? "MONITORING" : "STANDBY");
+      monitoringChip.style.background = collecting ? "#e68a00" : (monitoringOn ? "#1ea050" : "#8a97a8");
     }
     const monitoringDescription = monitoringBlock?.querySelector(".monitoring-state .muted");
     if (monitoringDescription) {
       monitoringDescription.textContent = monitoringOn
-        ? (calibrating
+        ? (hrRecalibrating
+          ? "Collecting a new HR/SpO2 baseline."
+          : calibrating
           ? "Collecting startup samples. AI alarms remain off until both counters finish."
           : "AI and alarms are running for this bed.")
         : "Sensors are read and shown, but no AI and no alarms yet.";
     }
     const dropSamples = Math.max(0, Math.min(20, Number(bed.dropTrainingSamples) || 0));
-    const vitalsSamples = Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
+    const vitalsSamples = hrRecalibrating
+      ? Math.max(0, Math.min(20, 20 - Number(bed.hrBaselineSecondsRemaining)))
+      : Math.max(0, Math.min(20, Number(bed.vitalsTrainingSamples) || 0));
     const progress = document.getElementById("monitoringProgress");
-    if (progress) progress.style.display = calibrating ? "" : "none";
+    if (progress) progress.style.display = collecting ? "" : "none";
     const dropProgress = document.getElementById("dropTrainingProgress");
     if (dropProgress) dropProgress.value = dropSamples;
     const vitalsProgress = document.getElementById("vitalsTrainingProgress");

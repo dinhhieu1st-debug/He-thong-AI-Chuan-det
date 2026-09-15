@@ -32,6 +32,11 @@ const Charts = (() => {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  function formatAxisTime(date, includeDate) {
+    if (!includeDate) return formatClock(date);
+    return `${date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })} ${formatClock(date)}`;
+  }
+
   /* Picks a "nice" y-range around the data.
    *
    * Two things this must get right, both of which a naive min/max gets wrong
@@ -137,12 +142,13 @@ const Charts = (() => {
    * @param {number}   opts.minSpan  smallest y-range to show (see niceRange)
    * @param {number}   opts.decimals digits in the readouts
    * @param {number[]} opts.yRange   optional fixed [lo, hi] y-axis
+   * @param {Date[]}   opts.xRange   optional fixed [from, to] time window
    * @param {string}   opts.severity "ok" | "warning" | "critical"
    * @param {boolean}  opts.zeroMeansNoSignal whether 0 represents lost signal
    */
   function metricChart(opts) {
     const { points, label, unit = "", color = "#2470c8", minSpan = 5, decimals = 0,
-            yRange = null, severity = "ok", zeroMeansNoSignal = false } = opts;
+            yRange = null, xRange = null, severity = "ok", zeroMeansNoSignal = false } = opts;
 
     const isVital = zeroMeansNoSignal || label.includes("Heart") || label.includes("SpO2");
     const isNoSig = (v) => v == null || !Number.isFinite(v) || (isVital && v <= 0);
@@ -174,9 +180,11 @@ const Charts = (() => {
       ? { lo: yRange[0], hi: yRange[1] }
       : niceRange(withData.map((p) => p.v), minSpan);
 
-    // Distribute points uniformly from left to right so that live variations
-    // and waveforms are clearly readable and not squashed/crammed into one edge.
-    const xOf = (p, i) => PAD_L + (processedPoints.length <= 1 ? PLOT_W / 2 : (i / (processedPoints.length - 1)) * PLOT_W);
+    const firstTime = xRange ? xRange[0].getTime() : points[0].t.getTime();
+    const lastTime = xRange ? xRange[1].getTime() : points[points.length - 1].t.getTime();
+    const timeSpan = Math.max(1, lastTime - firstTime);
+    const xOf = (p) => PAD_L + Math.max(0, Math.min(1,
+      (p.t.getTime() - firstTime) / timeSpan)) * PLOT_W;
 
     const yOf = (v) => {
       const y = PAD_T + PLOT_H - ((v - range.lo) / (range.hi - range.lo || 1)) * PLOT_H;
@@ -199,8 +207,11 @@ const Charts = (() => {
               <text x="${PAD_L - 6}" y="${(y + 3).toFixed(1)}" class="chart-axis" text-anchor="end">${t.toFixed(decimals)}</text>`;
     }).join("");
 
-    const tStart = formatClock(points[0].t);
-    const tEnd = formatClock(points[points.length - 1].t);
+    const firstDate = new Date(firstTime);
+    const lastDate = new Date(lastTime);
+    const crossesDate = firstDate.toDateString() !== lastDate.toDateString();
+    const tStart = formatAxisTime(firstDate, crossesDate);
+    const tEnd = formatAxisTime(lastDate, crossesDate);
 
     return `
       <div class="chart-card${sevClass}">

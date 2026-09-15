@@ -98,6 +98,7 @@ static uint8_t ai_drip_level = 1U;
  * is debounced so a single clean interval right after an occlusion clears
  * doesn't instantly wipe the alarm. */
 #define DRIP_RECOVERY_STREAK_REQUIRED 3U
+#define NO_DROP_ALARM_MIN_REMAINING_ML 50.0f
 static uint8_t drip_recovery_streak;
 /* Timestamp the current SYSTEM_MONITORING session started, so a total flow
  * stoppage from the very first drop (never any drop at all) can still be
@@ -234,7 +235,7 @@ static void configure_zigbee_reporting(void)
     { ATTR_DROPS_PER_MIN,         5U,  1U },
     { ATTR_TARGET_FLOW_ML_H,      1U,  1U },
     { ATTR_TARGET_DROPS_PER_MIN,  1U,  1U },
-    { ATTR_HR_BASELINE_REMAINING, 5U,  1U },
+    { ATTR_HR_BASELINE_REMAINING, 1U,  1U },
     { ATTR_HR_BASELINE_BPM,       1U,  1U },
     { ATTR_TARE_EVENT_COUNT,      1U,  1U },
     { ATTR_HR_BASELINE_EVENTS,    1U,  1U },
@@ -1135,6 +1136,26 @@ static void monitor_drop_timeout(uint32_t now)
   }
   uint32_t elapsed = (uint32_t)signed_elapsed;
   uint32_t timeout = 2U * target_interval_ms + 200U;
+
+  /* No drops are expected once the bag has less than 50 ml remaining. Only
+   * trust this exception when the load cell is connected and tared; without
+   * a valid weight, retain the existing no-flow alarm as the safe fallback. */
+  bool bag_below_no_drop_alarm_threshold = hx711_sensor_connected()
+                                            && hx711_sensor_tared()
+                                            && weight_kg * 1000.0f
+                                               < NO_DROP_ALARM_MIN_REMAINING_ML;
+  if (elapsed >= timeout && bag_below_no_drop_alarm_threshold) {
+    bool drop_alarm_was_active = drop_timeout_sent
+                                 || physical_drip_level > 1U
+                                 || drip_level > 1U;
+    drop_timeout_sent = false;
+    physical_drip_level = 1U;
+    drip_recovery_streak = 0U;
+    drip_level = 1U;
+    if (alerts_armed && drop_alarm_was_active) { update_final_alert(); }
+    return;
+  }
+
   if (elapsed >= timeout) {
     if (!drop_timeout_sent) {
       drop_timeout_sent = true;
