@@ -285,7 +285,7 @@ const BedsTab = (() => {
     const dropsPerMin = Number(bed.dropsPerMin);
     const show = bed.remainingMl != null
       && Number.isFinite(remainingMl)
-      && remainingMl === 0
+      && remainingMl <= 50
       && bed.dropsPerMin != null
       && Number.isFinite(dropsPerMin)
       && dropsPerMin > 0
@@ -294,11 +294,12 @@ const BedsTab = (() => {
     return `
       <div class="bd-card bd-card-alert sev-warning" id="scaleMismatchWarning"
            style="${show ? "" : "display:none;"}">
-        <h4>Kiểm tra cảm biến cân</h4>
-        <div class="status-line status-line-active">⚠ Vui lòng kiểm tra lại cân</div>
+        <h4>Check load cell sensor</h4>
+        <div class="status-line status-line-active">⚠ Please check the load cell</div>
         <div class="status-line">
-          Cân báo <b>0 mL</b> nhưng cảm biến vẫn ghi nhận
-          <b>${show ? UiUtils.escapeHtml(String(dropsPerMin)) : "--"} giọt/phút</b>.
+          The load cell reports <b>${show ? UiUtils.escapeHtml(String(remainingMl)) : "--"} mL</b>,
+          but the drop sensor still detects
+          <b>${show ? UiUtils.escapeHtml(String(dropsPerMin)) : "--"} drops/min</b>.
         </div>
       </div>`;
   }

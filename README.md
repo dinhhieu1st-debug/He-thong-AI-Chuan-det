@@ -255,6 +255,11 @@ The web alert card shows the sensor/AI source, signal ON/OFF state, evaluated
 value, raw value, learned baseline or target, absolute difference, percentage
 difference, and load-cell context where available.
 
+The right-side web panel also shows **Check load cell sensor** when the load
+cell reports 50 ml or less while the drop sensor still detects a positive
+drop rate. This is a sensor-consistency notice only; it does not change the
+firmware algorithm or `final_alert_level`.
+
 ## Alert logic
 
 ### Vitals
