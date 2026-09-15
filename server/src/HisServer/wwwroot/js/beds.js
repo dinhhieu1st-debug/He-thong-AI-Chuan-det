@@ -280,6 +280,29 @@ const BedsTab = (() => {
       </div>`;
   }
 
+  function scaleMismatchWarningHtml(bed) {
+    const remainingMl = Number(bed.remainingMl);
+    const dropsPerMin = Number(bed.dropsPerMin);
+    const show = bed.remainingMl != null
+      && Number.isFinite(remainingMl)
+      && remainingMl === 0
+      && bed.dropsPerMin != null
+      && Number.isFinite(dropsPerMin)
+      && dropsPerMin > 0
+      && bed.dripRateSignal !== false;
+
+    return `
+      <div class="bd-card bd-card-alert sev-warning" id="scaleMismatchWarning"
+           style="${show ? "" : "display:none;"}">
+        <h4>Kiểm tra cảm biến cân</h4>
+        <div class="status-line status-line-active">⚠ Vui lòng kiểm tra lại cân</div>
+        <div class="status-line">
+          Cân báo <b>0 mL</b> nhưng cảm biến vẫn ghi nhận
+          <b>${show ? UiUtils.escapeHtml(String(dropsPerMin)) : "--"} giọt/phút</b>.
+        </div>
+      </div>`;
+  }
+
   function forecastSectionHtml(bed) {
     if (!bed.tsReady) {
       return `
@@ -1390,6 +1413,7 @@ const BedsTab = (() => {
           ${trendsSectionHtml()}
         </div>
         <div class="bd-col bd-col-side bd-col-right">
+          ${scaleMismatchWarningHtml(bed)}
           <div class="bd-card" id="bedLineState">
             ${lineSectionHtml(bed)}
           </div>
@@ -1457,6 +1481,8 @@ const BedsTab = (() => {
 
     const line = document.getElementById("bedLineState");
     if (line) line.innerHTML = lineSectionHtml(bed);
+    const scaleMismatch = document.getElementById("scaleMismatchWarning");
+    if (scaleMismatch) scaleMismatch.outerHTML = scaleMismatchWarningHtml(bed);
     /* Repainted on every update like the rest: these are the numbers somebody
      * stares at while a level changes, so a stale copy is worse than none. */
     const fusion = document.getElementById("bedFusionState");
